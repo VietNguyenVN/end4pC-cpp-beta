@@ -289,7 +289,8 @@ bool parseMusicLine(App& app, const std::string& line) {
     app.musicStatus = status;
     app.musicArtist = f[3];
     app.musicTitle = f[4];
-    if (playerChanged) {
+    if (playerChanged || trackChanged) {
+        app.musicPlaybackPlayer = player;
         app.media.position = app.media.length = 0;
         app.media.status.clear();
         app.media.drag = 0;

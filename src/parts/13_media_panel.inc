@@ -172,29 +172,51 @@ void refreshMediaCoverIfNeeded(App& app) {
 
 void pollMedia(App& app) {
     MediaPanel& M = app.media;
+    M.polledAt = std::chrono::steady_clock::now();
+    M.nextPoll = M.polledAt + std::chrono::milliseconds(kMediaPollMs);
     if (app.musicPlayer.empty()) {
         M.position = M.length = 0;
         M.status.clear();
-        M.nextPoll = std::chrono::steady_clock::now() + std::chrono::milliseconds(kMediaPollMs);
+        app.musicPlaybackPlayer.clear();
         return;
     }
-    const std::string cmd = "playerctl -p '" + app.musicPlayer + "' metadata --format '{{position}}\t{{mpris:length}}\t{{volume}}\t{{status}}' 2>/dev/null";
+    const bool browserBridge = app.musicPlayer == "plasma-browser-integration";
+    const std::string selection = browserBridge ? "-a" : "-p '" + app.musicPlayer + "'";
+    const std::string cmd = "playerctl " + selection + " metadata --format '{{playerInstance}}\t{{position}}\t{{mpris:length}}\t{{volume}}\t{{status}}\t{{kde:pid}}\t{{mpris:artUrl}}\t{{title}}' 2>/dev/null";
     FILE* f = popen(cmd.c_str(), "r");
     if (!f) return;
-    char buf[256] = {};
-    const char* got = fgets(buf, sizeof buf, f);
+    std::vector<mediaplayer::Snapshot> players;
+    char* line = nullptr;
+    size_t capacity = 0;
+    while (getline(&line, &capacity, f) >= 0) {
+        mediaplayer::Snapshot snapshot;
+        if (mediaplayer::parse(line, snapshot)) players.push_back(std::move(snapshot));
+    }
+    std::free(line);
     pclose(f);
     M.polledAt = std::chrono::steady_clock::now();
     M.nextPoll = M.polledAt + std::chrono::milliseconds(kMediaPollMs);
-    if (!got) return;
-    double pos = 0, len = 0, vol = 1;
-    char status[32] = {};
-    if (std::sscanf(buf, "%lf\t%lf\t%lf\t%31s", &pos, &len, &vol, status) >= 3) {
-        if (M.drag != 1) M.position = pos / 1e6;
-        M.length = len / 1e6;
-        if (M.drag != 2) M.volume = std::clamp(vol, 0.0, 1.0);
-        M.status = status;
+    const auto* metadata = mediaplayer::find(players, app.musicPlayer, app.musicTitle);
+    if (!metadata) {
+        M.position = M.length = 0;
+        M.status.clear();
+        app.musicPlaybackPlayer.clear();
+        return;
     }
+    const auto* playback = mediaplayer::playback(players, *metadata);
+    app.musicPlaybackPlayer = playback->instance;
+    if (M.drag != 1) M.position = playback->position;
+    M.length = playback->duration;
+    // Keep the bridge's HTML volume control, even when native MediaSession
+    // provides a more accurate song timeline and transport controls.
+    if (M.drag != 2 && metadata->volume) M.volume = std::clamp(*metadata->volume, 0.0, 1.0);
+    M.status = playback->status;
+    // Bridges may create the file or publish its URL without a metadata signal.
+    // A periodic poll retries a missing cover without requiring pause/play.
+    const bool hadArt = app.musicArt != nullptr;
+    const std::string oldArt = app.musicArtUrl;
+    updateCover(app, metadata->artwork);
+    if (oldArt != app.musicArtUrl || hadArt != (app.musicArt != nullptr)) drawAll(app);
 }
 
 double mediaPositionNow(const MediaPanel& M) {
@@ -818,7 +840,10 @@ void toggleMediaPanel(App& app, Bar* bar = nullptr) {
 void mediaSend(App& app, std::initializer_list<const char*> args) {
     if (app.musicPlayer.empty()) return;
     std::vector<const char*> argv = {"playerctl", "-p"};
-    const std::string& sel = app.musicPlayer;
+    const bool volume = args.size() && std::string(*args.begin()) == "volume";
+    if (!volume && app.musicPlayer == "plasma-browser-integration") pollMedia(app);
+    const std::string& sel = volume ? app.musicPlayer : app.musicPlaybackPlayer;
+    if (sel.empty()) return;
     argv.push_back(sel.c_str());
     for (const char* a : args) argv.push_back(a);
     argv.push_back(nullptr);

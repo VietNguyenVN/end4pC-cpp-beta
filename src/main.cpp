@@ -5,6 +5,7 @@
 #include "deskplace.h"
 #include "textsel_pango.h"
 #include "clipboard.h"
+#include "mediaplayer.h"
 #include <pango/pangocairo.h>
 #include "shellfont.h"
 #include <poll.h>

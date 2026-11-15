@@ -666,14 +666,15 @@ void fetchCover(const std::string& url, const std::string& path) {
 }
 
 void updateCover(App& app, const std::string& url) {
-    if (url == app.musicArtUrl) return;
+    const bool same = url == app.musicArtUrl;
+    if (same && (app.musicArt || url.empty())) return;
     app.musicArtUrl = url;
     if (url.rfind("file://", 0) == 0) {
         loadCover(app, percentDecode(url.substr(7)));
     } else if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
         const std::string path = artCachePath(url);
         loadCover(app, access(path.c_str(), R_OK) == 0 ? path : "");
-        if (!app.musicArt) fetchCover(url, path);
+        if (!app.musicArt && !same) fetchCover(url, path);
     } else {
         loadCover(app, "");
     }
