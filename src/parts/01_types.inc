@@ -1388,6 +1388,7 @@ struct App {
     int musicTitleW = 100;
     int musicM3TextW = 0;
     std::string musicArtUrl;
+    std::string musicArtFallback;  // keep a fallback across metadata signals with no cover URL
     cairo_surface_t* musicArt = nullptr;
     int volume = 0;
     bool micMuted = false;

@@ -182,7 +182,7 @@ void pollMedia(App& app) {
     }
     const bool browserBridge = app.musicPlayer == "plasma-browser-integration";
     const std::string selection = browserBridge ? "-a" : "-p '" + app.musicPlayer + "'";
-    const std::string cmd = "playerctl " + selection + " metadata --format '{{playerInstance}}\t{{position}}\t{{mpris:length}}\t{{volume}}\t{{status}}\t{{kde:pid}}\t{{mpris:artUrl}}\t{{title}}' 2>/dev/null";
+    const std::string cmd = "playerctl " + selection + " metadata --format '{{playerInstance}}\t{{position}}\t{{mpris:length}}\t{{volume}}\t{{status}}\t{{kde:pid}}\t{{mpris:artUrl}}\t{{xesam:url}}\t{{title}}' 2>/dev/null";
     FILE* f = popen(cmd.c_str(), "r");
     if (!f) return;
     std::vector<mediaplayer::Snapshot> players;
@@ -215,7 +215,9 @@ void pollMedia(App& app) {
     // A periodic poll retries a missing cover without requiring pause/play.
     const bool hadArt = app.musicArt != nullptr;
     const std::string oldArt = app.musicArtUrl;
-    updateCover(app, metadata->artwork);
+    const std::string cover = mediaplayer::coverUrl(*metadata);
+    app.musicArtFallback = metadata->artwork.empty() ? cover : "";
+    updateCover(app, cover);
     if (oldArt != app.musicArtUrl || hadArt != (app.musicArt != nullptr)) drawAll(app);
 }
 

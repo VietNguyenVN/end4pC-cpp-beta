@@ -25,7 +25,7 @@ int main() {
         f << "#!/bin/sh\n"
              "printf '%s\\n' \"$@\" > \"$END4PC_TEST_PLAYER_LOG\"\n"
              "if [ \"$1\" = -a ]; then printf '%s\\n' \"$END4PC_TEST_STATS\"; "
-             "elif [ \"$3\" = metadata ]; then printf '%s\\t12000000\\t90000000\\t0.5\\tPlaying\\t\\t\\tSong\\n' \"$2\"; fi\n";
+             "elif [ \"$3\" = metadata ]; then printf '%s\\t12000000\\t90000000\\t0.5\\tPlaying\\t\\t\\t\\tSong\\n' \"$2\"; fi\n";
     }
     chmod(fake.c_str(), 0700);
     // Even a failing image decoder must never make this test contact a server.
@@ -55,7 +55,7 @@ int main() {
     // even if its visible song title is identical.
     CHECK(parseMusicLine(app, "plasma-browser-integration\tPlaying\t\t\tSong"));
     CHECK(app.media.position == 0 && app.media.length == 0);
-    setenv("END4PC_TEST_STATS", "plasma-browser-integration\t12000000\t90000000\t0.2\tPlaying\t123\t\tSong", 1);
+    setenv("END4PC_TEST_STATS", "plasma-browser-integration\t12000000\t90000000\t0.2\tPlaying\t123\t\t\tSong", 1);
     mediaSend(app, {"next"});
     CHECK(waitpid(-1, nullptr, 0) > 0);
     CHECK(readText(log) == "-p\nplasma-browser-integration\nnext\n");
@@ -65,8 +65,8 @@ int main() {
     // Same browser PID + song title: preserve rich bridge metadata but use the
     // native per-song clock instead of a growing playlist/media-element clock.
     setenv("END4PC_TEST_STATS",
-        "plasma-browser-integration\t276000000\t351000000\t0.2\tPlaying\t123\t\tSong\n"
-        "chromium.instance123\t35000000\t168000000\t1\tPlaying\t\t\tSong | YouTube Music", 1);
+        "plasma-browser-integration\t276000000\t351000000\t0.2\tPlaying\t123\t\t\tSong\n"
+        "chromium.instance123\t35000000\t168000000\t1\tPlaying\t\t\t\tSong | YouTube Music", 1);
     pollMedia(app);
     CHECK(app.musicPlaybackPlayer == "chromium.instance123");
     CHECK(app.media.position == 35 && app.media.length == 168);
@@ -80,16 +80,16 @@ int main() {
 
     // Never borrow a clock from another browser or from another song.
     setenv("END4PC_TEST_STATS",
-        "plasma-browser-integration\t276000000\t351000000\t0.2\tPlaying\t123\t\tSong\n"
-        "chromium.instance999\t35000000\t168000000\t1\tPlaying\t\t\tSong | YouTube Music\n"
-        "chromium.instance123\t35000000\t168000000\t1\tPlaying\t\t\tOther song | YouTube Music", 1);
+        "plasma-browser-integration\t276000000\t351000000\t0.2\tPlaying\t123\t\t\tSong\n"
+        "chromium.instance999\t35000000\t168000000\t1\tPlaying\t\t\t\tSong | YouTube Music\n"
+        "chromium.instance123\t35000000\t168000000\t1\tPlaying\t\t\t\tOther song | YouTube Music", 1);
     pollMedia(app);
     CHECK(app.musicPlaybackPlayer == "plasma-browser-integration");
     CHECK(app.media.position == 276);
 
     // Missing volume is normal for some MPRIS players and must not freeze time.
     mediaplayer::Snapshot noVolume;
-    CHECK(mediaplayer::parse("chromium.instance123\t35000000\t168000000\t\tPlaying\t\t\tSong", noVolume));
+    CHECK(mediaplayer::parse("chromium.instance123\t35000000\t168000000\t\tPlaying\t\t\t\tSong", noVolume));
     CHECK(noVolume.position == 35 && !noVolume.volume);
     CHECK(parseMusicLine(app, "plasma-browser-integration\tPlaying\t\t\tNew song"));
     CHECK(app.media.position == 0 && app.media.length == 0);
@@ -107,6 +107,21 @@ int main() {
     parseMusicLine(app, "bad'player\tPlaying\t\t\tSong");
     CHECK(app.musicPlayer.empty());
 
+    // Prefer an actual cover. Fall back only to a validated current YouTube
+    // Music video URL; never reuse another track's image or guess from its title.
+    mediaplayer::Snapshot thumbnail;
+    thumbnail.url = "https://music.youtube.com/watch?list=playlist&v=abcdefgh_-1";
+    CHECK(mediaplayer::coverUrl(thumbnail) == "https://i.ytimg.com/vi/abcdefgh_-1/hqdefault.jpg");
+    thumbnail.artwork = "file:///tmp/actual-cover.png";
+    CHECK(mediaplayer::coverUrl(thumbnail) == thumbnail.artwork);
+    thumbnail.artwork.clear();
+    thumbnail.url = "https://music.youtube.com.evil.test/watch?v=abcdefgh_-1";
+    CHECK(mediaplayer::coverUrl(thumbnail).empty());
+    thumbnail.url = "https://music.youtube.com/watch?v=../bad/path";
+    CHECK(mediaplayer::coverUrl(thumbnail).empty());
+    thumbnail.url.clear();
+    CHECK(mediaplayer::coverUrl(thumbnail).empty());
+
     // The bridge announces a local filename before its image can be decoded.
     // Retrying the same URL after the file appears must recover without toggling playback.
     const fs::path late = root / "late.png";
@@ -123,10 +138,15 @@ int main() {
     CHECK(app.media.cover);
     // Polling must discover a newly published artwork URL even without a watcher event.
     parseMusicLine(app, "plasma-browser-integration\tPlaying\t\t\tSong");
-    const std::string lateStats = "plasma-browser-integration\t12000000\t90000000\t0.2\tPlaying\t123\t" + localUrl + "\tSong";
+    const std::string lateStats = "plasma-browser-integration\t12000000\t90000000\t0.2\tPlaying\t123\t" + localUrl + "\t\tSong";
     setenv("END4PC_TEST_STATS", lateStats.c_str(), 1);
     pollMedia(app);
     CHECK(app.musicArtUrl == localUrl && app.musicArt);
+    app.musicArtFallback = localUrl;
+    parseMusicLine(app, "plasma-browser-integration\tPlaying\t\t\tSong");
+    CHECK(app.musicArtUrl == localUrl && app.musicArt);
+    parseMusicLine(app, "plasma-browser-integration\tPlaying\t\t\tNext song");
+    CHECK(app.musicArtFallback.empty() && !app.musicArt);
     updateCover(app, "");
     refreshMediaCoverIfNeeded(app);
     mediaWRefreshCover(app);

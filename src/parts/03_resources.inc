@@ -279,12 +279,14 @@ bool parseMusicLine(App& app, const std::string& line) {
         f[2].clear(); f[3].clear(); f[4].clear();
     }
     const bool playerChanged = player != app.musicPlayer;
+    const bool trackChanged = !status.empty() && !app.musicTitle.empty() && (f[4] != app.musicTitle || f[3] != app.musicArtist);
+    if (playerChanged || trackChanged || !f[2].empty()) app.musicArtFallback.clear();
+    const std::string cover = f[2].empty() ? app.musicArtFallback : f[2];
     const bool coverBefore = app.musicArt != nullptr;
-    const bool artChanged = app.musicArtUrl != f[2];
-    updateCover(app, f[2]);
+    const bool artChanged = app.musicArtUrl != cover;
+    updateCover(app, cover);
     const bool changed = playerChanged || artChanged || status != app.musicStatus || f[3] != app.musicArtist || f[4] != app.musicTitle ||
                          coverBefore != (app.musicArt != nullptr);
-    const bool trackChanged = !status.empty() && !app.musicTitle.empty() && (f[4] != app.musicTitle || f[3] != app.musicArtist);
     app.musicPlayer = player;
     app.musicStatus = status;
     app.musicArtist = f[3];
