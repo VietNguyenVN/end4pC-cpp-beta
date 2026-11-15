@@ -273,7 +273,7 @@ bool parseMusicLine(App& app, const std::string& line) {
     std::string player = f[0];
     std::string status = f[1];
     if (player.empty() || player.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-") != std::string::npos ||
-        (status != "Playing" && status != "Paused")) {
+        (status != "Playing" && status != "Paused" && status != "Stopped")) {
         player.clear();
         status.clear();
         f[2].clear(); f[3].clear(); f[4].clear();

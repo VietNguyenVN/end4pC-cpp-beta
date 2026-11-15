@@ -635,7 +635,7 @@ void pollMedia(App& app);
 void changeBrightness(App& app, int delta, int absolute);
 void toggleSettings();
 void toggleTools();
-void mediaSend(App& app, std::initializer_list<const char*> args);
+pid_t mediaSend(App& app, std::initializer_list<const char*> args);
 void setDoNotDisturb(App& app, bool on);
 void runSystemUpdate(const App& app) {
     const std::string script = assetsDir() + "/../scripts/system-update.sh";

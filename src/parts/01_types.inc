@@ -1389,6 +1389,8 @@ struct App {
     int musicM3TextW = 0;
     std::string musicArtUrl;
     std::string musicArtFallback;  // keep a fallback across metadata signals with no cover URL
+    int musicArtAttempts = 0;
+    std::chrono::steady_clock::time_point musicArtRetryAt{};
     cairo_surface_t* musicArt = nullptr;
     int volume = 0;
     bool micMuted = false;
