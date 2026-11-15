@@ -1,0 +1,20 @@
+# sway (SwayFX) config: the "aphelion" setup, with end4pC as the shell and the same key binds as on Hyprland and niri.
+# Start it from a TTY with ~/.config/sway/scripts/start-sway (it sets the same environment as the other sessions), or just `sway`.
+include ~/.config/sway/globals
+include ~/.config/sway/end4pC-colors
+include ~/.config/sway/output
+include ~/.config/sway/input
+include ~/.config/sway/idle
+include ~/.config/sway/modes
+include ~/.config/sway/keys
+include ~/.config/sway/rules
+include ~/.config/sway/autostart
+include ~/.config/sway/appearance
+include ~/.config/sway/bugfix
+
+# The shell's blur (layer_effects for its panels)
+include ~/.config/end4pC/sway/end4pC.sway
+
+include /etc/sway/config.d/*
+
+# vim:set ft=conf:

@@ -1,0 +1,24 @@
+# >> Output configuration
+# You can get the names of your outputs by running: swaymsg -t get_outputs
+# The shell draws the wallpaper, bars and widgets on every output; the arrangement of the screens is edited in its Settings.
+output * {
+    adaptive_sync off
+    allow_tearing yes
+}
+
+# Per app max_render_time
+# Lower max_render_time for more responsive typing
+for_window {
+    [app_id="^alacritty$"] max_render_time 2
+    [app_id="^scratchpad$"] max_render_time 2
+    [app_id="^floating$"] max_render_time 2
+    [app_id="^emacs$"] max_render_time 2
+    [app_id="^scratchpad_input$"] max_render_time 2
+    [app_id="^kitty$"] max_render_time 2
+    [app_id="^foot$"] max_render_time 2
+    [app_id="^editor$"] max_render_time 2
+    [app_id="^codium$"] max_render_time 2
+    [app_id="^Rofi$"] max_render_time 2
+}
+
+# vim:set ft=conf:

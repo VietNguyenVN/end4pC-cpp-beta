@@ -1,0 +1,19 @@
+# Written by sway/scripts/sway-palette from the shell's palette (~/.local/state/end4pC/generated/colors.json): do not edit.
+set $xbg  #1c1c19
+set $xfg  #e5e2de
+set $x0   #20201d
+set $x1   #ffb4ab
+set $x2   #c7c9a7
+set $x3   #c8c7b7
+set $x4   #c7c8af
+set $x5   #e3e5c1
+set $x6   #e4e4ca
+set $x7   #e5e2de
+set $x8   #92908d
+set $x9   #ffdad6
+set $x10  #c7c8af
+set $x11  #e4e3d2
+set $x12  #c7c9a7
+set $x13  #c8c7b7
+set $x14  #5e604b
+set $x15  #c9c6c2

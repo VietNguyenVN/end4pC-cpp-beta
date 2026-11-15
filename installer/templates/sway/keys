@@ -1,0 +1,212 @@
+# Key binds: the same as on Hyprland and niri (Super is the main key), plus the sway-only ones of the original setup
+# (smart split, tabbed/stacked layouts, scratchpads, swap marks, binding modes) on keys the others do not use.
+set $mod Mod4
+
+# Floating modifier
+# - Drag floating windows by holding down $mod and left mouse button; resize with the right button.
+floating_modifier $mod normal
+
+bindsym --to-code {
+    # >> The shell
+    $mod+space exec $menu
+    $mod+v exec $end4pc 'launcher clipboard'
+    $mod+w exec $end4pc selector toggle
+    $mod+m exec $end4pc media toggle
+    $mod+Escape exec $end4pc settings
+    $mod+i exec $end4pc settings
+    $mod+slash exec $end4pc tools
+    $mod+p exec $end4pc power toggle
+    $mod+grave exec $end4pc control
+    $mod+r exec bash $HOME/.config/end4pC/scripts/restart.sh
+    $mod+Control+r exec bash $HOME/.config/end4pC/scripts/restart.sh
+    # Alt+Tab: the shell's window switcher (letting go of Alt picks the window); Shift goes backwards
+    Mod1+Tab exec $end4pc 'switcher next'
+    Mod1+Shift+Tab exec $end4pc 'switcher prev'
+    # Rofi stays available as a second launcher / window switcher
+    $mod+d exec $sway/rofi-sway
+
+    # >> Lock and session
+    $mod+l exec $HOME/.config/end4pC/build/end4pC-lock
+    $mod+Control+l exec $HOME/.config/end4pC/build/end4pC-lock
+    $mod+Shift+l exec sh -c 'systemctl suspend || loginctl suspend'
+    Control+Shift+Mod1+$mod+Delete exec sh -c 'systemctl poweroff || loginctl poweroff'
+    $mod+Shift+e exec swaymsg exit
+    XF86PowerOff exec $end4pc power toggle
+
+    # >> Apps
+    $mod+Return exec $term
+    Control+Mod1+t exec $term
+    $mod+e exec dolphin
+    $mod+c exec code
+    $mod+x exec $HOME/.config/hypr/hyprland/scripts/launch_first_available.sh 'kate' 'gnome-text-editor' 'emacs'
+    $mod+Control+v exec $HOME/.config/hypr/hyprland/scripts/launch_first_available.sh 'pavucontrol-qt' 'pavucontrol'
+    Control+Shift+Escape exec $sway/window-do "[app_id=^btop$] focus" "$term --class btop --title Monitor -e btop"
+    Control+Shift+Mod1+$mod+w exec $HOME/.config/hypr/hyprland/scripts/launch_first_available.sh 'wps' 'onlyoffice-desktopeditors' 'libreoffice'
+
+    # >> Windows
+    $mod+q kill
+    $mod+Shift+q kill
+    Mod1+F4 kill
+    $mod+Shift+Mod1+q exec sh -c 'swaymsg -t get_tree | jq -r ".. | select(.focused?) | .pid" | xargs -r kill -9'
+    $mod+t floating toggle
+    $mod+Shift+space floating toggle
+    $mod+Control+space focus mode_toggle
+    $mod+f fullscreen
+    XF86Launch9 fullscreen
+    $mod+Shift+g sticky toggle
+
+    # >> Focus and move
+    # (the vi keys of the original, Super+h/j/k/l, are not bound: Super+L locks the screen, and the arrows do the same)
+    $mod+Left focus left
+    $mod+Down focus down
+    $mod+Up focus up
+    $mod+Right focus right
+    $mod+bracketleft focus left
+    $mod+bracketright focus right
+    # Smart focus: cycle right/down in tabbed and split layouts, between tiling and floating otherwise
+    $mod+Tab exec $sway/smart-focus-change next
+    $mod+Shift+Tab exec $sway/smart-focus-change prev
+    $mod+u exec "swaymsg [urgent='first'] focus || swaymsg workspace back_and_forth"
+
+    $mod+Shift+Left move left $move_px
+    $mod+Shift+Down move down $move_px
+    $mod+Shift+Up move up $move_px
+    $mod+Shift+Right move right $move_px
+    # Move the focused floating window to the edge of the screen
+    $mod+Control+Shift+Left exec $sway/move-to-edge left
+    $mod+Control+Shift+Down exec $sway/move-to-edge down
+    $mod+Control+Shift+Up exec $sway/move-to-edge up
+    $mod+Control+Shift+Right exec $sway/move-to-edge right
+
+    # Resize
+    $mod+Mod1+Left resize shrink width "$resize_px"px
+    $mod+Mod1+Down resize grow height "$resize_px"px
+    $mod+Mod1+Up resize shrink height "$resize_px"px
+    $mod+Mod1+Right resize grow width "$resize_px"px
+    $mod+semicolon resize shrink width "$resize_px"px
+    $mod+apostrophe resize grow width "$resize_px"px
+
+    # >> Workspaces: Mod+N goes to it, Mod+Shift+N sends the window and follows it, Mod+Alt+N sends it and stays
+    $mod+1 workspace $ws1; $post_workspace_switch
+    $mod+2 workspace $ws2; $post_workspace_switch
+    $mod+3 workspace $ws3; $post_workspace_switch
+    $mod+4 workspace $ws4; $post_workspace_switch
+    $mod+5 workspace $ws5; $post_workspace_switch
+    $mod+6 workspace $ws6; $post_workspace_switch
+    $mod+7 workspace $ws7; $post_workspace_switch
+    $mod+8 workspace $ws8; $post_workspace_switch
+    $mod+9 workspace $ws9; $post_workspace_switch
+    $mod+0 workspace $ws10; $post_workspace_switch
+
+    $mod+Shift+1 move container to workspace $ws1; workspace $ws1
+    $mod+Shift+2 move container to workspace $ws2; workspace $ws2
+    $mod+Shift+3 move container to workspace $ws3; workspace $ws3
+    $mod+Shift+4 move container to workspace $ws4; workspace $ws4
+    $mod+Shift+5 move container to workspace $ws5; workspace $ws5
+    $mod+Shift+6 move container to workspace $ws6; workspace $ws6
+    $mod+Shift+7 move container to workspace $ws7; workspace $ws7
+    $mod+Shift+8 move container to workspace $ws8; workspace $ws8
+    $mod+Shift+9 move container to workspace $ws9; workspace $ws9
+    $mod+Shift+0 move container to workspace $ws10; workspace $ws10
+
+    $mod+Alt+1 move container to workspace $ws1
+    $mod+Alt+2 move container to workspace $ws2
+    $mod+Alt+3 move container to workspace $ws3
+    $mod+Alt+4 move container to workspace $ws4
+    $mod+Alt+5 move container to workspace $ws5
+    $mod+Alt+6 move container to workspace $ws6
+    $mod+Alt+7 move container to workspace $ws7
+    $mod+Alt+8 move container to workspace $ws8
+    $mod+Alt+9 move container to workspace $ws9
+    $mod+Alt+0 move container to workspace $ws10
+
+    # Next and previous workspace
+    $mod+Control+Right workspace next
+    $mod+Control+Left workspace prev
+    $mod+Control+Down workspace next
+    $mod+Control+Up workspace prev
+    $mod+Next workspace next
+    $mod+Prior workspace prev
+    $mod+Control+bracketright workspace next
+    $mod+Control+bracketleft workspace prev
+    $mod+Shift+Next move container to workspace next; workspace next
+    $mod+Shift+Prior move container to workspace prev; workspace prev
+    $mod+Control+Mod1+Right focus output right
+    $mod+Control+Mod1+Left focus output left
+
+    # >> Layout (sway's own)
+    $mod+Shift+x exec "$sway/smart-split", $post_split
+    $mod+s layout toggle split, $post_split
+    $mod+Shift+t layout toggle tabbed stacking, $post_split
+    $mod+z focus parent
+    $mod+Shift+z focus child
+    $mod+Shift+minus move scratchpad
+    $mod+minus scratchpad show
+    # Scratchpad terminals
+    $mod+Shift+i exec $sway/scratchpad-toggle "[app_id=^scratchpad_input$]" "$term --class scratchpad_input -e nvim /tmp/scratchpad.md"
+    $mod+Control+q exec $sway/scratchpad-toggle "[app_id=^scratchpad$]" "$term --class scratchpad -e $sway/sway-scratchpad"
+    # Swap with a mark (yank and paste)
+    $mod+Shift+y [con_mark="_swapy"] unmark "_swapy"; mark --add "_swapy"
+    $mod+Control+Shift+y swap container with mark "_swapy"; [con_mark="_swapy"] focus; unmark "_swapy"
+
+    # >> Reload sway only (the shell has its own restart on Mod+R)
+    $mod+Control+Shift+r reload
+
+    # >> Screenshots, recording, pickers
+    $mod+Shift+s exec $end4pc screenshot region
+    $mod+Mod1+s exec $end4pc screenshot edit
+    Print exec sh -c 'grim - | wl-copy'
+    Control+Print exec sh -c 'mkdir -p "$HOME/Pictures/Screenshots" && grim "$HOME/Pictures/Screenshots/Screenshot_$(date +%Y-%m-%d_%H.%M.%S).png"'
+    Mod1+Print exec sh -c 'grim -g "$(swaymsg -t get_tree | jq -r ".. | select(.focused?) | .rect | \"\\(.x),\\(.y) \\(.width)x\\(.height)\\"")" - | wl-copy'
+    $mod+Shift+r exec $end4pc 'quick 1'
+    $mod+Mod1+r exec $end4pc 'quick 1'
+    $mod+Shift+c exec hyprpicker -a
+    $mod+Shift+a exec sh -c 'pidof slurp || $HOME/.config/hypr/hyprland/scripts/snip_to_search.sh'
+
+    # >> Binding modes
+    $mod+Control+Mod1+r mode "resize"
+    $mod+b mode "brightness"
+    $mod+a mode "apps"
+    $mod+Control+Mod1+s mode "swap"
+    $mod+Control+Mod1+m mode "move"
+}
+
+# >> Hardware keys (they work on the lock screen too)
+bindsym --locked {
+    XF86AudioLowerVolume exec $cmd_volume_lower
+    XF86AudioRaiseVolume exec $cmd_volume_raise
+    XF86AudioMute exec $cmd_volume_mute
+    XF86AudioMicMute exec $cmd_microphone_mute
+    $mod+Shift+m exec $cmd_volume_mute
+    $mod+Mod1+m exec $cmd_microphone_mute
+    Mod1+XF86AudioMute exec $cmd_microphone_mute
+
+    XF86MonBrightnessDown exec $cmd_brightness_lower
+    XF86MonBrightnessUp exec $cmd_brightness_raise
+
+    # Media
+    $mod+Shift+n exec playerctl next
+    $mod+Shift+b exec playerctl previous
+    $mod+Shift+p exec playerctl play-pause
+    XF86AudioNext exec playerctl next
+    XF86AudioPrev exec playerctl previous
+    XF86AudioPlay exec playerctl play-pause
+    XF86AudioPause exec playerctl play-pause
+}
+
+# >> Volume with Super + wheel
+bindsym --whole-window $mod+button4 exec $cmd_volume_raise
+bindsym --whole-window $mod+button5 exec $cmd_volume_lower
+
+# >> Mouse binds of the original setup
+# Middle button on a title bar - close
+bindsym --border button2 kill
+bindsym --whole-window $mod+button2 kill
+# Side button - toggle floating
+bindsym --border button9 floating toggle
+bindsym --whole-window $mod+button9 floating toggle
+# Scroll on a title bar - cycle focus
+bindsym --border button4 exec $sway/smart-focus-change prev
+bindsym --border button5 exec $sway/smart-focus-change next
+
+# vim:set ft=conf:

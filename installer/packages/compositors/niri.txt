@@ -1,0 +1,5 @@
+# niri: the compositor and what it needs for X11 apps and screen sharing. Installed when you pick niri in the "Compositors" step.
+# Official repositories. jq, grim, slurp, wl-clipboard and the GTK portal are in pacman.txt (the shell reads niri with `niri msg --json` and jq).
+niri
+xwayland-satellite
+xdg-desktop-portal-gnome

@@ -1,0 +1,4 @@
+build/
+config.json
+hyprland/local.lua
+__pycache__/

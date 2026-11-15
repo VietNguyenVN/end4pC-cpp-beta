@@ -1,0 +1,110 @@
+# end4pC for sway / SwayFX: the shell's layer surfaces get a blur behind their painted shape (the sway counterpart of
+# hyprland/end4pC.lua and niri/end4pC*.kdl). Include it from ~/.config/sway/config:
+#     include ~/.config/end4pC/sway/end4pC.sway
+# The shell starts from the sway config's autostart (`exec ~/.config/end4pC/build/end4pC run`), like on the other compositors.
+#
+# SwayFX has no ext-background-effect protocol: it blurs a layer surface by its namespace (`layer_effects`). Notes:
+#  - `layer_effects ... blur enable` works on its own: windows are NOT blurred unless you also enable the global `blur enable`
+#    (that is the switch for translucent windows such as kitty; it costs GPU, so it stays off in ~/.config/sway/appearance).
+#  - blur_ignore_transparent keeps the blur off the transparent margins of a surface (the drop shadows, the empty room round a
+#    card), the way ignore_alpha does on Hyprland. A bar more see-through than ~35 % (Settings -> Appearance -> Transparency) is
+#    not blurred on its transparent parts at all.
+#  - SwayFX cannot apply layer effects to the BOTTOM layer, so the desktop widgets (end4pC-widget-*) are not blurred here.
+#  - The wallpaper is a background layer surface the shell draws itself: sway's own `swaybg` is not needed.
+#  - The surfaces draw their own rounded shapes and shadows; no corner_radius / shadows here.
+
+# The bar
+layer_effects "end4pC-bar" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The wallpaper selector
+layer_effects "end4pC-selector" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The launcher
+layer_effects "end4pC-launcher" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The notification cards
+layer_effects "end4pC-notifications" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The notification panel
+layer_effects "end4pC-notif-panel" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The clock, weather, resources and AI popups
+layer_effects "end4pC-clock" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The control center
+layer_effects "end4pC-control" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The volume popup
+layer_effects "end4pC-audio-menu" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The Bluetooth popup
+layer_effects "end4pC-bt-menu" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The dynamic island, grown into a card
+layer_effects "end4pC-island-card" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The tray menu
+layer_effects "end4pC-tray-menu" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The desktop menu
+layer_effects "end4pC-desktop-menu" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The dock
+layer_effects "end4pC-dock" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The power menu
+layer_effects "end4pC-power" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The window switcher
+layer_effects "end4pC-switcher" {
+    blur enable;
+    blur_ignore_transparent enable;
+}
+
+# The authentication dialog
+layer_effects "end4pC-polkit" {
+    blur enable;
+    blur_ignore_transparent enable;
+}

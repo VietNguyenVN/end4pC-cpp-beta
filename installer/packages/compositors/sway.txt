@@ -1,0 +1,6 @@
+# sway (SwayFX): what goes with it. Installed when you pick sway in the "Compositors" step. SwayFX itself is only in the AUR:
+# see sway.aur.txt. jq, grim, slurp and wl-clipboard are in pacman.txt (the shell reads sway with `swaymsg` and jq).
+xdg-desktop-portal-wlr
+swaybg
+# swayidle is optional: with it you can lock and turn the screens off by themselves (uncomment the swayidle lines of ~/.config/sway/idle)
+swayidle

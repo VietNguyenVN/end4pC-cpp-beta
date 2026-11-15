@@ -1,0 +1,8 @@
+# >> Idle configuration
+# The screen never turns off by itself: the shell keeps the session awake (Settings -> keep awake) and locks with Mod+L.
+# To lock and turn the screens off after a while, uncomment (needs swayidle):
+# exec swayidle -w \
+#          timeout 300 '$HOME/.config/end4pC/build/end4pC-lock' \
+#          timeout 600 'swaymsg "output * dpms off"' \
+#               resume 'swaymsg "output * dpms on"' \
+#          before-sleep '$HOME/.config/end4pC/build/end4pC-lock'

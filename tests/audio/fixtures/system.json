@@ -1,0 +1,271 @@
+{
+  "sinks": [
+    {
+      "index": 89,
+      "name": "alsa_output.pci-0000_00_1b.0.analog-stereo",
+      "description": "Built-in Audio Analog Stereo",
+      "monitor_of_sink": null,
+      "active_port": "analog-output-headphones",
+      "ports": [
+        {
+          "name": "analog-output-speaker",
+          "description": "Speakers",
+          "availability": "available"
+        },
+        {
+          "name": "analog-output-headphones",
+          "description": "Headphones",
+          "availability": "available"
+        },
+        {
+          "name": "hdmi-output-0",
+          "description": "HDMI / DisplayPort",
+          "availability": "not available"
+        }
+      ],
+      "properties": {
+        "device.form_factor": "internal",
+        "device.bus": "pci",
+        "node.nick": "ALC221 Analog"
+      },
+      "volume": {
+        "front-left": {
+          "value": 22282,
+          "value_percent": "34%",
+          "db": "0 dB"
+        },
+        "front-right": {
+          "value": 22282,
+          "value_percent": "34%",
+          "db": "0 dB"
+        }
+      },
+      "mute": false
+    },
+    {
+      "index": 90,
+      "name": "alsa_output.pci-0000_01_00.1.hdmi-stereo",
+      "description": "GPU HDMI",
+      "monitor_of_sink": null,
+      "active_port": null,
+      "ports": [
+        {
+          "name": "hdmi-output-0",
+          "description": "HDMI 1",
+          "availability": "not available"
+        }
+      ],
+      "properties": {
+        "device.bus": "pci"
+      }
+    },
+    {
+      "index": 33,
+      "name": "easyeffects_sink",
+      "description": "Easy Effects Sink",
+      "monitor_of_sink": null,
+      "active_port": null,
+      "ports": null,
+      "properties": {},
+      "volume": {
+        "front-left": {
+          "value": 65536,
+          "value_percent": "100%",
+          "db": "0 dB"
+        },
+        "front-right": {
+          "value": 65536,
+          "value_percent": "100%",
+          "db": "0 dB"
+        }
+      },
+      "mute": false
+    },
+    {
+      "index": 40,
+      "name": "bluez_output.AA_BB_CC_DD_EE_FF.1",
+      "description": "WH-1000XM4",
+      "monitor_of_sink": null,
+      "active_port": null,
+      "ports": null,
+      "properties": {
+        "device.bus": "bluetooth",
+        "api.bluez5.address": "AA:BB:CC:DD:EE:FF",
+        "node.nick": "WH-1000XM4",
+        "device.icon_name": "audio-headset-bluetooth"
+      },
+      "volume": {
+        "front-left": {
+          "value": 32768,
+          "value_percent": "50%",
+          "db": "0 dB"
+        },
+        "front-right": {
+          "value": 32768,
+          "value_percent": "50%",
+          "db": "0 dB"
+        }
+      },
+      "mute": true
+    }
+  ],
+  "sources": [
+    {
+      "index": 34,
+      "name": "easyeffects_source",
+      "description": "Easy Effects Source",
+      "monitor_of_sink": null,
+      "ports": null,
+      "properties": {}
+    },
+    {
+      "index": 90,
+      "name": "alsa_input.pci-0000_00_1b.0.analog-stereo",
+      "description": "Built-in Audio Analog Stereo",
+      "monitor_of_sink": null,
+      "active_port": "analog-input-mic",
+      "ports": [
+        {
+          "name": "analog-input-mic",
+          "description": "Microphone",
+          "availability": "not available"
+        }
+      ],
+      "properties": {
+        "device.bus": "pci"
+      }
+    },
+    {
+      "index": 91,
+      "name": "alsa_output.pci-0000_00_1b.0.analog-stereo.monitor",
+      "description": "Monitor of Built-in",
+      "monitor_of_sink": 89,
+      "ports": null,
+      "properties": {
+        "device.class": "monitor"
+      }
+    }
+  ],
+  "cards": [
+    {
+      "name": "alsa_card.pci-0000_01_00.1",
+      "description": "GPU audio",
+      "active_profile": "output:hdmi-stereo+input:none",
+      "profiles": {
+        "output:hdmi-stereo+input:none": {
+          "description": "HDMI Stereo (active)",
+          "n_sinks": 1,
+          "n_sources": 0,
+          "available": "yes"
+        },
+        "output:hdmi-surround": {
+          "description": "HDMI Surround 5.1",
+          "n_sinks": 1,
+          "n_sources": 0,
+          "available": "unknown"
+        },
+        "output:iec958-stereo": {
+          "description": "Digital Stereo (IEC958)",
+          "n_sinks": 1,
+          "n_sources": 0,
+          "available": "no"
+        },
+        "off": {
+          "description": "Off",
+          "n_sinks": 0,
+          "n_sources": 0,
+          "available": "unknown"
+        }
+      }
+    }
+  ],
+  "sink-inputs": [
+    {
+      "index": 11,
+      "sink": 33,
+      "mute": false,
+      "corked": false,
+      "volume": {
+        "front-left": {
+          "value": 52428,
+          "value_percent": "80%",
+          "db": "0 dB"
+        },
+        "front-right": {
+          "value": 52428,
+          "value_percent": "80%",
+          "db": "0 dB"
+        }
+      },
+      "properties": {
+        "application.name": "Firefox",
+        "application.icon_name": "firefox",
+        "media.name": "YouTube - a song"
+      }
+    },
+    {
+      "index": 12,
+      "sink": 33,
+      "mute": true,
+      "corked": true,
+      "volume": {
+        "front-left": {
+          "value": 65536,
+          "value_percent": "100%",
+          "db": "0 dB"
+        },
+        "front-right": {
+          "value": 65536,
+          "value_percent": "100%",
+          "db": "0 dB"
+        }
+      },
+      "properties": {
+        "application.name": "Audacious",
+        "application.icon_name": "audacious",
+        "media.name": "Playback"
+      }
+    },
+    {
+      "index": 13,
+      "sink": 33,
+      "mute": false,
+      "corked": false,
+      "volume": {
+        "front-left": {
+          "value": 65536,
+          "value_percent": "100%",
+          "db": "0 dB"
+        },
+        "front-right": {
+          "value": 65536,
+          "value_percent": "100%",
+          "db": "0 dB"
+        }
+      },
+      "properties": {
+        "application.name": "easyeffects",
+        "application.id": "com.github.wwmm.easyeffects"
+      }
+    },
+    {
+      "index": 14,
+      "sink": 33
+    }
+  ],
+  "source-outputs": [
+    {
+      "index": 12,
+      "source": 91
+    }
+  ],
+  "default-sink": "alsa_output.pci-0000_00_1b.0.analog-stereo",
+  "default-source": "easyeffects_source",
+  "input-volume": "Volume: 1.00 [MUTED]",
+  "bt-paired": "Device AA:BB:CC:DD:EE:FF WH-1000XM4\nDevice 11:22:33:44:55:66 Keyboard K\nDevice 77:88:99:AA:BB:CC Bose QC\n",
+  "bt-info": {
+    "AA:BB:CC:DD:EE:FF": "Device AA:BB:CC:DD:EE:FF\n\tConnected: yes\n\tBattery Percentage: 0x50 (80)\n",
+    "11:22:33:44:55:66": "Device 11:22:33:44:55:66\n\tConnected: no\n\tUUID: Human Interface Device (00001124-0000-1000-8000-00805f9b34fb)\n",
+    "77:88:99:AA:BB:CC": "Device 77:88:99:AA:BB:CC\n\tConnected: no\n\tIcon: audio-headset\n\tUUID: Headset (00001108-0000-1000-8000-00805f9b34fb)\n\tUUID: Audio Sink (0000110b-0000-1000-8000-00805f9b34fb)\n"
+  }
+}

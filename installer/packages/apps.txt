@@ -1,0 +1,15 @@
+# Optional programs of the official repositories. install.sh shows this list and you pick which ones to install (Enter = all).
+# Format: package | what it is
+kitty          | terminal (the one the config is made for)
+fish           | shell, with the config of this package
+starship       | prompt for fish
+eza            | ls with colours and icons
+btop           | resource monitor
+geany          | text editor
+easyeffects    | audio effects
+cava           | audio visualizer (the bars of the media widget)
+rofi           | menu some key binds use
+translate-shell| translator for the terminal
+flatpak        | Flatpak apps
+tesseract       | text recognition (the key bind that copies the text of a region)
+tesseract-data-eng | English data for tesseract (other languages: tesseract-data-<lang>)

@@ -1,0 +1,20 @@
+// end4pC for niri: the start of the shell (the niri counterpart of hyprland/end4pC.lua).
+// Include it from ~/.config/niri/config.kdl next to the other includes:
+//     include "~/.config/end4pC/niri/end4pC.kdl"
+// The keys are not here: they are in niri/end4pC-binds.kdl, included on its own.
+// Check the file with: niri validate   (after the include line is in place)
+
+// Start the shell with the session. `end4pC run` does nothing when it is already running.
+spawn-at-startup "sh" "-c" "$HOME/.config/end4pC/build/end4pC run"
+
+// No layer rules for blur here. The shell asks niri for the blur itself (ext-background-effect-v1) and tells it the exact shape
+// each surface paints (the bar, the launcher, the selector, the panels, the dock, the popups): nothing else is blurred. A
+// a per-namespace background-effect blur rule would blur the whole surface rectangle again (the transparent margins, the
+// shadows, the room around the cards) and add a second blur on top. Hyprland keeps its own rules in hyprland/end4pC.lua.
+
+// The Overview's backdrop (behind the zoomed-out workspaces): the shell puts its wallpaper there, blurred, from a second
+// background surface. The rule only works for background layer surfaces with exclusive zone -1 (it is).
+layer-rule {
+    match namespace="^end4pC-wallpaper-backdrop$"
+    place-within-backdrop true
+}

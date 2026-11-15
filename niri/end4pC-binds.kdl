@@ -1,0 +1,30 @@
+// end4pC key binds for niri. Include this at the END of ~/.config/niri/config.kdl:
+//     include "~/.config/end4pC/niri/end4pC-binds.kdl"
+// (niri lets a later bind replace an earlier one on the same key, so these win over any older bind of the same keys,
+//  for example the ones that called another shell.)
+// Every action is the shell's own command line: `end4pC <command>`; `end4pC config` prints the current settings.
+// niri cannot bind a modifier pressed alone, so the launcher is on Mod+Space instead of a lone Super press.
+binds {
+    // ───────────── Shell ─────────────
+    Mod+Space hotkey-overlay-title="end4pC: launcher" { spawn-sh "$HOME/.config/end4pC/build/end4pC launcher toggle"; }
+    Mod+V hotkey-overlay-title="end4pC: clipboard history" { spawn-sh "$HOME/.config/end4pC/build/end4pC 'launcher clipboard'"; }
+    Mod+W hotkey-overlay-title="end4pC: wallpapers" { spawn-sh "$HOME/.config/end4pC/build/end4pC selector toggle"; }
+    Mod+M hotkey-overlay-title="end4pC: media player" { spawn-sh "$HOME/.config/end4pC/build/end4pC media toggle"; }
+    Mod+Escape hotkey-overlay-title="end4pC: settings" { spawn-sh "$HOME/.config/end4pC/build/end4pC settings"; }
+    Mod+Slash hotkey-overlay-title="end4pC: tools" { spawn-sh "$HOME/.config/end4pC/build/end4pC tools"; }
+    Mod+P hotkey-overlay-title="end4pC: power menu" { spawn-sh "$HOME/.config/end4pC/build/end4pC power toggle"; }
+    Mod+Ctrl+R hotkey-overlay-title="end4pC: restart the shell" { spawn-sh "bash $HOME/.config/end4pC/scripts/restart.sh"; }
+    Mod+R { spawn-sh "bash $HOME/.config/end4pC/scripts/restart.sh"; }
+
+    // ───────────── Screenshots ─────────────
+    Mod+Shift+S hotkey-overlay-title="end4pC: screenshot (region)" { spawn-sh "$HOME/.config/end4pC/build/end4pC screenshot region"; }
+    Mod+Alt+S hotkey-overlay-title="end4pC: screenshot (region, edit)" { spawn-sh "$HOME/.config/end4pC/build/end4pC screenshot edit"; }
+
+    // ───────────── Lock ─────────────
+    Mod+L hotkey-overlay-title="end4pC: lock" { spawn-sh "$HOME/.config/end4pC/build/end4pC-lock"; }
+    Mod+Ctrl+L { spawn-sh "$HOME/.config/end4pC/build/end4pC-lock"; }
+
+    // ───────────── Brightness ─────────────
+    XF86MonBrightnessUp allow-when-locked=true { spawn-sh "$HOME/.config/end4pC/build/end4pC 'brightness up'"; }
+    XF86MonBrightnessDown allow-when-locked=true { spawn-sh "$HOME/.config/end4pC/build/end4pC 'brightness down'"; }
+}

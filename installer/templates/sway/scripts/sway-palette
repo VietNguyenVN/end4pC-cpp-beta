@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""The shell's Material palette as the variables the sway config uses ($xbg, $xfg, $x0..$x15).
+
+  sway-palette                 writes ~/.config/sway/end4pC-colors from the palette the shell generates (matugen, the wallpaper, the
+                               mode, the scheme or theme: ~/.local/state/end4pC/generated/colors.json); prints "changed" when the file changed
+  sway-palette --print         prints the variables instead of writing them
+
+The title-glyphs daemon runs this whenever colors.json changes and then reloads sway, so the title bars follow the shell's colours.
+"""
+import json
+import os
+import sys
+
+HOME = os.path.expanduser("~")
+STATE = os.environ.get("XDG_STATE_HOME") or HOME + "/.local/state"
+CONFIG = os.environ.get("XDG_CONFIG_HOME") or HOME + "/.config"
+SRC = STATE + "/end4pC/generated/colors.json"
+OUT = CONFIG + "/sway/end4pC-colors"
+
+# sway variable -> Material role. xbg/xfg are the title bar and its text; x1..x15 keep the meaning they had in the original setup
+# (x1 red, x2 cyan, x3 orange, x4 blue, x5 purple...) as accents: the palette's own error/tertiary/secondary/primary colours. The
+# per-app dots and glyphs use x1..x6 and x10..x14 (see app-glyphs.tsv).
+ROLES = [
+    ("xbg", "surface_container_low"), ("xfg", "on_surface"),
+    ("x0", "surface_container"), ("x1", "error"), ("x2", "tertiary"), ("x3", "secondary"),
+    ("x4", "primary"), ("x5", "tertiary_fixed"), ("x6", "primary_fixed"), ("x7", "on_surface"),
+    ("x8", "outline"), ("x9", "on_error_container"), ("x10", "primary"), ("x11", "secondary_fixed"),
+    ("x12", "tertiary_fixed_dim"), ("x13", "secondary_fixed_dim"), ("x14", "inverse_primary"), ("x15", "on_surface_variant"),
+]
+FALLBACK = {"surface_container_low": "#101319", "on_surface": "#f4f3ee"}
+
+
+def palette():
+    try:
+        with open(SRC, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def render(colors):
+    lines = ["# Written by sway/scripts/sway-palette from the shell's palette (" + SRC.replace(HOME, "~") + "): do not edit.\n"]
+    for var, role in ROLES:
+        value = colors.get(role) or FALLBACK.get(role) or "#c7c8af"
+        lines.append("set $%-4s %s\n" % (var, value))
+    return "".join(lines)
+
+
+def main(argv):
+    text = render(palette())
+    if argv[1:] == ["--print"]:
+        sys.stdout.write(text)
+        return 0
+    try:
+        with open(OUT, encoding="utf-8") as f:
+            if f.read() == text:
+                return 0
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    tmp = OUT + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, OUT)
+    print("changed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,39 @@
+# Which glyph the title bar of an app shows, and in which colour. Read by scripts/title-glyphs (it applies changes by itself, within a few seconds).
+# Columns separated by TABS:  pattern (a regex on the app id, or the X11 class for XWayland apps, case-insensitive; the first line that matches wins)
+#                             glyph   (a Material Symbols name: https://fonts.google.com/icons)
+#                             colour  (a palette slot of ~/.config/sway/end4pC-colors: x1 error, x2 tertiary, x3 secondary, x4 primary, x5 tertiary light,
+#                                      x6 primary light, x11 secondary light, x12 tertiary dim, x13 secondary dim, x14 primary dark; or a #rrggbb colour)
+# Apps that match nothing get the default line at the end. To add an app: copy one line and change the pattern (see the app id with
+# `swaymsg -t get_tree | grep app_id`).
+^(kitty|foot|footclient|alacritty|wezterm|ghostty|konsole|xterm|org\.wezfurlong\.wezterm|com\.mitchellh\.ghostty)$	terminal	x4
+^(btop|htop|bpytop|bottom|plasma-systemmonitor|gnome-system-monitor|resources)$	monitoring	x2
+^(firefox|firefox-esr|librewolf|zen|zen-browser|waterfox|floorp|org\.mozilla\.firefox)$	public	x1
+^(chromium|chromium-browser|google-chrome|brave-browser|vivaldi.*|microsoft-edge|org\.chromium\.chromium|chrome)$	language	x3
+^(org\.qutebrowser\.qutebrowser|qutebrowser|falkon|epiphany|org\.gnome\.epiphany)$	language	x3
+^(org\.kde\.dolphin|dolphin|nemo|thunar|nautilus|org\.gnome\.nautilus|pcmanfm|pcmanfm-qt|krusader|org\.kde\.krusader)$	folder	x6
+^(code-oss|code|code-url-handler|codium|vscodium|cursor|zed|dev\.zed\.zed|windsurf|antigravity|jetbrains-.*)$	code	x5
+^(geany|kate|org\.kde\.kate|gedit|org\.gnome\.gedit|gnome-text-editor|org\.gnome\.texteditor|mousepad|emacs|gvim|nvim|neovide)$	edit_note	x11
+^(discord|vesktop|webcord|armcord|legcord|discordcanary|chrome-discord.*)$	forum	x4
+^(telegram-desktop|org\.telegram\.desktop|telegramdesktop|signal|signal-desktop|element|org\.signal\.signal|whatsapp.*|slack|teams.*)$	chat	x2
+^(audacious|org\.atheme\.audacious|spotify|rhythmbox|lollypop|strawberry|clementine|deadbeef|ncspot|cmus|youtube-music.*)$	music_note	x2
+^(mpv|vlc|org\.videolan\.vlc|celluloid|io\.github\.celluloid_player\.celluloid|totem|smplayer|haruna|org\.kde\.haruna)$	play_circle	x1
+^(steam|steam_app_.*|lutris|net\.lutris\.lutris|heroic|com\.heroicgameslauncher\.hgl|wine|explorer\.exe|gamescope|prismlauncher|org\.prismlauncher\.prismlauncher|bottles|com\.usebottles\.bottles)$	sports_esports	x3
+^(gimp|gimp-.*|krita|org\.kde\.krita|inkscape|org\.inkscape\.inkscape|blender|blender-.*|aseprite|pinta|mypaint)$	brush	x6
+^(libreoffice.*|soffice|onlyoffice.*|wps|wpsoffice|calligra.*|org\.libreoffice\..*)$	description	x11
+^(okular|org\.kde\.okular|zathura|org\.pwmt\.zathura|evince|org\.gnome\.evince|atril|foliate|com\.github\.johnfactotum\.foliate)$	picture_as_pdf	x1
+^(pavucontrol|org\.pulseaudio\.pavucontrol|pavucontrol-qt|easyeffects|com\.github\.wwmm\.easyeffects|helvum|qpwgraph|org\.rncbc\.qpwgraph)$	tune	x12
+^(obs|com\.obsproject\.studio|obs-studio|simplescreenrecorder|kooha)$	videocam	x1
+^(qbittorrent|org\.qbittorrent\.qbittorrent|transmission-gtk|transmission|deluge|org\.transmissionbt\.transmission.*|fragments)$	download	x13
+^(end4pC-settings)$	settings	x4
+^(end4pC-tools)$	handyman	x6
+^(nm-connection-editor|blueman-manager|blueberry|bluedevil.*|iwgtk)$	settings_ethernet	x12
+^(kdeconnect.*|org\.kde\.kdeconnect.*)$	devices	x12
+^(rofi|wofi|tofi|bemenu)$	search	x6
+^(zenity|yad|org\.gnome\.zenity|polkit.*|lxqt-policykit.*)$	info	x3
+^(scratchpad|scratchpad_input|editor|org|floating)$	sticky_note_2	x11
+^(imv|sxiv|nsxiv|feh|eog|org\.gnome\.eog|loupe|org\.gnome\.loupe|gwenview|org\.kde\.gwenview|ristretto)$	image	x6
+^(virt-manager|org\.virt-manager\.virt-manager|virtualbox|qemu.*|vmware.*)$	computer	x13
+^(keepassxc|org\.keepassxc\.keepassxc|bitwarden|1password)$	key	x1
+^(thunderbird|org\.mozilla\.thunderbird|evolution|geary|org\.gnome\.geary|kmail|org\.kde\.kmail2)$	mail	x2
+# Anything else
+.*	widgets	x10

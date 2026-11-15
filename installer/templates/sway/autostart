@@ -1,0 +1,32 @@
+# >> Run with every reload
+exec_always {
+    # Xwayland app settings
+    test -f ~/.Xdefaults && xrdb ~/.Xdefaults
+}
+
+# >> Run once on login
+exec {
+    # The environment the session services and portals need (sway does not export it by itself)
+    # (Qt takes the KDE theme, so the colours the shell writes apply live; Electron runs on Wayland; the KDE menu. Hyprland sets the same with hl.env,
+    # niri in its session file, scripts/start-sway exports them: sway has no setting for it, so the apps it does not start itself get them here,
+    # through D-Bus and systemd, and the shell below starts with them, so everything it launches has them too.)
+    dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=sway SWAYSOCK DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS QT_QPA_PLATFORM='wayland;xcb' QT_QPA_PLATFORMTHEME=kde XDG_MENU_PREFIX=plasma- ELECTRON_OZONE_PLATFORM_HINT=auto
+    sh -c "sleep 1 && dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP"
+
+    # Session services, as on Hyprland and niri
+    $HOME/.config/hypr/hyprland/scripts/start_geoclue_agent.sh
+    gnome-keyring-daemon --start --components=secrets
+    easyeffects --hide-window --service-mode
+
+    # Clipboard history (Mod+V)
+    wl-paste --type text --watch cliphist store
+    wl-paste --type image --watch cliphist store
+
+    # Title bars: a glyph per app in the shell's colours (scripts/title-glyphs; one instance, ends with sway)
+    $sway/title-glyphs
+
+    # The shell: bar, launcher, notifications, widgets, wallpaper, dock, polkit, OSD... (`end4pC run` does nothing when it is already running)
+    env QT_QPA_PLATFORM='wayland;xcb' QT_QPA_PLATFORMTHEME=kde XDG_MENU_PREFIX=plasma- ELECTRON_OZONE_PLATFORM_HINT=auto $end4pc run
+}
+
+# vim:set ft=conf:

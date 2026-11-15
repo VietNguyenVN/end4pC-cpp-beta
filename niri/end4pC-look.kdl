@@ -1,0 +1,68 @@
+// Look of the windows on niri, as on Hyprland: round corners (decoration rounding 22 in the Hyprland setup).
+// niri only has circular corners (Hyprland's rounding_power 2.5 makes them a little squarer).
+window-rule {
+    geometry-corner-radius 22
+    clip-to-geometry true
+}
+
+// Settings and Tools: always floating, centred, at the size they have on Hyprland. They draw their own big rounded corners,
+// so niri adds none (no corner clipping, no border, no ring, no shadow).
+window-rule {
+    match app-id=r#"^end4pC-settings$"#
+    open-floating true
+    default-column-width { fixed 1000; }
+    default-window-height { fixed 720; }
+    geometry-corner-radius 0
+    clip-to-geometry false
+    border { off; }
+    focus-ring { off; }
+    shadow { off; }
+}
+window-rule {
+    match app-id=r#"^end4pC-tools$"#
+    open-floating true
+    default-column-width { fixed 1240; }
+    default-window-height { fixed 740; }
+    geometry-corner-radius 0
+    clip-to-geometry false
+    border { off; }
+    focus-ring { off; }
+    shadow { off; }
+}
+
+// kitty: always floating too, 55% of the screen in width and height (as on Hyprland)
+window-rule {
+    match app-id=r#"^kitty$"#
+    open-floating true
+    default-column-width { proportion 0.55; }
+    default-window-height { proportion 0.55; }
+    // kitty is translucent (background_opacity): the blur shows through it, as on Hyprland
+    background-effect {
+        blur true
+    }
+}
+
+// Spacing, as on Hyprland (gaps_in 2, gaps_out 5): 4 px between two windows (2 + 2) and 5 px between a window and the edge of
+// the screen. niri's `gaps` is both the space between windows and the margin at the edges, so the edge gets 1 px more as a strut.
+layout {
+    gaps 4
+    struts {
+        left 1
+        right 1
+        top 1
+        bottom 1
+    }
+}
+
+// Audacious: always opens maximized
+window-rule {
+    match app-id=r#"^audacious$"#
+    open-maximized true
+}
+
+// Discord and Geany: always open maximized too
+window-rule {
+    match app-id=r#"^discord$"#
+    match app-id=r#"^[Gg]eany$"#
+    open-maximized true
+}

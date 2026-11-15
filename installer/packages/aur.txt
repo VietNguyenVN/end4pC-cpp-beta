@@ -1,0 +1,9 @@
+# Packages of the AUR (needs yay or paru). Every one is optional: if one fails, the install goes on.
+# They are installed with `--needed`, so the ones you already have are skipped. `name|path:/some/path` and `name|font:Family` are also
+# skipped when that path or that font is already on the machine, whichever package put it there (some AUR packages conflict).
+mpvpaper
+ttf-material-symbols-variable-git
+adw-gtk-theme-git
+kde-material-you-colors
+whitesur-icon-theme|path:~/.local/share/icons/WhiteSur-dark
+darkly-bin

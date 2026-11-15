@@ -1,0 +1,100 @@
+# >> SwayFX settings
+shadows enable
+shadows_on_csd enable
+shadow_blur_radius 50
+shadow_color #0000007F
+# The same rounding as on Hyprland and niri (sway does not accept comments after a command)
+corner_radius 22
+blur disable
+titlebar_separator disable
+# layer_effects 'rofi' 'shadows enable'
+
+# >> Wallpaper
+# (the shell draws the wallpaper itself: no `output * bg` here)
+
+# >> Titlebar and border configuration
+# SwayFX BUG: https://github.com/WillPower3309/swayfx/issues/201
+# Looks off if > 0
+titlebar_border_thickness 0
+
+set $border_width 0
+
+# All windows have a title bar by default
+for_window [app_id=".*"] border normal $border_width
+
+# Disable titlebar for certain windows
+for_window {
+    [app_id="^zenity$"] border pixel $border_width
+    [app_id="^vpn$"] border pixel $border_width
+    [app_id="^editor$"] border pixel $border_width
+    [app_id="^org$"] border pixel $border_width
+    [app_id="firefox"] border pixel $border_width
+    [class="Chromium"] border pixel $border_width
+    [app_id="Chromium"] border pixel $border_width
+    [app_id="org.qutebrowser.qutebrowser"] border pixel $border_width
+    [title=".* is sharing your screen."] border pixel $border_width
+    [app_id="firefox" title="Firefox — Sharing Indicator"] border pixel $border_width
+    [app_id="gimp-2.99" title="GIMP Startup"] border pixel $border_width
+    [app_id="com.github.maoschanz.drawing"] border pixel $border_width
+    [class="^battle.net.exe$"] border pixel $border_width
+    [class="^steam$"] border pixel $border_width
+    [class="^leagueclient.exe$"] border pixel $border_width
+    [class="^leagueclientux.exe$"] border pixel $border_width
+    [app_id="^chrome$"] border pixel $border_width
+}
+
+# This font will only be visible in container titlebars, not window titlebars.
+# Window titlebar font is set manually with pango (see font_desc in $title_text)
+font pango:Google Sans Flex 11
+# Due to the large size of the font above, we do not need more vertical padding
+# so we set it to 0.
+titlebar_padding 2 4
+title_align left
+
+# >> Title bar text: a big dot with the app's glyph inside it, and the title, set per window by scripts/title-glyphs (it reads app-glyphs.tsv and the
+# palette). The title text is `Google Sans Flex 11`; windows the daemon has not seen yet just show the title.
+# (No `for_window ... title_format` here on purpose: sway runs for_window again on every reload and would wipe the glyphs.)
+
+# >> Colors
+# class                   border  bg      text    ind     child_border
+client.focused            "$xbg"  "$xbg"  "$xfg"  "$xbg"  "$xbg"
+client.focused_inactive   "$xbg"  "$xbg"  "$x8"   "$xbg"  "$xbg"
+client.focused_tab_title  "$xbg"  "$xbg"  "$x8"
+client.unfocused          "$xbg"  "$xbg"  "$x8"   "$xbg"  "$xbg"
+client.urgent             "$xbg"  "$xbg"  "$x1"   "$xbg"  "$xbg"
+client.placeholder        "$xbg"  "$xbg"  "$x8"   "$xbg"  "$xbg"
+client.background                 "$xbg"
+
+# >> Gaps
+gaps outer 0
+gaps inner 10
+
+# >> Cursor
+# Name of the cursor theme directory in ~/.icons
+set $cursor_theme Bibata-Modern-Ice
+set $cursor_size 24
+
+seat seat0 xcursor_theme $cursor_theme $cursor_size
+
+# >> GTK (the theme and fonts are the ones the shell sets from Settings; only the cursor and the dark scheme here)
+exec {
+    gsettings set org.gnome.desktop.interface cursor-theme $cursor_theme
+    gsettings set org.gnome.desktop.interface cursor-size $cursor_size
+    gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
+}
+
+# >> Misc
+show_marks no
+
+# vim:set ft=conf:
+
+# >> end4pC's own windows (Settings, Tools): floating, centred, no title bar (they draw their own rounded corners)
+for_window {
+    [app_id="^end4pC-settings$"] floating enable, border pixel 0, resize set 1000 720, move position center
+    [app_id="^end4pC-tools$"] floating enable, border pixel 0, resize set 1240 740, move position center
+}
+
+# >> Blur for kitty (it is translucent: background_opacity in kitty.conf). Only kitty is blurred, so the GPU cost stays small; to blur every
+# translucent window use `blur enable` above instead. xray off: the blur shows the windows behind it, not only the wallpaper.
+blur_xray disable
+for_window [app_id="^kitty$"] blur enable

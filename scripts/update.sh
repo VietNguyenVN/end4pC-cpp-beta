@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# end4pC update: brings the shell (a git checkout of ~/.config/end4pC) to the latest published version and rebuilds it. Only the shell's own
+# code and assets change (this folder); the user's settings (~/.config/end4pC-user), the dotfiles and every compositor config are never touched.
+#
+#   end4pC update              look for a newer version; show what changed and ask before applying it
+#   end4pC update --check      only say whether there is one
+#   end4pC update -y           apply it without asking
+#   end4pC update --rollback   go back to the version and the build that ran before the last update
+# It follows the `stable` branch of the checkout's own `origin` (`main` when there is no `stable`); END4PC_BRANCH picks another.
+set -euo pipefail
+
+PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD="$PROJECT/build"
+ROLLBACK="$BUILD/.rollback"
+BINS=(end4pC end4pC-settings end4pC-tools end4pC-lock)
+
+if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; R=$'\e[31m'; N=$'\e[0m'; else B= G= R= N=; fi
+die() { echo "${R}error:${N} $*" >&2; exit 1; }
+say() { echo "${B}==>${N} $*"; }
+git() { command git -C "$PROJECT" "$@"; }
+
+CHECK=0 YES=0 BACK=0
+for a in "$@"; do
+    case "$a" in
+        --check) CHECK=1 ;;
+        -y|--yes) YES=1 ;;
+        --rollback) BACK=1 ;;
+        -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown option: $a (try --help)" ;;
+    esac
+done
+
+restore_bins() { for b in "${BINS[@]}"; do [ -f "$ROLLBACK/$b" ] && install -m755 "$ROLLBACK/$b" "$BUILD/$b"; done; return 0; }
+restart_hint() { echo "Restart the shell to load it: SUPER + R, or  end4pC restart"; }
+version() { tr -d '[:space:]' < "$PROJECT/VERSION" 2>/dev/null || git rev-parse --short HEAD; }
+
+[ -d "$PROJECT/.git" ] || die "$PROJECT is not a git checkout: install with  git clone <repository> ~/.config/end4pC  and run installer/install.sh"
+command -v git >/dev/null || die "git is needed"
+command -v ninja >/dev/null || die "ninja is needed (the installer sets it up)"
+
+if [ "$BACK" = 1 ]; then
+    [ -f "$ROLLBACK/commit" ] || die "there is no previous version to go back to"
+    git reset --hard "$(cat "$ROLLBACK/commit")" >/dev/null
+    restore_bins
+    say "went back to $(version)"
+    restart_hint
+    exit 0
+fi
+
+git remote get-url origin >/dev/null 2>&1 || die "this checkout has no 'origin' remote to update from"
+say "installed: $(version). Looking for news on origin ..."
+git fetch --quiet origin || die "could not reach the repository (no network, or it is private)"
+BRANCH="${END4PC_BRANCH:-}"
+if [ -z "$BRANCH" ]; then
+    if git rev-parse --verify --quiet "refs/remotes/origin/stable" >/dev/null; then BRANCH=stable; else BRANCH=main; fi
+fi
+git rev-parse --verify --quiet "refs/remotes/origin/$BRANCH" >/dev/null || die "origin has no branch '$BRANCH'"
+TARGET="origin/$BRANCH"
+
+BEHIND="$(git rev-list --count "HEAD..$TARGET")"
+AHEAD="$(git rev-list --count "$TARGET..HEAD")"
+if [ "$BEHIND" = 0 ]; then
+    [ "$AHEAD" = 0 ] && say "${G}you are up to date${N} ($(version))" || say "nothing newer on $TARGET (this checkout has $AHEAD commit(s) of its own)"
+    exit 0
+fi
+[ "$AHEAD" = 0 ] || die "this checkout has $AHEAD commit(s) that $TARGET does not: update it by hand (git pull --rebase) so they are not lost"
+say "${G}$BEHIND new commit(s)${N} on $TARGET:"
+git log --format='  %h %s' "HEAD..$TARGET" | head -20
+[ "$BEHIND" -le 20 ] || echo "  ... and $((BEHIND - 20)) more"
+[ "$CHECK" = 0 ] || exit 0
+
+[ -z "$(git status --porcelain --untracked-files=no)" ] || die "files of the shell were changed here (git status): a fast-forward would overwrite them; undo or commit them first"
+if [ "$YES" = 0 ]; then
+    [ -t 0 ] || die "it asks before updating: run it in a terminal, or add -y"
+    read -r -p "Update now? Only the shell's code and assets change; your settings and dotfiles stay. [y/N] " ans
+    case "$ans" in y|Y|yes|s|S|si) ;; *) echo "nothing changed"; exit 0 ;; esac
+fi
+
+say "keeping the current version and build for --rollback"
+PREV="$(git rev-parse HEAD)"
+rm -rf "$ROLLBACK"; mkdir -p "$ROLLBACK"
+echo "$PREV" > "$ROLLBACK/commit"
+for b in "${BINS[@]}"; do [ -f "$BUILD/$b" ] && cp -p "$BUILD/$b" "$ROLLBACK/$b"; done
+
+say "pulling"
+git merge --ff-only --quiet "$TARGET" || die "the fast-forward was refused"
+
+say "building"
+cd "$PROJECT"
+if ! { [ -d "$BUILD" ] || meson setup "$BUILD"; } || ! ninja -C "$BUILD"; then
+    echo "${R}the build failed:${N} going back to the previous version" >&2
+    git reset --hard "$PREV" >/dev/null
+    restore_bins
+    exit 1
+fi
+say "${G}updated to $(version)${N}"
+restart_hint

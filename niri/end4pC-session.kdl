@@ -1,0 +1,30 @@
+// end4pC for niri: the session environment and services the shell needs, so it works whatever the rest of config.kdl holds
+// (the niri counterpart of hyprland/env.lua + execs.lua of the Hyprland setup). Include it from ~/.config/niri/config.kdl:
+//     include "~/.config/end4pC/niri/end4pC-session.kdl"
+// niri does not set any of this by itself.
+
+// Themes. Qt apps take the KDE theme (colors, icons and fonts from kdeglobals, which the shell keeps in sync with the wallpaper:
+// Settings -> Appearance -> Templates -> KDE), Electron apps run on Wayland, the KDE menu categories are used.
+// niri does not expand $HOME in environment values: the Flatpak apps of the user are found by the shell's launcher on its own
+// (it reads ~/.local/share/flatpak/exports itself), so only the system paths are listed here.
+environment {
+    QT_QPA_PLATFORM "wayland;xcb"
+    QT_QPA_PLATFORMTHEME "kde"
+    XDG_MENU_PREFIX "plasma-"
+    ELECTRON_OZONE_PLATFORM_HINT "auto"
+    XDG_DATA_DIRS "/var/lib/flatpak/exports/share:/usr/local/share:/usr/share"
+}
+
+// Session services, the same ones the Hyprland setup starts.
+// The D-Bus activation environment: the portals, the keyring and the apps started over D-Bus need the display.
+spawn-at-startup "dbus-update-activation-environment" "--all"
+spawn-at-startup "sh" "-c" "sleep 1 && dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP"
+// The keyring (the lock screen can open it with the login password: Settings -> General)
+spawn-at-startup "gnome-keyring-daemon" "--start" "--components=secrets"
+// The clipboard history of the launcher (Super+V)
+spawn-at-startup "wl-paste" "--type" "text" "--watch" "bash" "-c" "cliphist store"
+spawn-at-startup "wl-paste" "--type" "image" "--watch" "bash" "-c" "cliphist store"
+// The location agent for the weather by position (geoclue; the shell falls back to the IP's place without it)
+spawn-at-startup "sh" "-c" "pgrep -f geoclue-2.0/demos/agent >/dev/null || for a in /usr/libexec/geoclue-2.0/demos/agent /usr/lib/geoclue-2.0/demos/agent; do [ -x \"$a\" ] && exec \"$a\"; done"
+// The cursor for GTK apps, from the KDE settings (the shell's Settings -> System -> Cursor writes both)
+spawn-at-startup "sh" "-c" "t=$(kreadconfig6 --file kcminputrc --group Mouse --key cursorTheme 2>/dev/null); s=$(kreadconfig6 --file kcminputrc --group Mouse --key cursorSize 2>/dev/null); [ -n \"$t\" ] && gsettings set org.gnome.desktop.interface cursor-theme \"$t\"; [ -n \"$s\" ] && gsettings set org.gnome.desktop.interface cursor-size \"$s\"; true"

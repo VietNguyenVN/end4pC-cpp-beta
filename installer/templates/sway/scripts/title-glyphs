@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""Window title bars of sway: a Material Symbols glyph for the app, in the shell's palette colours.
+
+  title-glyphs             the daemon (start it once from the sway config: `exec ~/.config/sway/scripts/title-glyphs`)
+  title-glyphs --refresh   asks a running daemon to apply everything again now
+
+What it does: for every window (the ones that exist when it starts and every new one) it looks the app up in ~/.config/sway/app-glyphs.tsv
+and sets that window's `title_format` to  <big dot in the app's colour with the glyph inside it><title>. It also watches the shell's palette (the file matugen
+writes through the shell: ~/.local/state/end4pC/generated/colors.json): when it changes it rewrites ~/.config/sway/end4pC-colors
+(scripts/sway-palette), reloads sway and applies the new colours to every window. Edit app-glyphs.tsv or end4pC-colors and the change is
+applied within two seconds. One instance only; it exits when sway does. Quiet on errors.
+"""
+import fcntl
+import json
+import os
+import re
+import select
+import signal
+import subprocess
+import sys
+import time
+
+HOME = os.path.expanduser("~")
+RUN = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+CONFIG = os.environ.get("XDG_CONFIG_HOME") or HOME + "/.config"
+STATE = os.environ.get("XDG_STATE_HOME") or HOME + "/.local/state"
+SWAYDIR = CONFIG + "/sway"
+TSV = SWAYDIR + "/app-glyphs.tsv"
+COLORS = SWAYDIR + "/end4pC-colors"
+PALETTE_SRC = STATE + "/end4pC/generated/colors.json"
+PALETTE_SCRIPT = SWAYDIR + "/scripts/sway-palette"
+LOCK = RUN + "/sway-title-glyphs.lock"
+# The pill: a big coloured dot with the app's glyph drawn INSIDE it (the dot's negative letter_spacing pulls the glyph back over the
+# dot's centre), then the title. Measured on the real title bar (28 px high, `titlebar_padding 2 4`, Google Sans Flex 11): dot and glyph
+# are centred on the bar's middle (5 px above and below the dot) and on the title's x-height (the title is raised 1 px).
+DOT_FONT = "DejaVu Sans 18"          # a clean "●" (U+25CF) that does not depend on the fallback font
+GLYPH_FONT = "Material Symbols Rounded 12 @FILL=1"   # the filled glyph reads better inside the dot
+TITLE_FONT = "Google Sans Flex 11"
+# The dot is made of three "●" laid on each other, so the pill is a bit wider than a circle (the glyph then sits in the middle of it, not
+# in a ball it nearly fills). Each number is that dot's negative letter_spacing, in pango units (1/1024 px), tuned with a render of the real
+# markup: the first two set how far apart the dots are (about 3 px each, a pill 6 px wider than one dot), the last one pulls the glyph back
+# to the middle of the three. For the plain round dot as before: DOT_PULLS = (35680,).
+DOT_PULLS = (15168, 15168, 36240)
+DOT_RISE = -1024                     # the dot 1 px lower: centred in the bar
+GLYPH_RISE = -3584                   # the glyph 3.5 px lower: centred on the dot
+TITLE_GAP_SPACES = 2                 # blank spaces between the pill and the title (each is about 3 px)
+TITLE_RISE = 1024                    # the title 1 px higher: its x-height is centred in the bar
+POLL_SECONDS = 2.0
+
+
+def swaymsg(*args):
+    try:
+        return subprocess.run(["swaymsg", *args], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def mtime(path):
+    try:
+        return os.stat(path).st_mtime_ns
+    except OSError:
+        return 0
+
+
+def luminance(hexcolor):
+    try:
+        r, g, b = (int(hexcolor[i:i + 2], 16) for i in (1, 3, 5))
+    except (ValueError, IndexError):
+        return 255
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def load_colors():
+    """$name -> #rrggbb from the sway colour file."""
+    out = {}
+    try:
+        with open(COLORS, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"\s*set\s+\$(\w+)\s+(#[0-9a-fA-F]{6})", line)
+                if m:
+                    out[m.group(1)] = m.group(2)
+    except OSError:
+        pass
+    return out
+
+
+def load_rules():
+    rules = []
+    try:
+        with open(TSV, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("#") or not line.strip():
+                    continue
+                cols = line.rstrip("\n").split("\t")
+                if len(cols) < 2:
+                    continue
+                try:
+                    rules.append((re.compile(cols[0], re.I), cols[1].strip(), (cols[2].strip() if len(cols) > 2 else "x10")))
+                except re.error:
+                    continue
+    except OSError:
+        pass
+    return rules
+
+
+class Glyphs:
+    def __init__(self):
+        self.colors = load_colors()
+        self.rules = load_rules()
+        self.applied = {}  # container id -> the format last sent
+
+    def key_of(self, node):
+        props = node.get("window_properties") or {}
+        return (node.get("app_id") or props.get("class") or props.get("instance") or "").strip()
+
+    def format_for(self, key):
+        glyph, slot = "widgets", "x10"
+        for rx, g, s in self.rules:
+            if rx.search(key or ""):
+                glyph, slot = g, s
+                break
+        color = slot if slot.startswith("#") else self.colors.get(slot.lstrip("$"), self.colors.get("x10", "#c7c8af"))
+        on = self.colors.get("xfg", "#e5e2de") if luminance(color) < 110 else self.colors.get("xbg", "#1c1c19")  # the glyph on the dot: dark on light accents
+        dots = "".join("<span font_desc='%s' foreground='%s' letter_spacing='-%d' rise='%d'>\u25cf</span>" % (DOT_FONT, color, pull, DOT_RISE) for pull in DOT_PULLS)
+        return (dots +
+                "<span font_desc='%s' foreground='%s' rise='%d'>%s</span>"
+                "<span font_desc='%s' rise='%d'>%s%%title </span>"
+                % (GLYPH_FONT, on, GLYPH_RISE, re.sub(r"[^a-z0-9_]", "", glyph.lower()), TITLE_FONT, TITLE_RISE, " " * TITLE_GAP_SPACES))
+
+    def apply_nodes(self, nodes, force=False):
+        cmds = []
+        for node in nodes:
+            cid = node.get("id")
+            if not cid or node.get("type") not in ("con", "floating_con") or node.get("pid") is None and not node.get("app_id"):
+                continue
+            fmt = self.format_for(self.key_of(node))
+            if force or self.applied.get(cid) != fmt:
+                self.applied[cid] = fmt
+                cmds.append('[con_id=%d] title_format "%s"' % (cid, fmt))
+        for i in range(0, len(cmds), 20):
+            swaymsg("; ".join(cmds[i:i + 20]))
+
+    def windows(self):
+        try:
+            tree = json.loads(swaymsg("-t", "get_tree"))
+        except ValueError:
+            return []
+        found = []
+
+        def walk(n):
+            if n.get("type") in ("con", "floating_con") and not n.get("nodes") and not n.get("floating_nodes") and (n.get("app_id") or n.get("window_properties")):
+                found.append(n)
+            for c in (n.get("nodes") or []) + (n.get("floating_nodes") or []):
+                walk(c)
+
+        walk(tree)
+        return found
+
+    def refresh(self):
+        self.colors = load_colors()
+        self.rules = load_rules()
+        wins = self.windows()
+        self.applied = {k: v for k, v in self.applied.items() if k in {w.get("id") for w in wins}}
+        self.apply_nodes(wins, force=True)
+
+
+def apply_colours():
+    """The title bars' colours, now, without reloading sway: a reload freezes the whole screen for a third of a second (more with many
+    windows) every time the wallpaper's palette changes. The `client.*` lines of ~/.config/sway/appearance are run as commands, with
+    the $variables of end4pC-colors put in; if there are none (another layout of the config), it falls back to the reload."""
+    try:
+        with open(COLORS, encoding="utf-8") as f:
+            colours = dict(re.findall(r"^set\s+\$(\w+)\s+(#[0-9a-fA-F]{6,8})", f.read(), re.M))
+        with open(SWAYDIR + "/appearance", encoding="utf-8") as f:
+            lines = [l.strip() for l in f if re.match(r"\s*client\.\w+\s", l)]
+    except OSError:
+        lines = []
+        colours = {}
+    cmds = []
+    for line in lines:
+        line = re.sub(r"\"?\$(\w+)\"?", lambda m: colours.get(m.group(1), m.group(0)), line)
+        if "$" in line:  # a variable that end4pC-colors does not have
+            cmds = []
+            break
+        cmds.append(line)
+    if cmds:
+        swaymsg("; ".join(cmds))
+    else:
+        swaymsg("reload")
+
+
+def main(argv):
+    if argv[1:] == ["--refresh"]:
+        try:
+            with open(LOCK + ".pid") as f:
+                os.kill(int(f.read().strip()), signal.SIGUSR1)
+        except (OSError, ValueError):
+            return 1
+        return 0
+    if not os.environ.get("SWAYSOCK"):
+        return 0
+    lock = open(LOCK, "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return 0  # already running
+    with open(LOCK + ".pid", "w") as f:
+        f.write(str(os.getpid()))
+
+    state = {"refresh": False}
+    signal.signal(signal.SIGUSR1, lambda *_: state.update(refresh=True))
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
+    g = Glyphs()
+    g.refresh()
+    sub = subprocess.Popen(["swaymsg", "-t", "subscribe", "-m", '["window"]'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    watched = {COLORS: mtime(COLORS), TSV: mtime(TSV), PALETTE_SRC: mtime(PALETTE_SRC)}
+    buf = ""
+    while True:
+        try:
+            ready, _, _ = select.select([sub.stdout], [], [], POLL_SECONDS)
+        except InterruptedError:
+            ready = []
+        except (OSError, ValueError):
+            break
+        if ready:
+            chunk = os.read(sub.stdout.fileno(), 65536).decode("utf-8", "replace")
+            if not chunk:
+                break  # sway is gone
+            buf += chunk
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                node = ev.get("container") or {}
+                if ev.get("change") == "close":
+                    g.applied.pop(node.get("id"), None)
+                elif ev.get("change") in ("new", "title", "focus", "move"):
+                    g.apply_nodes([node])
+        now = {p: mtime(p) for p in watched}
+        if now[PALETTE_SRC] != watched[PALETTE_SRC]:
+            # The shell's palette changed: our colour file follows, sway reloads it, and every title bar takes the new colours.
+            if subprocess.run([PALETTE_SCRIPT], capture_output=True, text=True).stdout.strip() == "changed":
+                apply_colours()
+            state["refresh"] = True
+        if now[COLORS] != watched[COLORS] or now[TSV] != watched[TSV]:
+            state["refresh"] = True
+        watched = {p: mtime(p) for p in watched}
+        if state["refresh"]:
+            state["refresh"] = False
+            g.refresh()
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv))
+    except (KeyboardInterrupt, BrokenPipeError):
+        sys.exit(0)

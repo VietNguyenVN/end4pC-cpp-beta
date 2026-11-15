@@ -1,0 +1,9 @@
+# Hyprland: the compositor and its session tools. Installed when you pick Hyprland in the "Compositors" step of install.sh.
+# Official repositories (`pacman -S --needed`). hyprpicker stays in pacman.txt: the niri and sway key binds use it too.
+hyprland
+hypridle
+hyprlock
+hyprshot
+hyprsunset
+hyprpolkitagent
+xdg-desktop-portal-hyprland

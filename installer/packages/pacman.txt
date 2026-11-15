@@ -1,0 +1,86 @@
+# Packages of the official Arch repositories. One per line; '#' starts a comment.
+# install.sh installs them with `pacman -S --needed`: what is already installed is skipped.
+
+# --- to build the shell
+meson
+ninja
+gcc
+pkgconf
+wayland
+wayland-protocols
+wlr-protocols
+cairo
+pango
+gdk-pixbuf2
+librsvg
+libxkbcommon
+pam
+systemd-libs
+fontconfig
+
+# --- the session (the compositors themselves are in packages/compositors/: you pick them in the installer)
+hyprpicker
+xdg-desktop-portal-gtk
+xdg-utils
+xdg-user-dirs
+gnome-keyring
+libsecret
+polkit-kde-agent
+geoclue
+dbus
+
+# --- colours and themes
+matugen
+python
+python-pillow
+plasma-integration
+kde-cli-tools
+kvantum
+qt5ct
+qt6ct
+papirus-icon-theme
+breeze-icons
+
+# --- terminal and shell
+
+# --- screenshots, recording, clipboard
+grim
+slurp
+wf-recorder
+wl-clipboard
+cliphist
+swappy
+jq
+zenity
+imagemagick
+libnotify
+
+# --- audio, media
+pipewire
+pipewire-pulse
+pipewire-alsa
+wireplumber
+playerctl
+
+# --- network, bluetooth, power
+networkmanager
+bluez
+bluez-utils
+upower
+power-profiles-daemon
+brightnessctl
+ddcutil
+
+# --- launchers and small tools the key binds call
+curl
+wlsunset
+ydotool
+pacman-contrib
+
+# --- fonts
+ttf-jetbrains-mono-nerd
+ttf-nerd-fonts-symbols
+otf-font-awesome
+noto-fonts
+noto-fonts-emoji
+inter-font

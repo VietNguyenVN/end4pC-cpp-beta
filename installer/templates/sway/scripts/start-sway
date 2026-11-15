@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Starts sway (SwayFX) from a TTY with the same environment the Hyprland and niri sessions use (Qt takes the KDE theme, Electron runs on
+# Wayland, the Flatpak apps show in the launcher, the KDE menu). Bind it to nothing: run it from the TTY.
+export XDG_CURRENT_DESKTOP=sway
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=sway
+export QT_QPA_PLATFORM="wayland;xcb"
+export QT_QPA_PLATFORMTHEME=kde
+export XDG_MENU_PREFIX=plasma-
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+extra=()
+# NVIDIA's proprietary driver needs this flag
+if lsmod 2>/dev/null | grep -q '^nvidia '; then extra+=(--unsupported-gpu); fi
+exec sway "${extra[@]}" "$@"

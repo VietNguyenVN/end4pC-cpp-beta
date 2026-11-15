@@ -1,0 +1,210 @@
+// Pulse: a small Niri config with the keybinds I use on Hyprland.
+// Try it with:   niri -c ~/.config/niri/pulse.kdl
+// Use it for good: cp ~/.config/niri/pulse.kdl ~/.config/niri/config.kdl
+// Docs: https://niri-wm.github.io/niri/
+
+input {
+    keyboard {
+        xkb {
+            // Empty: niri reads the layout from localectl
+        }
+        numlock
+    }
+    touchpad {
+        tap
+        natural-scroll
+    }
+}
+
+layout {
+    gaps 10
+    center-focused-column "never"
+
+    preset-column-widths {
+        proportion 0.33333
+        proportion 0.5
+        proportion 0.66667
+    }
+    default-column-width { proportion 0.5; }
+
+    focus-ring {
+        off
+    }
+    border {
+        width 2
+        active-color "#cbd5c0"
+        inactive-color "#2a2a2a"
+    }
+}
+
+prefer-no-csd
+
+
+// Same cursor as the KDE settings (kcminputrc); GTK gets it from end4pC-session.kdl
+cursor {
+    xcursor-theme "Bibata-Modern-Classic"
+    xcursor-size 24
+}
+
+// X11 apps: Niri starts xwayland-satellite itself the first time an X11 client connects,
+// so there is nothing to launch by hand (a second copy would fight over the display).
+xwayland-satellite {
+    path "xwayland-satellite"
+}
+screenshot-path "~/Pictures/Screenshots/Screenshot_%Y-%m-%d_%H.%M.%S.png"
+
+hotkey-overlay {
+    skip-at-startup
+}
+
+// Session services: in ~/.config/end4pC/niri/end4pC-session.kdl (included below), with the environment the shell needs
+spawn-at-startup "easyeffects" "--hide-window" "--service-mode"
+
+// Shell
+
+binds {
+    // ───────────── Shell ─────────────
+    // Launcher: apps, calculator, clipboard (;), commands ($) and translator (.)
+    Mod+Tab hotkey-overlay-title="Overview" { toggle-overview; }
+
+    // ───────────── Screenshots, recording, OCR ─────────────
+    Print { screenshot-screen; }
+    Ctrl+Print { screenshot-screen; }
+    Alt+Print { screenshot-window; }
+    // Needs a compositor that supports screencopy; remove it if it doesn't work on Niri
+    Mod+Shift+C hotkey-overlay-title="Pick color" { spawn "hyprpicker" "-a"; }
+
+    // ───────────── Hardware ─────────────
+
+    XF86AudioRaiseVolume allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "2%+" "-l" "1.5"; }
+    XF86AudioLowerVolume allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "2%-"; }
+    XF86AudioMute allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_SINK@" "toggle"; }
+    Mod+Shift+M allow-when-locked=true hotkey-overlay-title="Toggle mute" { spawn "wpctl" "set-mute" "@DEFAULT_SINK@" "toggle"; }
+    XF86AudioMicMute allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_SOURCE@" "toggle"; }
+    Alt+XF86AudioMute allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_SOURCE@" "toggle"; }
+    Mod+Alt+M allow-when-locked=true hotkey-overlay-title="Toggle mic" { spawn "wpctl" "set-mute" "@DEFAULT_SOURCE@" "toggle"; }
+    Mod+WheelScrollUp cooldown-ms=100 { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "2%+" "-l" "1.5"; }
+    Mod+WheelScrollDown cooldown-ms=100 { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "2%-"; }
+
+    // Media
+    Mod+Shift+N allow-when-locked=true hotkey-overlay-title="Next track" { spawn "playerctl" "next"; }
+    Mod+Shift+B allow-when-locked=true hotkey-overlay-title="Previous track" { spawn "playerctl" "previous"; }
+    Mod+Shift+P allow-when-locked=true hotkey-overlay-title="Play/pause" { spawn "playerctl" "play-pause"; }
+    XF86AudioNext allow-when-locked=true { spawn "playerctl" "next"; }
+    XF86AudioPrev allow-when-locked=true { spawn "playerctl" "previous"; }
+    XF86AudioPlay allow-when-locked=true { spawn "playerctl" "play-pause"; }
+    XF86AudioPause allow-when-locked=true { spawn "playerctl" "play-pause"; }
+
+    // ───────────── Apps ─────────────
+    Mod+Return hotkey-overlay-title="Terminal" { spawn "kitty"; }
+    Ctrl+Alt+T { spawn "kitty"; }
+    Mod+E hotkey-overlay-title="File manager" { spawn "dolphin"; }
+    Mod+C hotkey-overlay-title="Code editor" { spawn "code"; }
+    Ctrl+Mod+V hotkey-overlay-title="Volume mixer" { spawn "pavucontrol"; }
+    Ctrl+Shift+Escape hotkey-overlay-title="Task manager" { spawn "kitty" "-1" "btop"; }
+
+    // ───────────── Windows ─────────────
+    Mod+Q hotkey-overlay-title="Close window" { close-window; }
+    Mod+T hotkey-overlay-title="Float / tile" { toggle-window-floating; }
+    Mod+F hotkey-overlay-title="Fullscreen" { fullscreen-window; }
+    Mod+Alt+F { toggle-windowed-fullscreen; }
+
+    Mod+Left  { focus-column-left; }
+    Mod+Right { focus-column-right; }
+    Mod+Up    { focus-window-up; }
+    Mod+Down  { focus-window-down; }
+    Mod+BracketLeft  { focus-column-left; }
+    Mod+BracketRight { focus-column-right; }
+
+    Mod+Shift+Left  { move-column-left; }
+    Mod+Shift+Right { move-column-right; }
+    Mod+Shift+Up    { move-window-up; }
+    Mod+Shift+Down  { move-window-down; }
+
+    // Split ratio
+    Mod+Semicolon  { set-column-width "-10%"; }
+    Mod+Apostrophe { set-column-width "+10%"; }
+
+    // ───────────── Workspaces ─────────────
+    Mod+1 { focus-workspace 1; }
+    Mod+2 { focus-workspace 2; }
+    Mod+3 { focus-workspace 3; }
+    Mod+4 { focus-workspace 4; }
+    Mod+5 { focus-workspace 5; }
+    Mod+6 { focus-workspace 6; }
+    Mod+7 { focus-workspace 7; }
+    Mod+8 { focus-workspace 8; }
+    Mod+9 { focus-workspace 9; }
+    Mod+0 { focus-workspace 10; }
+
+    // Send the window and follow it
+    Mod+Shift+1 { move-window-to-workspace 1; }
+    Mod+Shift+2 { move-window-to-workspace 2; }
+    Mod+Shift+3 { move-window-to-workspace 3; }
+    Mod+Shift+4 { move-window-to-workspace 4; }
+    Mod+Shift+5 { move-window-to-workspace 5; }
+    Mod+Shift+6 { move-window-to-workspace 6; }
+    Mod+Shift+7 { move-window-to-workspace 7; }
+    Mod+Shift+8 { move-window-to-workspace 8; }
+    Mod+Shift+9 { move-window-to-workspace 9; }
+    Mod+Shift+0 { move-window-to-workspace 10; }
+
+    // Send the window and stay
+    Mod+Alt+1 { move-window-to-workspace 1 focus=false; }
+    Mod+Alt+2 { move-window-to-workspace 2 focus=false; }
+    Mod+Alt+3 { move-window-to-workspace 3 focus=false; }
+    Mod+Alt+4 { move-window-to-workspace 4 focus=false; }
+    Mod+Alt+5 { move-window-to-workspace 5 focus=false; }
+    Mod+Alt+6 { move-window-to-workspace 6 focus=false; }
+    Mod+Alt+7 { move-window-to-workspace 7 focus=false; }
+    Mod+Alt+8 { move-window-to-workspace 8 focus=false; }
+    Mod+Alt+9 { move-window-to-workspace 9 focus=false; }
+    Mod+Alt+0 { move-window-to-workspace 10 focus=false; }
+
+    // Workspaces are vertical in Niri: left/right keys step through them like on Hyprland
+    Ctrl+Mod+Right { focus-workspace-down; }
+    Ctrl+Mod+Left  { focus-workspace-up; }
+    Ctrl+Mod+Down  { focus-workspace-down; }
+    Ctrl+Mod+Up    { focus-workspace-up; }
+    Ctrl+Mod+BracketRight { focus-workspace-down; }
+    Ctrl+Mod+BracketLeft  { focus-workspace-up; }
+    Mod+Page_Down { focus-workspace-down; }
+    Mod+Page_Up   { focus-workspace-up; }
+    Ctrl+Mod+Alt+Right { focus-monitor-right; }
+    Ctrl+Mod+Alt+Left  { focus-monitor-left; }
+
+    Mod+Alt+Page_Down { move-window-to-workspace-down; }
+    Mod+Alt+Page_Up   { move-window-to-workspace-up; }
+    Mod+Shift+Page_Down { move-window-to-workspace-down; }
+    Mod+Shift+Page_Up   { move-window-to-workspace-up; }
+    Ctrl+Mod+Shift+Right { move-window-to-workspace-down; }
+    Ctrl+Mod+Shift+Left  { move-window-to-workspace-up; }
+
+    // ───────────── Session ─────────────
+    Mod+L hotkey-overlay-title="Lock" { spawn "loginctl" "lock-session"; }
+    Mod+Shift+L allow-when-locked=true hotkey-overlay-title="Suspend" { spawn "sh" "-c" "systemctl suspend || loginctl suspend"; }
+    Ctrl+Shift+Alt+Mod+Delete hotkey-overlay-title="Shutdown" { spawn "sh" "-c" "systemctl poweroff || loginctl poweroff"; }
+    Mod+Shift+E hotkey-overlay-title="Quit Niri" { quit; }
+    Mod+Shift+Slash { show-hotkey-overlay; }
+}
+
+// Binds of the Hyprland setup that niri lacked
+include "~/.config/niri/hyprland-parity.kdl"
+
+// end4pC shell: its key binds (they replace older binds on the same keys, such as Mod+Space, Mod+M, Mod+Escape, Mod+Shift+S, Mod+L)
+include "~/.config/end4pC/niri/end4pC-binds.kdl"
+
+// end4pC: round corners on every window, as on Hyprland
+include "~/.config/end4pC/niri/end4pC-look.kdl"
+
+// end4pC: the session environment (Qt/KDE theme, Electron on Wayland) and services (keyring, clipboard history, geoclue, cursor)
+include "~/.config/end4pC/niri/end4pC-session.kdl"
+
+// end4pC shell: layer rules (blur) and its start line (`end4pC run`)
+include "~/.config/end4pC/niri/end4pC.kdl"
+
+// end4pC: window border colours, from the wallpaper palette (matugen writes this file), 1 px like on Hyprland
+include "~/.config/niri/end4pC-colors.kdl"
+
+// end4pC: what Settings -> Niri changes (it wins over the files included before it)
+include "~/.config/niri/end4pC-user.kdl"

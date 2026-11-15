@@ -1,0 +1,6 @@
+[config]
+version_check = false
+
+[templates.colors]
+input_path = '~/.config/end4pC/matugen/colors.json.tpl'
+output_path = '~/.local/state/end4pC/generated/colors.json'

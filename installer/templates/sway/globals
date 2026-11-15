@@ -1,0 +1,61 @@
+set {
+    # Vi-keys
+    $left h
+    $down j
+    $up k
+    $right l
+
+    # Sway scripts directory
+    $sway $HOME/.config/sway/scripts
+
+    # The shell: its command line (launcher, settings, power menu...)
+    $end4pc $HOME/.config/end4pC/build/end4pC
+
+    $screenshots_dir $HOME/Pictures/Screenshots
+
+    # Terminal emulator
+    # Use `-1` for the single-instance feature of kitty to reduce startup time
+    $term kitty -1
+
+    # Application launcher: the shell's own (rofi stays on $mod+d: $sway/rofi-sway)
+    $menu $end4pc launcher toggle
+
+    # Nightmode: the shell's night light toggle (wlsunset)
+    $cmd_nightmode_toggle $HOME/.config/end4pC/scripts/cc.sh toggle night
+
+    $cmd_volume_lower "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-"
+    $cmd_volume_raise "wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 && wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 2%+"
+    $cmd_volume_mute "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+    $cmd_microphone_mute "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
+
+    $cmd_brightness_lower "$end4pc 'brightness down'"
+    $cmd_brightness_raise "$end4pc 'brightness up'"
+
+    # Move and resize steps
+    $move_px 20
+    $resize_px 20
+
+    # Workspace names
+    $ws1 1
+    $ws2 2
+    $ws3 3
+    $ws4 4
+    $ws5 5
+    $ws6 6
+    $ws7 7
+    $ws8 8
+    $ws9 9
+    $ws10 10
+
+    # >> Misc
+    # Send tick to trigger a split indicator update.
+    # The $post_split command is added as a suffix to all split keybinds.
+    $post_split exec "swaymsg -t send_tick split"
+
+    # Switch to workspace (and focus any urgent clients in it, if they exist)
+    # The $post_workspace_switch command is added as a suffix to all workspace
+    # switching keybinds.
+    $post_workspace_switch [workspace="__focused__" urgent="first"] focus
+}
+
+# vim:set ft=conf:

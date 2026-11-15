@@ -1,0 +1,28 @@
+// Binds from the Hyprland setup that niri did not have yet (no Quickshell: everything here is a plain command or an end4pC one).
+// Not ported because niri has no equivalent: scratchpad (Mod+S), cursor zoom, split ratio is already Mod+;/Mod+', fullscreen spoof.
+binds {
+    // Windows
+    Mod+Shift+Alt+Q hotkey-overlay-title="Kill window" { spawn-sh "niri msg --json focused-window | jq -r .pid | xargs -r kill -9"; }
+    Mod+Shift+F hotkey-overlay-title="Maximize (not fullscreen)" { maximize-column; }
+    Mod+Ctrl+Backslash { spawn-sh "niri msg action set-window-width 640; niri msg action set-window-height 480"; }
+
+    // Clipboard, emoji, OCR, lens
+    Mod+Shift+X hotkey-overlay-title="OCR to clipboard" { spawn-sh "pidof slurp || { grim -g \"$(slurp)\" /tmp/ocr_image.png && tesseract /tmp/ocr_image.png stdout -l $(tesseract --list-langs | awk 'NR>1{print $1}' | paste -sd+) | wl-copy; rm -f /tmp/ocr_image.png; }"; }
+    Mod+Shift+A hotkey-overlay-title="Google Lens" { spawn-sh "pidof slurp || $HOME/.config/hypr/hyprland/scripts/snip_to_search.sh"; }
+
+    // Recording: end4pC's own toggle (wf-recorder, ~/Videos)
+    Mod+Shift+R hotkey-overlay-title="Record screen" { spawn-sh "$HOME/.config/end4pC/build/end4pC 'quick 1'"; }
+    Mod+Alt+R { spawn-sh "$HOME/.config/end4pC/build/end4pC 'quick 1'"; }
+
+    // Apps
+    Mod+I hotkey-overlay-title="end4pC: settings" { spawn-sh "$HOME/.config/end4pC/build/end4pC settings"; }
+    Mod+X hotkey-overlay-title="Text editor" { spawn-sh "$HOME/.config/hypr/hyprland/scripts/launch_first_available.sh 'kate' 'gnome-text-editor' 'emacs'"; }
+    Ctrl+Mod+Shift+Alt+W hotkey-overlay-title="Office" { spawn-sh "$HOME/.config/hypr/hyprland/scripts/launch_first_available.sh 'wps' 'onlyoffice-desktopeditors' 'libreoffice'"; }
+
+    // Media buttons of the mouse
+    Mod+Shift+Alt+MouseBack { spawn "playerctl" "previous"; }
+    Mod+Shift+Alt+MouseForward { spawn "playerctl" "next"; }
+
+    // Like the "virtual machine" submap: hand every shortcut to the focused window (a VM) and back
+    Mod+Alt+F1 allow-inhibiting=false hotkey-overlay-title="Pass shortcuts to the window (VM)" { toggle-keyboard-shortcuts-inhibit; }
+}

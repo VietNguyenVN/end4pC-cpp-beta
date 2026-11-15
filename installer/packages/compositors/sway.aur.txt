@@ -1,0 +1,3 @@
+# sway (SwayFX): the AUR packages of the sway choice (needs yay or paru). The sway config of this package uses SwayFX's shadows, rounded
+# corners and layer blur: plain sway reports those lines as errors. SwayFX provides sway, so it replaces the `sway` package if you have it.
+swayfx
