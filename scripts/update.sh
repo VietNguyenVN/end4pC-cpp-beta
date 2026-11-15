@@ -49,7 +49,7 @@ fi
 
 git remote get-url origin >/dev/null 2>&1 || die "this checkout has no 'origin' remote to update from"
 say "installed: $(version). Looking for news on origin ..."
-git fetch --quiet origin || die "could not reach the repository (no network, or it is private)"
+git fetch --quiet --prune origin || die "could not reach the repository (no network, or it is private)"
 BRANCH="${END4PC_BRANCH:-}"
 if [ -z "$BRANCH" ]; then
     if git rev-parse --verify --quiet "refs/remotes/origin/stable" >/dev/null; then BRANCH=stable; else BRANCH=main; fi
