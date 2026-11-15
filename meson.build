@@ -70,3 +70,10 @@ test('textsel', executable('textsel-test', 'tests/text/test_textsel.cpp', instal
 
 # The geometry of the display arrangement editor (src/displaymap.h): `meson test -C build`, or tests/display/run.sh
 test('displaymap', executable('displaymap-test', 'tests/display/test_displaymap.cpp', install: false))
+
+# Headless media integration: real shell code with a temporary fake playerctl.
+test('media', executable('media-test', 'tests/media/test_media.cpp',
+  'src/notify_dbus.c', 'src/tray_dbus.c', 'src/polkit_dbus.c', generated,
+  cpp_args: ['-O0', '-g0'],
+  dependencies: [wayland_client, pangocairo, pangoft2, fontconfig, gdkpixbuf, rsvg, xkb, sdbus, threads],
+  install: false))

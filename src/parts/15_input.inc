@@ -442,11 +442,11 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     } else if (hit == HitNotif) {
         toggleNotifPanel(*app);
     } else if (hit == HitPrev) {
-        runDetached({"playerctl", "-p", playerSelector(app->cfg.preferredPlayer).c_str(), "previous"});
+        mediaSend(*app, {"previous"});
     } else if (hit == HitPlay) {
-        runDetached({"playerctl", "-p", playerSelector(app->cfg.preferredPlayer).c_str(), "play-pause"});
+        mediaSend(*app, {"play-pause"});
     } else if (hit == HitNext) {
-        runDetached({"playerctl", "-p", playerSelector(app->cfg.preferredPlayer).c_str(), "next"});
+        mediaSend(*app, {"next"});
     } else if (hit == HitAvatar) {
         toggleControlCenter(*app, true);
     } else if (hit == kHitStatus) {

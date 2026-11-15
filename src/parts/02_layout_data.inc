@@ -615,7 +615,7 @@ int startMusicWatcher(const std::string& preferred, pid_t* pidOut) {
         dup2(p[1], STDOUT_FILENO);
         int nul = open("/dev/null", O_WRONLY);
         dup2(nul, STDERR_FILENO);
-        execlp("playerctl", "playerctl", "-p", sel.c_str(), "-F", "metadata", "--format", "{{status}}\t{{mpris:artUrl}}\t{{artist}}\t{{title}}", nullptr);
+        execlp("playerctl", "playerctl", "-p", sel.c_str(), "-F", "metadata", "--format", "{{playerInstance}}\t{{status}}\t{{mpris:artUrl}}\t{{artist}}\t{{title}}", nullptr);
         _exit(127);
     }
     close(p[1]);

@@ -484,7 +484,7 @@ void drawControlCenter(App& app) {
         cairo_fill(cr);
         const bool playing = app.musicStatus == "Playing", have = !app.musicStatus.empty();
         const double art = 48;
-        if (C.coverKey != app.musicArtUrl) {
+        if (C.coverKey != app.musicArtUrl || (!C.cover && app.musicArt)) {
             if (C.cover) cairo_surface_destroy(C.cover);
             C.cover = app.musicArt ? loadSquare(mediaCoverPath(app), 96) : nullptr;
             C.coverKey = app.musicArtUrl;

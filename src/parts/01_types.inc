@@ -1380,6 +1380,7 @@ struct App {
     int wsCount = 0;
     std::map<int, std::string> wsMainClass;
     std::map<std::string, cairo_surface_t*> wsIcons;
+    std::string musicPlayer;  // exact MPRIS instance reported by the metadata watcher
     std::string musicStatus;
     std::string musicArtist, musicTitle;
     int musicTextW = 100;

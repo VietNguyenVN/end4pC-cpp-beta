@@ -589,7 +589,7 @@ void islandSyncCover(App& app) {
         if (!path.empty()) C.art = loadSquare(path, static_cast<int>(kIcImg * 2));
         g_icArtKey = app.musicArtUrl;
     }
-    if (app.media.coverKey != app.musicArtUrl || (!app.media.cover && !path.empty())) refreshMediaCover(app);
+    refreshMediaCoverIfNeeded(app);
 }
 
 void islandRegion(App& app) {
@@ -927,7 +927,7 @@ void islandCardButton(App& app, uint32_t button, bool pressed) {
     }
     if (held >= 0 && held == k) {
         const char* verb = held == 0 ? "previous" : held == 1 ? "play-pause" : "next";
-        runDetached({"playerctl", "-p", playerSelector(app.cfg.preferredPlayer).c_str(), verb});
+        mediaSend(app, {verb});
     }
     drawIslandCard(app);
 }

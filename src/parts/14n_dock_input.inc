@@ -191,7 +191,7 @@ void dockActivate(App& app, int idx) {
         const DockPt lp = dockPointer(app);
         const double py = lp.y - app.dock.slide * dockLH(app.dock);
         const char* cmd = app.dock.mediaNext.contains(lp.x, py) ? "next" : "play-pause";
-        runDetached({"playerctl", "-p", playerSelector(app.cfg.preferredPlayer).c_str(), cmd});
+        mediaSend(app, {cmd});
         return;
     }
     if (it.special == 1) {
@@ -222,8 +222,8 @@ void dockMenuAction(App& app, const DockItem& it, DockMenuKind kind) {
         case DockMenuPin: dockSetPinned(app, it.entryId.empty() ? it.key : it.entryId, true); break;
         case DockMenuUnpin: dockSetPinned(app, it.key, false); break;
         case DockMenuNew: dockNewInstance(app, it); break;
-        case DockMenuPrev: runDetached({"playerctl", "-p", playerSelector(app.cfg.preferredPlayer).c_str(), "previous"}); break;
-        case DockMenuNext: runDetached({"playerctl", "-p", playerSelector(app.cfg.preferredPlayer).c_str(), "next"}); break;
+        case DockMenuPrev: mediaSend(app, {"previous"}); break;
+        case DockMenuNext: mediaSend(app, {"next"}); break;
         case DockMenuPlayer: toggleMediaPanel(app); break;
         case DockMenuClose:
             if (!it.addresses.empty()) dockClose(it.addresses[0]);

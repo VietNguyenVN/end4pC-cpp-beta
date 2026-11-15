@@ -164,9 +164,21 @@ void refreshMediaCover(App& app) {
     M.coverKey = app.musicArtUrl;
 }
 
+void refreshMediaCoverIfNeeded(App& app) {
+    // A remote image can finish downloading after the popup cached this URL with
+    // no surface. Retry when the bar's artwork is ready, even if the URL is unchanged.
+    if (app.media.coverKey != app.musicArtUrl || (!app.media.cover && app.musicArt)) refreshMediaCover(app);
+}
+
 void pollMedia(App& app) {
     MediaPanel& M = app.media;
-    const std::string cmd = "playerctl -p '" + playerSelector(app.cfg.preferredPlayer) + "' metadata --format '{{position}}\t{{mpris:length}}\t{{volume}}\t{{status}}' 2>/dev/null";
+    if (app.musicPlayer.empty()) {
+        M.position = M.length = 0;
+        M.status.clear();
+        M.nextPoll = std::chrono::steady_clock::now() + std::chrono::milliseconds(kMediaPollMs);
+        return;
+    }
+    const std::string cmd = "playerctl -p '" + app.musicPlayer + "' metadata --format '{{position}}\t{{mpris:length}}\t{{volume}}\t{{status}}' 2>/dev/null";
     FILE* f = popen(cmd.c_str(), "r");
     if (!f) return;
     char buf[256] = {};
@@ -430,7 +442,7 @@ void mediaApplyInput(App& app, double cardTop) {
 void drawMediaPanel(App& app) {
     MediaPanel& M = app.media;
     if (!M.open() || !M.configured) return;
-    if (M.coverKey != app.musicArtUrl) refreshMediaCover(app);
+    refreshMediaCoverIfNeeded(app);
     const auto now = std::chrono::steady_clock::now();
     mediaStepLyricSpring(M, now);
     mediaUpdateLyrics(app, now);
@@ -804,8 +816,9 @@ void toggleMediaPanel(App& app, Bar* bar = nullptr) {
 }
 
 void mediaSend(App& app, std::initializer_list<const char*> args) {
+    if (app.musicPlayer.empty()) return;
     std::vector<const char*> argv = {"playerctl", "-p"};
-    const std::string sel = playerSelector(app.cfg.preferredPlayer);
+    const std::string& sel = app.musicPlayer;
     argv.push_back(sel.c_str());
     for (const char* a : args) argv.push_back(a);
     argv.push_back(nullptr);

@@ -872,7 +872,12 @@ int main(int argc, char** argv) {
             const std::string url = app.musicArtUrl;
             app.musicArtUrl.clear();
             updateCover(app, url);
-            if (app.musicArt) drawAll(app);
+            if (app.musicArt) {
+                drawAll(app);
+                if (app.media.open()) drawMediaPanel(app);
+                if (app.cc.open()) drawControlCenter(app);
+                deskRedrawAll(app);
+            }
             if (app.ic.open()) drawIslandCard(app);
         }
         if (fds[7].revents & (POLLIN | POLLHUP)) {
