@@ -775,6 +775,7 @@ std::string readPerfProfile() {
 }
 bool readMicMuted() { return cmdFirstLine("wpctl get-volume @DEFAULT_AUDIO_SOURCE@ 2>/dev/null").find("MUTED") != std::string::npos; }
 
+void toggleOsk(App& app);  // (14v_osk.inc)
 void quickAction(App& app, int index) {
     if (index == kQaPicker) {
         runDetached({"hyprpicker", "-a"});
@@ -793,6 +794,8 @@ void quickAction(App& app, int index) {
             applyConfig(app);
             if (!app.wallpaper.empty()) runPalette(app, app.wallpaper);
         }
+    } else if (index == kQaOsk) {
+        toggleOsk(app);
     } else if (index == kQaPerf) {
         const std::string cur = readPerfProfile();
         if (cur.empty()) return;

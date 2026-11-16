@@ -375,6 +375,18 @@ void handleClient(App& app, int listenFd) {
         setDoNotDisturb(app, a == "on" ? true : a == "off" ? false : !app.cfg.doNotDisturb);
         reply = app.cfg.doNotDisturb ? "on" : "off";
     }
+    else if (cmd == "magnifier" || cmd.rfind("magnifier ", 0) == 0) reply = magnifierCommand(app, cmd.size() > 10 ? cmd.substr(10) : "get");
+    else if (cmd.rfind("timer", 0) == 0 || cmd.rfind("stopwatch", 0) == 0 || cmd.rfind("reminder", 0) == 0) {
+        const size_t sp = cmd.find(' ');
+        reply = timersCommand(app, cmd.substr(0, sp), sp == std::string::npos ? "" : cmd.substr(sp + 1));
+        timersCheck(app);
+    }
+    else if (cmd == "osk" || cmd.rfind("osk ", 0) == 0) {
+        const std::string a = cmd.size() > 4 ? cmd.substr(4) : "toggle";
+        if (a == "open") openOsk(app); else if (a == "close") closeOsk(app); else toggleOsk(app);
+        drawAll(app);  // (the quick action lights while it is open)
+        reply = app.osk.surface ? "open" : "closed";
+    }
     else if (cmd == "recording") reply = app.recording ? "recording" : "idle";
     else if (cmd == "config") reply = "workspaces=" + std::to_string(app.cfg.workspaces) + " frame=" + std::to_string(app.cfg.frame) + " doNotDisturb=" + std::to_string(app.cfg.doNotDisturb) + " notificationTimeout=" + std::to_string(app.cfg.notificationTimeout) + " networkAlways=" + std::to_string(app.cfg.networkAlways) + " barOpacity=" + std::to_string(app.cfg.barOpacity) + " left=" + joinQuoted(app.cfg.layoutLeft) + " center=" + joinQuoted(app.cfg.layoutCenter) + " right=" + joinQuoted(app.cfg.layoutRight) + " barPosition=" + app.cfg.barPosition + " barStyle=" + app.cfg.barStyle + " workspaceStyle=" + app.cfg.workspaceStyle + " colorScheme=" + app.cfg.colorScheme + " wallpaperTransition=" + app.cfg.wallpaperTransition + " wallpaperTransitionMs=" + std::to_string(app.cfg.wallpaperTransitionMs) + " colorMode=" + app.cfg.colorMode + " selectorShape=" + app.cfg.selectorShape + " notificationShape=" + app.cfg.notificationShape + " preferredPlayer=" + app.cfg.preferredPlayer + " iconStyle=" + app.cfg.iconStyle + " uiBackground=" + app.cfg.uiBackground;
     else if (cmd == "collage" || cmd.rfind("collage ", 0) == 0) reply = collageCommand(app, cmd.size() > 8 ? cmd.substr(8) : "");
@@ -523,6 +535,7 @@ bool readWmEvents(App& app, int fd, std::string& pending) {
     else if (ev.focus && app.cfg.workspaceApps && refreshWsApps(app)) changed = true;
     if (ev.window && inBarLayout(app, "activewindow") && awinRead(app)) changed = true;
     if (ev.keyboard && kbdRead(app)) {
+        oskSync(app);
         changed = true;
         if (app.clockP.open() && app.clockP.kind == 5) drawClockPanel(app);
     }

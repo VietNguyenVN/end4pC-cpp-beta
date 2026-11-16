@@ -1288,6 +1288,13 @@ struct DockItem {
     Rect slot;
     double shift = 0, shiftVel = 0;
 };
+struct OskState {  // the on-screen keyboard
+    wl_surface* surface = nullptr;
+    zwlr_layer_surface_v1* layer = nullptr;
+    bool configured = false, placed = false, caps = false, shiftLock = false, dragging = false, movePending = false, relayout = false;
+    int mods = 0, hover = -1, pressed = -1;
+    double marginLeft = 0, marginBottom = 40, grabX = 0, grabY = 0;
+};
 struct DockPanelState {  // the "docktopanel" bar module: the dock's apps in the bar
     std::vector<DockItem> items;
     std::map<std::string, std::shared_ptr<cairo_surface_t>> icons;
@@ -1491,6 +1498,7 @@ struct App {
     BtBar btBar;
     BtMenu btMenu;
     bool onBtMenu = false;
+    bool onOsk = false;
     IslandCard ic;
     bool onIsland = false;
     int screenH = 0;
@@ -1506,6 +1514,7 @@ struct App {
     bool onClockP = false;
     DockState dock;
     DockPanelState dtp;
+    OskState osk;
     bool onDock = false;
     ClockW deskClock;
     UserW userW;
@@ -1572,8 +1581,8 @@ constexpr int kQuickItem = 30;
 constexpr double kModuleBox = kQuickItem, kModulePad = 10;
 static_assert(kNotchPad == (kBarHeight - kModuleBox) / 2.0 && kIslandPad == kNotchPad, "the side padding of the bar bodies must equal the top padding");
 constexpr double kM3Inset = (kModuleBox - kQuickBox) / 2;
-enum QuickAct { kQaPicker = 0, kQaRecord, kQaScreenshot, kQaWallpaper, kQaMic, kQaDark, kQaPerf, kQaCount };
-const char* const kQuickNames[kQaCount] = {"picker", "record", "screenshot", "wallpaper", "mic", "darkmode", "perfprofile"};
+enum QuickAct { kQaPicker = 0, kQaRecord, kQaScreenshot, kQaWallpaper, kQaMic, kQaDark, kQaPerf, kQaOsk, kQaCount };
+const char* const kQuickNames[kQaCount] = {"picker", "record", "screenshot", "wallpaper", "mic", "darkmode", "perfprofile", "osk"};
 constexpr int kNetW = 26;
 constexpr int kNetLabelW = 84;
 constexpr int kVolLevelW = 64, kVolPctW = 60;

@@ -139,6 +139,9 @@ namespace {
 #include "parts/14q_bt_menu.inc"
 #include "parts/14r_island_card.inc"
 #include "parts/14r_identify.inc"
+#include "parts/14t_accessibility.inc"
+#include "parts/14u_timers.inc"
+#include "parts/14v_osk.inc"
 #include "parts/15_input.inc"
 #include "parts/16_registry_ipc.inc"
 }

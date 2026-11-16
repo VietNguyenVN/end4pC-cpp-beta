@@ -29,6 +29,7 @@ const char* quickIcon(const App& app, int id, bool& live, bool& alert) {
     case kQaMic: alert = app.micMuted; return app.micMuted ? "mic_off" : "mic";
     case kQaDark: return app.cfg.colorMode == "dark" ? "light_mode" : "dark_mode";
     case kQaPerf: return app.perfProfile == "power-saver" ? "leaf" : app.perfProfile == "performance" ? "bolt" : "battery-half";
+    case kQaOsk: return "keyboard";  // (the keyboard itself shows it is open: no lit state, that pink is the recording)
     default: return "wallpaper";
     }
 }

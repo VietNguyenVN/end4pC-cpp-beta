@@ -415,6 +415,7 @@ std::vector<Page> makePages() {
         {Toggle, "quick:mic", "Microphone", "Mute or unmute the microphone. The icon turns red while it is muted."},
         {Toggle, "quick:darkmode", "Light / dark mode", "Switch between the light and the dark colors."},
         {Toggle, "quick:perfprofile", "Power profile", "Go through power saver, balanced and performance (needs power-profiles-daemon)."},
+        {Toggle, "quick:osk", "On-screen keyboard", "Opens and closes the on-screen keyboard (SUPER + K does the same)."},
         {Toggle, "trayPinDefault", "Pin tray icons", "Keep the tray icons in the bar. Off: they sit behind the arrow. Right-click an icon, or middle-click it, to send it the other way.", {}},
         {Toggle, "trayTint", "Tint tray icons", "Draw the tray icons in one color, the shell's, instead of their own.", {}},
         {Toggle, "resCpu", "CPU", "The processor's load.", {}},
@@ -772,7 +773,7 @@ void loadConfig() {
     g.val.insert({"cornerBL", "media"});
     g.val.insert({"cornerBR", "wallpapers"});
     for (const char* n : {"picker", "record", "screenshot", "wallpaper"}) g.val.insert({std::string("quick:") + n, "1"});
-    for (const char* n : {"mic", "darkmode", "perfprofile"}) g.val.insert({std::string("quick:") + n, "0"});
+    for (const char* n : {"mic", "darkmode", "perfprofile", "osk"}) g.val.insert({std::string("quick:") + n, "0"});
     g.val.insert({"recordFps", "0"});
     g.val.insert({"recordDesktop", "0"});
     g.val.insert({"cookieSides", "14"});
@@ -887,7 +888,7 @@ void loadConfig() {
             if (comma == std::string::npos) break;
             from = comma + 1;
         }
-        for (const char* n : {"picker", "record", "screenshot", "wallpaper", "mic", "darkmode", "perfprofile"}) g.val[std::string("quick:") + n] = on.count(n) ? "1" : "0";
+        for (const char* n : {"picker", "record", "screenshot", "wallpaper", "mic", "darkmode", "perfprofile", "osk"}) g.val[std::string("quick:") + n] = on.count(n) ? "1" : "0";
     }
     if (!g.val.count("layoutFor")) {
         std::string pos = "top";
@@ -1439,12 +1440,13 @@ void sendSet(const std::string& key, const std::string& value) {
     if (key.compare(0, 6, "quick:") == 0) {
         g.val[key] = value;
         std::string list;
-        for (const char* n : {"picker", "record", "screenshot", "wallpaper", "mic", "darkmode", "perfprofile"})
+        for (const char* n : {"picker", "record", "screenshot", "wallpaper", "mic", "darkmode", "perfprofile", "osk"})
             if (g.val[std::string("quick:") + n] == "1") list += (list.empty() ? "" : ",") + std::string(n);
         sendSet("quickActions", list);
         g.dirty = true;
         return;
     }
+    if (key == "magnifier") { g.val[key] = value; ipc("magnifier set " + value); g.dirty = true; return; }
     if (key.compare(0, 4, "sys:") == 0) { sysSend(key, value); g.dirty = true; return; }
     if (key.compare(0, 5, "idle:") == 0) { idleSend(key, value); g.dirty = true; return; }
     if (key.compare(0, 4, "mon:") == 0) { monitorSend(key, value); g.dirty = true; return; }
