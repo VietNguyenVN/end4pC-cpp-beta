@@ -534,6 +534,7 @@ void runDetached(std::initializer_list<const char*> args) {
     if (fork() == 0) {
         childSignalReset();
         setsid();
+        if (const char* home = std::getenv("HOME"); home && *home && chdir(home) != 0) {}  // programs the user starts open in the home folder, not in the shell's own (~/.config/end4pC)
         execvp(argv[0], const_cast<char* const*>(argv.data()));
         _exit(127);
     }
