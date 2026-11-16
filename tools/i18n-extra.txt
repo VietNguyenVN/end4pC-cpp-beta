@@ -38,3 +38,147 @@ link text
 code
 Zoom the whole screen around the pointer. SUPER + = and SUPER + - do the same, one step at a time. It needs Hyprland.
 Make the mouse pointer bigger. It is the same setting as System > Cursor. Applies when you let go of the slider.
+Drive connected
+Drive removed without ejecting
+Eject
+Copy the mount point
+-sf
+Acre
+All conversions
+Area
+Argentine peso
+Australian dollar
+Bit
+Bitcoin
+Bolivian boliviano
+Brazilian real
+British pound
+Bulgarian lev
+Byte
+Canadian dollar
+Celsius
+Centimeter
+Chilean peso
+Chinese yuan
+Colombian peso
+Costa Rican colón
+Cubic meter
+Currency
+Czech koruna
+Danish krone
+Data
+Day
+Dominican peso
+Egyptian pound
+Euro
+Fahrenheit
+Feet per second
+Foot
+Gibibyte
+Gigabyte
+Gram
+Guatemalan quetzal
+Hectare
+Hong Kong dollar
+Hour
+Hungarian forint
+Icelandic króna
+Imperial gallon
+Inch
+Indian rupee
+Indonesian rupiah
+Israeli shekel
+Japanese yen
+Kelvin
+Kibibyte
+Kilobyte
+Kilogram
+Kilometer
+Kilometers per hour
+Knot
+Length
+Liter
+Malaysian ringgit
+Mebibyte
+Megabyte
+Meter
+Meters per second
+Mexican peso
+Mile
+Miles per hour
+Milligram
+Milliliter
+Millimeter
+Millisecond
+Minute
+Month
+Nautical mile
+New Taiwan dollar
+New Zealand dollar
+Nigerian naira
+No rates yet
+Norwegian krone
+Nothing found
+Ounce
+Pakistani rupee
+Paraguayan guaraní
+Peruvian sol
+Petabyte
+Philippine peso
+Polish zloty
+Pound
+Rates unavailable (offline?)
+Rates updated
+Romanian leu
+Russian ruble
+Saudi riyal
+Second
+Singapore dollar
+South African rand
+South Korean won
+Speed
+Square centimeter
+Square foot
+Square inch
+Square kilometer
+Square meter
+Square mile
+Square yard
+Stone
+Swedish krona
+Swiss franc
+Tablespoon
+Teaspoon
+Tebibyte
+Temperature
+Terabyte
+Thai baht
+Time
+Tonne
+Turkish lira
+Type to search
+UAE dirham
+US cup
+US dollar
+US fluid ounce
+US gallon
+US pint
+US quart
+Ukrainian hryvnia
+Units
+Updating rates…
+Uruguayan peso
+Venezuelan bolívar
+Vietnamese dong
+Volume
+Week
+Weight
+Yard
+Year
+days ago
+h ago
+just now
+min ago
+offline
+Conversion
+Getting the exchange rates…
