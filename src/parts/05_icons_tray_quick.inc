@@ -71,7 +71,10 @@ cairo_surface_t* iconMask(const std::string& name, bool filled, int size) {
 }
 
 void drawIcon(cairo_t* cr, const std::string& name, double x, double y, int size, const Color& c, bool filled = false) {
-    cairo_surface_t* mask = iconMask(name, filled, size);
+    const int scaled = g_iconScale == 100 ? size : std::max(8, static_cast<int>(std::lround(size * g_iconScale / 100.0)));  // the icon keeps its centre
+    x += (size - scaled) / 2.0;
+    y += (size - scaled) / 2.0;
+    cairo_surface_t* mask = iconMask(name, filled, scaled);
     if (!mask) return;
     cairo_set_source_rgba(cr, c.r, c.g, c.b, 1.0);
     cairo_mask_surface(cr, mask, x, y);

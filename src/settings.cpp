@@ -369,6 +369,7 @@ std::vector<Page> makePages() {
         {Slider, "barOpacity", "Transparency", "How see-through the bar and the panels are. The blur behind them shows through.", {}, 0, 100, 5, "%"},
         {Text, "fontFamily", "Font", "The font of the whole shell, like Google Sans Flex. Type the family name and press Enter; type - for the system default.", {}},
         {Toggle, "materialIcons", "Material Symbols", "Use Google's Material Symbols for every icon instead of the built-in set.", {}},
+        {Slider, "iconScale", "Icon size", "How big the icons of the shell are, in either icon set. 100% is the original size.", {}, 60, 150, 10, "%"},
         {IconStyle, "iconStyle", "Icon style", "The look of the Solar icons.", {{"broken", "Broken"}, {"outline", "Outline"}, {"line-duotone", "Line duotone"}, {"bold-duotone", "Bold duotone"}}},
         {ThemeCards, "theme", "Themes", "Ready-made palettes instead of colors taken from the wallpaper. Add your own with the last card, or drop a .json in ~/.local/share/end4pC/themes (see schemes/README.md)."},
         {Swatch, "themePrimary", "Primary color", "The main accent of the theme: buttons, highlights, the focus. Pick another of its colors.", {}},
@@ -751,7 +752,7 @@ bool loadWidgetStates() {
 
 void loadConfig() {
     const std::string t = readFile(configPath());
-    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
+    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
         g.val.insert(d);
     g.val.insert({"lyricsProvider", "auto"});
     g.val.insert({"updatesEnable", "1"});

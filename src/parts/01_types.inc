@@ -143,6 +143,7 @@ char* const kPrefixSlots[kPrefixCount] = {&kPfxAction, &kPfxApp, &kPfxClipboard,
 int g_animEnabled = 1, g_animSpeed = 100;
 std::string g_animStyle = "boing";
 std::string g_iconStyle = "broken";
+int g_iconScale = 100;  // % of the size every icon is asked for (Settings > Appearance > Font & Icons)
 
 const std::vector<std::string> kSchemes = {"scheme-tonal-spot", "scheme-neutral", "scheme-content", "scheme-expressive", "scheme-fidelity",
                                            "scheme-fruit-salad", "scheme-monochrome", "scheme-rainbow", "scheme-vibrant", "scheme-smart"};
@@ -380,6 +381,7 @@ struct Config {
     std::string fontFamily;
     std::string iconStyle = "broken";
     int materialIcons = 0;
+    int iconScale = 100;
     std::string avatarPath;
     std::string themePrimary, themeSecondary, themeTertiary;
     std::string quickActions = "picker,record,screenshot,wallpaper";
