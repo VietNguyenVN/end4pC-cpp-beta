@@ -57,7 +57,7 @@ local function dispatcher(kind, arg)
     end
 end
 
--- Dots from before the table still bind the same keys in hypr/hyprland/keybinds.lua (the shell's update never touches the dotfiles): then
+-- Dots from before the table still bind the same keys (Super+Q closes a window there) in hypr/hyprland/keybinds.lua (the shell's update never touches the dotfiles): then
 -- every key is freed before it is bound here, so nothing runs twice. A key the user binds in hypr/custom/keybinds.lua stays theirs.
 local function readAll(path)
     local f = io.open(path, "r")
@@ -66,7 +66,7 @@ local function readAll(path)
     f:close()
     return s
 end
-local oldDots = readAll(home .. "/.config/hypr/hyprland/keybinds.lua"):find("hl.bind(", 1, true) ~= nil
+local oldDots = readAll(home .. "/.config/hypr/hyprland/keybinds.lua"):find("hl.dsp.window.close()", 1, true) ~= nil  -- (the new file only has the virtual machine submap)
 local customText = oldDots and readAll(home .. "/.config/hypr/custom/keybinds.lua"):lower() or ""
 local function bindKey(keys, disp, opts)
     if oldDots then
