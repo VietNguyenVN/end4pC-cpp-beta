@@ -5,7 +5,7 @@ constexpr int kDeskEditExtra = 48;
 constexpr int kDeskEdges[8] = {1 | 4, 4, 2 | 4, 2, 2 | 8, 8, 1 | 8, 1};
 constexpr int kDeskMove = 5003, kDeskTap = 5004, kDeskHandle = 5010, kDeskDone = 5020;
 
-std::array<DeskWidget*, 8> deskList(App& app) { return {&app.todo, &app.weather, &app.mediaW, &app.resW, &app.calW, &app.deskClock, &app.userW, &app.imageW}; }
+std::array<DeskWidget*, 9> deskList(App& app) { return {&app.todo, &app.weather, &app.mediaW, &app.resW, &app.calW, &app.deskClock, &app.userW, &app.imageW, deskTextWidget()}; }
 
 std::string deskFile(const DeskWidget& d) {
     const char* home = std::getenv("HOME");
@@ -478,6 +478,8 @@ void deskRaiseFull(App& app, DeskWidget& d) {
     d.frameMode = 0;
     d.frameOx = d.ml - kDeskRoom;
     d.frameOy = d.mt - kDeskRoom;
+    d.lastGx = d.pressX + d.frameOx;  // (the press happened on the small surface)
+    d.lastGy = d.pressY + d.frameOy;
     d.reqW = d.reqH = 0;
     constexpr uint32_t all = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
     zwlr_layer_surface_v1_set_layer(d.layer, ZWLR_LAYER_SHELL_V1_LAYER_TOP);
@@ -514,14 +516,14 @@ void deskMotion(App& app, DeskWidget& d) {
     }
     if (d.drag) {
         if (!d.fullReady) return;
-        if (d.armed && d.frameMode == 0) {
-            const double ex = d.moveMode ? d.ml + d.gx : d.rpx, ey = d.moveMode ? d.mt + d.gy : d.rpy;
-            const double asFull = std::hypot(app.pointerX - ex, app.pointerY - ey), asSmall = std::hypot(app.pointerX + d.frameOx - ex, app.pointerY + d.frameOy - ey);
-            d.frameMode = asSmall < asFull ? 2 : 1;
-        }
-        const bool small = !d.armed || d.frameMode == 2;
-        const double px = small ? app.pointerX + d.frameOx : app.pointerX;
-        const double py = small ? app.pointerY + d.frameOy : app.pointerY;
+        // The position reported is measured from the small surface or from the full one, and the compositor switches between the two at a moment
+        // the shell cannot see. A pointer moves continuously, so every step takes the reading that lies closer to the last one.
+        const double fullX = app.pointerX, fullY = app.pointerY, smallX = app.pointerX + d.frameOx, smallY = app.pointerY + d.frameOy;
+        const bool small = std::hypot(smallX - d.lastGx, smallY - d.lastGy) <= std::hypot(fullX - d.lastGx, fullY - d.lastGy);
+        const double px = small ? smallX : fullX;
+        const double py = small ? smallY : fullY;
+        d.lastGx = px;
+        d.lastGy = py;
         const int gap = deskGap(app);
         if (d.moveMode) {
             const int nl = std::clamp(static_cast<int>(px - d.gx), gap, std::max(gap, deskUsableW(app, 0, d.minW) - d.w - gap));
@@ -668,7 +670,8 @@ void deskSync(App& app) {
     static int lastLocked = -1, lastShadow = -1, lastGap = -1;
     static std::string lastLook;
     const std::string look = std::to_string(app.cfg.clock24) + std::to_string(app.cfg.calendarMonday) + app.cfg.customImagePath + std::to_string(app.cfg.cookieSides) + std::to_string(app.cfg.cookieTime) + app.cfg.cookieDial + app.cfg.cookieHour +
-                             app.cfg.cookieMinute + app.cfg.cookieSecond + app.cfg.cookieDate;
+                             app.cfg.cookieMinute + app.cfg.cookieSecond + app.cfg.cookieDate + app.cfg.customTextFont + app.cfg.customTextFontName + app.cfg.customTextColor + app.cfg.customTextAlign + std::to_string(app.cfg.customTextFit) +
+                             std::to_string(app.cfg.customTextSize) + std::to_string(app.cfg.customTextBold) + std::to_string(app.cfg.customTextItalic) + std::to_string(app.cfg.customTextShadow);
     if (lastLook != look) { lastLook = look; for (DeskWidget* d : deskList(app)) if (d->open() && !d->drag) deskDraw(app, *d); }
     if (lastLocked == app.cfg.widgetsLocked && lastShadow == app.cfg.widgetShadow && lastGap == app.cfg.widgetGap) return;
     const bool gapChanged = lastGap != app.cfg.widgetGap;

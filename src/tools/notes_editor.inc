@@ -13,6 +13,8 @@ struct TextEditor {
     std::vector<Snapshot> undo, redo;
     Clock::time_point lastEdit{};
     PangoLayout* lay = nullptr;
+    PangoFontDescription* font = nullptr;  // (when set, the desktop text widget picks the face; Tools leaves it empty)
+    PangoAlignment align = PANGO_ALIGN_LEFT;
     bool stale = true;
     unsigned rev = 0;
 
@@ -22,7 +24,8 @@ struct TextEditor {
         if (!lay) lay = pango_layout_new(pango_layout_get_context(g_measure));
         if (stale || w != width) {
             width = w;
-            setFont(lay, px, false);
+            if (font) pango_layout_set_font_description(lay, font); else setFont(lay, px, false);
+            pango_layout_set_alignment(lay, align);
             pango_layout_set_width(lay, static_cast<int>(w * PANGO_SCALE));
             pango_layout_set_wrap(lay, PANGO_WRAP_WORD_CHAR);
             pango_layout_set_text(lay, s.data(), static_cast<int>(s.size()));

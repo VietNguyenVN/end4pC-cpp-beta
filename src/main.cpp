@@ -147,6 +147,7 @@ namespace {
 #include "parts/14x_drives.inc"
 #include "parts/14y_game_overlay.inc"
 #include "parts/14z_desk_viz.inc"
+#include "parts/14zb_text_widget.inc"
 #include "parts/15_input.inc"
 #include "parts/16_registry_ipc.inc"
 }
@@ -208,7 +209,7 @@ void printUsage() {
         "  osd volume | osd brightness      show the on-screen display\n"
         "\n"
         "Desktop widgets:\n"
-        "  weather|player|calendar|resources|image|clock|todo|usercard [toggle|show|hide]\n"
+        "  weather|player|calendar|resources|image|clock|todo|usercard|text|visualizer [toggle|show|hide]\n"
         "  widget <name> on|off [W H LEFT TOP]   show or hide one, in that size and place\n"
         "  widgets lock|unlock              lock or unlock their edit mode\n"
         "  usercard image [path]            the user card's picture (no path: back to the wallpaper)\n"
@@ -377,6 +378,7 @@ int main(int argc, char** argv) {
     for (DeskWidget* d : deskList(app)) deskLoad(*d);
     deskRestore(app);
     deskVizRestore(app);
+    gameNotesGhostSync(app);
 
     const std::string sockPath = runtimeDir() + "/end4pC.sock";
     int ipcFd = listenSocket(sockPath);
@@ -879,6 +881,7 @@ int main(int argc, char** argv) {
                 for (DeskWidget* w : deskList(app)) if (w->open() && w->kbFocus && w->typing && w->typing(*w)) typer = w;
                 if (app.pk.open()) polkitKey(app, app.repeatKey);
                 else if (app.clockP.open() && app.clockP.adding) clockPanelKey(app, app.repeatKey);
+                else if (gameNotesFocused(app)) gameNotesKey(app, app.repeatKey);
                 else if (typer && typer->key) typer->key(app, *typer, app.repeatKey);
                 else if (app.dock.gridOpen) dockGridKey(app, app.repeatKey);
                 else if (app.launcher.open()) launcherKey(app, app.repeatKey);

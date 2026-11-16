@@ -398,7 +398,7 @@ void trayMenuClick(App& app) {
 
 constexpr double kDmRoom = 20, kDmCardW = 348, kDmSubW = 324, kDmGap = 8, kDmCarH = 160, kDmRowH = 56, kDmSubH = 430;
 constexpr double kDmCardH = 8 + kDmCarH + 4 + 3 * kDmRowH + 2 * 2 + 8;
-constexpr double kDmModeH = 56, kDmTogH = 48, kDmSepH = 16, kDmWSubH = 12 + 2 * (kDmTogH + 2) + kDmSepH + 9 * (kDmTogH + 2) + 10;
+constexpr double kDmModeH = 56, kDmTogH = 48, kDmSepH = 16, kDmWSubH = 12 + 2 * (kDmTogH + 2) + kDmSepH + 10 * (kDmTogH + 2) + 10;
 constexpr double kDmItemRadius = 28, kDmItemGap = 8, kDmCarPad = 8, kDmCarRadius = 36, kDmSmallMin = 40, kDmSmallMax = 56;
 constexpr int kDmCount = 6;
 
@@ -613,11 +613,11 @@ void drawDesktopMenu(App& app) {
         roundedRect(cr, S.x, S.y, S.w, S.h, 26);
         setSource(cr, app.color("surface"), alpha);
         cairo_fill(cr);
-        const bool states[11] = {app.cfg.widgetsLocked != 0, app.cfg.widgetShadow != 0, app.todo.open(), app.weather.open(), app.mediaW.open(), app.resW.open(), app.calW.open(), app.deskClock.open(), app.userW.open(), app.imageW.open(), app.dv.surface != nullptr};
-        const char* names[11] = {"Lock widgets", "Widget shadow", "To-Do", "Weather", "Player", "Resources", "Calendar", "Clock", "User card", "Image", "Visualizer"};
-        const char* tIcons[11] = {"lock", "layers", "checklist", "cloud-sun", "music_note", "cpu", "calendar-date", "clock-circle", "user-circle", "gallery", "soundwave"};
+        const bool states[12] = {app.cfg.widgetsLocked != 0, app.cfg.widgetShadow != 0, app.todo.open(), app.weather.open(), app.mediaW.open(), app.resW.open(), app.calW.open(), app.deskClock.open(), app.userW.open(), app.imageW.open(), app.dv.surface != nullptr, deskTextWidget()->open()};
+        const char* names[12] = {"Lock widgets", "Widget shadow", "To-Do", "Weather", "Player", "Resources", "Calendar", "Clock", "User card", "Image", "Visualizer", "Text"};
+        const char* tIcons[12] = {"lock", "layers", "checklist", "cloud-sun", "music_note", "cpu", "calendar-date", "clock-circle", "user-circle", "gallery", "soundwave", "text-bold"};
         const double rx = S.x + 8, rw = S.w - 16;
-        for (int i = 0; i < 11; i++) {
+        for (int i = 0; i < 12; i++) {
             const double ry = S.y + 12 + i * (kDmTogH + 2) + (i >= 2 ? kDmSepH : 0);
             toggleRow(rx, ry, rw, 400 + i, tIcons[i], names[i], states[i]);
         }
@@ -975,13 +975,16 @@ void dmenuClick(App& app) {
     }
     if (D.hoverSub >= 0) {
         const int id = D.hoverSub;
-        if (id >= 400 && id <= 410) {
+        if (id >= 400 && id <= 411) {
             const int i = id - 400;
             if (i < 2) {
                 if (setConfig(app, i == 0 ? "widgetsLocked" : "widgetShadow", (i == 0 ? app.cfg.widgetsLocked : app.cfg.widgetShadow) ? "0" : "1").empty()) { applyConfig(app); drawAll(app); }
             } else if (i == 10) {
                 std::string ignored;
                 deskVizToggle(app, "toggle", ignored);
+            } else if (i == 11) {
+                DeskWidget& tw = *deskTextWidget();
+                if (tw.open()) deskClose(app, tw); else deskOpen(app, tw);
             } else {
                 DeskWidget& w = i == 2 ? static_cast<DeskWidget&>(app.todo) : i == 3 ? static_cast<DeskWidget&>(app.weather) : i == 4 ? static_cast<DeskWidget&>(app.mediaW) : i == 5 ? static_cast<DeskWidget&>(app.resW) : i == 6 ? static_cast<DeskWidget&>(app.calW) : i == 7 ? static_cast<DeskWidget&>(app.deskClock) : i == 8 ? static_cast<DeskWidget&>(app.userW) : static_cast<DeskWidget&>(app.imageW);
                 if (w.open()) deskClose(app, w); else deskOpen(app, w);
@@ -1044,7 +1047,7 @@ void updateCursor(App& app) {
                                   (app.onMedia && app.media.hover != 0) || (app.onClockP && app.clockP.hover != 0) || (app.onTmenu && app.tmenu.hover >= 0) || (app.onAmenu && app.amenu.hover >= 0) || (app.onBtMenu && app.btMenu.hover >= 0) || (app.onIsland && app.ic.hover >= 0) || (app.onDmenu && (app.dmenu.hovered >= 0 || app.dmenu.hoverRow >= 0 || app.dmenu.hoverSub >= 0)) ||
                                   (app.onDock && (app.dock.hover >= 0 || app.dock.menuHover >= 0));
     const bool overSwCard = app.onSw && app.sw.hover >= 0;
-    const int shape = app.onPk ? (app.pk.hover >= 0 ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT) : app.onSw ? (overSwCard ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT) : app.onCap ? captureCursorShape(app) : app.onDesk ? deskCursorShape(app) : clickable(h) || overSelectorItem ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
+    const int shape = app.onPk ? (app.pk.hover >= 0 ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT) : app.onSw ? (overSwCard ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT) : app.onCap ? captureCursorShape(app) : app.onGame ? gameCursorShape(app) : app.onDesk ? deskCursorShape(app) : clickable(h) || overSelectorItem ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
     if (shape == app.cursorShape) return;
     app.cursorShape = shape;
     wp_cursor_shape_device_v1_set_shape(app.cursorDev, app.enterSerial, shape);

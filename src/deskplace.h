@@ -18,6 +18,7 @@ inline Preset presetFor(const std::string& name) {
         {"weather", 10, Anchor::TopRight},   {"calendar", 20, Anchor::TopRight}, {"resources", 30, Anchor::TopRight},
         {"player", 40, Anchor::BottomLeft},  {"clock", 50, Anchor::BottomLeft},  {"usercard", 60, Anchor::TopLeft},
         {"todo", 70, Anchor::TopRight},      {"image", 80, Anchor::TopRight},
+        {"text", 85, Anchor::TopLeft},
     };
     for (const Preset& p : table) if (name == p.name) return p;
     return {"", 90, Anchor::TopRight};

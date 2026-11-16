@@ -553,6 +553,7 @@ void onPointerAxis(void* d, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t val
         else if (app->hotCorner == 1) runDetached({"wpctl", "set-volume", "-l", volLimit(*app).c_str(), "@DEFAULT_AUDIO_SINK@", volStep(*app, value > 0).c_str()});
         return;
     }
+    if (app->onGame) { if (app->game.open[GwNotes] && g_gn.panel.contains(app->pointerX, app->pointerY)) gameNotesScroll(*app, value > 0 ? 1 : -1); return; }
     if (app->onAmenu) { audioMenuScroll(*app, value > 0 ? 1 : -1); return; }
     if (app->onBtMenu) return;
     if (app->onIsland) { islandToggleView(*app); return; }
@@ -650,6 +651,13 @@ void onKbKey(void* d, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t s
     if (key == kKeyEsc && app->sel.open() && !app->sel.confirmPath.empty()) { app->sel.confirmPath.clear(); selectorMotion(*app); drawSelector(*app); return; }
     if (app->ic.open() && g_icPowerMode) { islandPowerKey(*app, key); return; }
     if (key == kKeyEsc && app->qr.surface) { closeQrCard(*app); return; }
+    if (key != kKeyEsc && gameNotesFocused(*app)) {
+        if (gameNotesKey(*app, key) && launcherRepeatable(key) && app->kbRate > 0) {
+            app->repeatKey = key;
+            app->repeatAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(app->kbDelay);
+        }
+        return;
+    }
     if (key == kKeyEsc && app->game.surface) { retractGame(*app); return; }
     if (key == kKeyEsc) { retractControlCenter(*app); retractPowerMenu(*app); retractSelector(*app); retractLauncher(*app); retractNotifPanel(*app); retractMediaPanel(*app); retractClockPanel(*app); closeTrayMenu(*app); retractAudioMenu(*app); retractBtMenu(*app); retractDesktopMenu(*app); return; }
     if (app->power.open()) { powerKey(*app, key); return; }

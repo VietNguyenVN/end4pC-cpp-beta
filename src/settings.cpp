@@ -564,7 +564,7 @@ std::vector<Page> makePages() {
         {Slider, "collageRadius", "Corner radius", "How round each tile is.", {}, 0, 80, 2, "px"},
         {Slider, "collageBlur", "Backdrop blur", "How much the picture behind the tiles is blurred. 0 keeps it sharp.", {}, 0, 100, 5, "%"},
         {Action, "collageReset", "Reset layout", "Back to one tile with the normal wallpaper.", {}, 0, 100, 1, "Reset"},
-        {WCards, "wcards", "Widgets", "The widgets of the desktop. Click one to show or hide it; right click the wallpaper for the same.", {{"todo", "To-Do"}, {"weather", "Weather"}, {"player", "Player"}, {"resources", "Resources"}, {"calendar", "Calendar"}, {"clock", "Clock"}, {"usercard", "User card"}, {"image", "Image"}, {"visualizer", "Visualizer"}}},
+        {WCards, "wcards", "Widgets", "The widgets of the desktop. Click one to show or hide it; right click the wallpaper for the same.", {{"todo", "To-Do"}, {"weather", "Weather"}, {"player", "Player"}, {"resources", "Resources"}, {"calendar", "Calendar"}, {"clock", "Clock"}, {"usercard", "User card"}, {"image", "Image"}, {"visualizer", "Visualizer"}, {"text", "Text"}}},
         {Choice, "widgetScreen", "Widgets on screen", "The screen where the desktop widgets (clock, calendar, weather...) live.", {}},
         {Toggle, "widgetsLocked", "Lock widgets", "Keeps the desktop widgets where they are: they cannot be resized or moved while this is on."},
         {Toggle, "widgetShadow", "Widget shadow", "A soft shadow under the desktop widgets."},
@@ -586,6 +586,15 @@ std::vector<Page> makePages() {
         {Choice, "deskVizColor", "Color", "The gradient of your theme, or a single color.", {{"gradient", "Gradient"}, {"primary", "Primary"}, {"secondary", "Secondary"}, {"tertiary", "Tertiary"}, {"on_surface", "Text"}}},
         {Slider, "deskVizSize", "Size", "How tall it is (how wide, on the sides; the diameter of the ring).", {}, 80, 600, 10, "px"},
         {Slider, "deskVizBars", "Bars", "How many bars the music is split into.", {}, 12, 96, 2, ""},
+        {Choice, "customTextFont", "Font", "The letters of the text on the desktop. Click the text to write; right click it to resize it.", {{"Display", "Display"}, {"Sans", "Sans"}, {"Serif", "Serif"}, {"Mono", "Mono"}, {"Caveat", "Caveat"}, {"Dancing Script", "Dancing Script"}, {"Pacifico", "Pacifico"}, {"Permanent Marker", "Permanent Marker"}, {"Indie Flower", "Indie Flower"}, {"Great Vibes", "Great Vibes"}, {"League Gothic", "League Gothic"}}},
+        {Text, "customTextFontName", "Custom font", "The name of any font installed on your system. When it is filled, it is used instead of the one above."},
+        {Swatch, "customTextColor", "Text color", "A color of your theme, or plain white or black.", {{"on_surface", "Text"}, {"primary", "Primary"}, {"secondary", "Secondary"}, {"tertiary", "Tertiary"}, {"primary_container", "Primary container"}, {"secondary_container", "Secondary container"}, {"tertiary_container", "Tertiary container"}, {"outline", "Outline"}, {"white", "White"}, {"black", "Black"}}},
+        {Choice, "customTextAlign", "Alignment", "How the lines sit in the box.", {{"left", "Left"}, {"center", "Center"}, {"right", "Right"}}},
+        {Toggle, "customTextBold", "Bold", "Heavier letters."},
+        {Toggle, "customTextItalic", "Italic", "Slanted letters."},
+        {Toggle, "customTextShadow", "Shadow", "A soft shadow under the letters, so they read over any wallpaper."},
+        {Toggle, "customTextFit", "Fit to the box", "The letters grow or shrink with the box. Turn it off to pick a size."},
+        {Slider, "customTextSize", "Letter size", "The size of the letters when they do not fit the box.", {}, 12, 400, 2, "px"},
     }});
     if (compositorName() == "Hyprland") p.push_back({"Hyprland", "widget", hyprRows()});
     else if (compositorName() == "Niri") p.push_back({"Niri", "widget", niriRows()});
@@ -602,7 +611,7 @@ std::vector<Page> makePages() {
         else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"dividerStyle", "Divider"}, {"aiClaude", "AI usage"}});
         else if (pg.name == "Hyprland") sections(pg, {{"mon:map", "Displays"}, {"hypr:general:layout", "Layout"}, {"hypr:input:kb_layout", "Keyboard"}, {"hypr:input:sensitivity", "Mouse"}, {"hypr:input:touchpad:natural_scroll", "Touchpad"}, {"idle:lock", "Idle"}, {"hypr:decoration:rounding", "Look"}, {"borderColor", "Borders"}, {"hypr:animations:enabled", "Animations"}, {"hypr:general:resize_on_border", "Windows"}, {"hypr:misc:focus_on_activate", "Misc"}});
         else if (pg.name == "Niri") sections(pg, {{"niri:gaps", "Layout"}, {"niri:radius", "Windows"}, {"niri:follow", "Behavior"}, {"niri:repeatDelay", "Input"}, {"niriReset", "Reset"}});
-        else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}, {"deskVizStyle", "Visualizer"}});
+        else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}, {"deskVizStyle", "Visualizer"}, {"customTextFont", "Text"}});
         else if (pg.name == "System") sections(pg, {{"sys:cursor", "Cursor"}, {"sys:icons", "Icons"}, {"sys:font", "Fonts"}, {"sys:app:browser", "Default Apps"}, {"screenshotDir", "Capture"}, {"doNotDisturb", "Notifications"}, {"periphSummary", "Devices"}});
         else if (pg.name == "Interface") sections(pg, {{"animEnabled", "Animations"}, {"hotCorners", "Hot Corners"}, {"lockOnStart", "Lock screen"}, {"dock", "Dock"}, {"osdPosition", "OSD"}, {"magnifier", "Accessibility"}});
         else if (pg.name == "Services") sections(pg, {{"weatherUnit", "Weather"}, {"updatesEnable", "Updates"}, {"lyricsProvider", "Lyrics"}, {"webappAdd", "Webapps"}, {"searchEngine", "Search"}});
@@ -765,7 +774,7 @@ std::string g_profPic;
 void loadProfile();
 bool loadWidgetStates() {
     bool changed = false;
-    for (const char* n : {"todo", "weather", "player", "resources", "calendar", "clock", "usercard", "image", "visualizer"}) {
+    for (const char* n : {"todo", "weather", "player", "resources", "calendar", "clock", "usercard", "image", "visualizer", "text"}) {
         const std::string v = widgetEnabled(n) ? "1" : "0", k = std::string("w:") + n;
         if (g.val[k] != v) { g.val[k] = v; changed = true; }
     }
@@ -847,7 +856,7 @@ void loadConfig() {
     g.val.insert({"themeTertiary", ""});
     g.val.insert({"clockDaily", "badge"});
     g.val.insert({"clockPixel", "horizontal"});
-    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"deskVizStyle", "bars"}, {"deskVizPos", "bottom"}, {"deskVizColor", "gradient"}, {"deskVizSize", "220"}, {"deskVizBars", "48"}}) g.val.insert(d);
+    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"deskVizStyle", "bars"}, {"deskVizPos", "bottom"}, {"deskVizColor", "gradient"}, {"deskVizSize", "220"}, {"deskVizBars", "48"}, {"customTextFont", "Display"}, {"customTextFontName", ""}, {"customTextColor", "on_surface"}, {"customTextAlign", "center"}, {"customTextFit", "1"}, {"customTextSize", "56"}, {"customTextBold", "0"}, {"customTextItalic", "0"}, {"customTextShadow", "1"}}) g.val.insert(d);
     g.val.insert({"language", ""});
     g.val.insert({"updatesAur", "0"});
     g.val.insert({"updatesFlatpak", "0"});
@@ -1508,8 +1517,13 @@ inline void endClipGroup(cairo_t* cr, ClipGroup& g) {
 void src(cairo_t* cr, const Color& c, double a = 1) { cairo_set_source_rgba(cr, c.r, c.g, c.b, a); }
 Color mix(const Color& a, const Color& b, double p) { return {a.r * p + b.r * (1 - p), a.g * p + b.g * (1 - p), a.b * p + b.b * (1 - p)}; }
 
+std::string g_face;  // when set, text is drawn in this family (the font choices of the text widget show each name in its own letters)
+std::string faceOf(const std::string& rowKey, const std::string& opt) {
+    if (rowKey != "customTextFont") return "";
+    return opt == "Display" ? "Google Sans Flex" : opt == "Mono" ? "Monospace" : opt;
+}
 void setFont(PangoLayout* l, double px, bool bold) {
-    PangoFontDescription* d = pango_font_description_from_string(bold ? "Sans Bold" : "Sans");
+    PangoFontDescription* d = pango_font_description_from_string(g_face.empty() ? (bold ? "Sans Bold" : "Sans") : (g_face + (bold ? " Bold" : "")).c_str());
     pango_font_description_set_absolute_size(d, px * PANGO_SCALE);
     pango_layout_set_font_description(l, d);
     pango_font_description_free(d);
@@ -1651,6 +1665,32 @@ void drawWidgetPreview(cairo_t* cr, const std::string& id, double x, double y, d
         bar(x + 12, y + h * 0.56 + 12, w * 0.62, 7, Color{1, 1, 1}, 1.0);
         bar(x + 12, y + h - 12, w - 24, 3, Color{1, 1, 1}, 0.25);
         bar(x + 12, y + h - 12, (w - 24) * 0.4, 3, Color{1, 1, 1}, 0.95);
+    } else if (id == "text") {  // a big word on the plain card, as it looks written on the wallpaper
+        src(cr, g.color("surface_container_highest")); cairo_paint(cr);
+        PangoLayout* tl = pango_cairo_create_layout(cr);
+        PangoFontDescription* fd = pango_font_description_from_string("Serif Italic Bold");
+        pango_font_description_set_absolute_size(fd, h * 0.5 * PANGO_SCALE);
+        pango_layout_set_font_description(tl, fd);
+        pango_font_description_free(fd);
+        pango_layout_set_text(tl, "Aa", -1);
+        int tw = 0, th = 0;
+        pango_layout_get_pixel_size(tl, &tw, &th);
+        src(cr, prim);
+        cairo_move_to(cr, x + (w - tw) / 2.0, y + (h - th) / 2.0 - 6);
+        pango_cairo_show_layout(cr, tl);
+        g_object_unref(tl);
+        bar(x + w * 0.3, y + h - 22, w * 0.4, 4, onS, 0.35);
+    } else if (id == "visualizer") {  // a few bars of different heights, with the gradient of the theme
+        src(cr, g.color("surface_container_highest")); cairo_paint(cr);
+        constexpr int n = 9;
+        const double lv[n] = {0.30, 0.55, 0.42, 0.85, 0.62, 1.0, 0.5, 0.72, 0.36}, pad = 14, base = y + h - 12, reach = h - 30, pitch = (w - 2 * pad) / n, bw = pitch * 0.58;
+        for (int k = 0; k < n; k++) {
+            const double bh = std::max(bw, lv[k] * reach), bx = x + pad + k * pitch + (pitch - bw) / 2;
+            rrect(cr, bx, base - bh, bw, bh, bw / 2);
+            const Color c = g.color("primary"), d = g.color("tertiary"), m{c.r + (d.r - c.r) * k / (n - 1.0), c.g + (d.g - c.g) * k / (n - 1.0), c.b + (d.b - c.b) * k / (n - 1.0)};
+            src(cr, m, 1);
+            cairo_fill(cr);
+        }
     } else if (id == "image") {
         src(cr, g.color("surface_container_highest")); cairo_paint(cr);
         const double bw = w - 20, bh = h - 20;
@@ -2339,6 +2379,8 @@ bool rowAvailable(const Row& r) {
     if (r.key == "barScreens" || r.key == "widgetScreen") return g_screens.size() > 1;
     if (r.key == "themePrimary" || r.key == "themeSecondary" || r.key == "themeTertiary") return !g.val["theme"].empty();
     if (r.key == "colorScheme" || r.key == "accent") return g.val["theme"].empty();
+    if (r.key == "customTextSize") return g.val["w:text"] == "1" && g.val["customTextFit"] != "1";
+    if (r.key.compare(0, 10, "customText") == 0) return g.val["w:text"] == "1";
     if (r.key == "deskVizPos") return g.val["w:visualizer"] == "1" && g.val["deskVizStyle"] != "ring";  // (the ring is moved by hand)
     if (r.key.compare(0, 7, "deskViz") == 0) return g.val["w:visualizer"] == "1";
     if (r.key.compare(0, 6, "cookie") == 0) return g.val["clockStyle"] == "cookie";
@@ -2893,7 +2935,9 @@ Layout layoutPage(int pi) {
             double x = 0, ly = 0;
             for (const auto& o : r.opts) {
                 double tw = 0, h2 = 0;
+                g_face = faceOf(r.key, o.first);
                 measure(o.second, 14, false, 0, tw, h2);
+                g_face.clear();
                 const double cwid = tw + 32;
                 if (x > 0 && x + cwid > ctrlW) { x = 0; ly += kChoiceBtnH + 8; }
                 chips.push_back({x, ly, cwid, kChoiceBtnH});
@@ -3223,7 +3267,7 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
                     }
                     continue;
                 }
-                const Color col = slot >= 0 && g_themeAcc.count(r.opts[k].first) ? hexColor(g_themeAcc[r.opts[k].first]) : g.color(r.opts[k].first.c_str());
+                const Color col = slot >= 0 && g_themeAcc.count(r.opts[k].first) ? hexColor(g_themeAcc[r.opts[k].first]) : r.opts[k].first == "white" ? Color{1, 1, 1} : r.opts[k].first == "black" ? Color{0, 0, 0} : g.color(r.opts[k].first.c_str());
                 const double cxm = x + kSw / 2, cym = y + oy + kSw / 2;
                 cairo_new_sub_path(cr);
                 cairo_arc(cr, cxm, cym, kSw / 2 - (hot && !sel ? 0 : 2), 0, 2 * M_PI);
@@ -3532,8 +3576,10 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
                 cairo_fill(cr);
                 if (hot) { rrect(cr, c.x, c.y, c.w, c.h, radius); src(cr, ink, 0.08); cairo_fill(cr); }
                 double tw = 0, h2 = 0;
+                g_face = faceOf(r.key, r.opts[o].first);
                 measure(r.opts[o].second, 14, false, 0, tw, h2);
                 text(cr, r.opts[o].second, c.x + (c.w - tw) / 2, c.y + (c.h - h2) / 2, 14, false, ink);
+                g_face.clear();
             }
         } else if (r.kind == Split) {
             const bool open = g_splitOpen == r.key;

@@ -221,5 +221,6 @@ void deskInit(App& app) {
     clockWInit(app.deskClock);
     userWInit(app.userW);
     imageWInit(app.imageW);
+    textWInit();
     for (DeskWidget* d : deskList(app)) d->app = &app;
 }

@@ -6,9 +6,9 @@ constexpr double kGameBarY = 50, kGameBtn = 44, kGameCardW = 340, kGameRadius = 
 constexpr int kGameCross = 56;
 
 struct GameHit { Rect r; int id = 0, arg = 0; };
-enum GameId { GhNone = 0, GhTaskbar, GhClose, GhHead, GhVolTrack, GhVolMute, GhRecord, GhShot };
-const char* const kGameNames[kGwCount] = {"Resources", "Volume", "Recorder", "Crosshair"};
-const char* const kGameIcons[kGwCount] = {"cpu", "volume-loud", "videocamera-record", "target"};
+enum GameId { GhNone = 0, GhTaskbar, GhClose, GhHead, GhVolTrack, GhVolMute, GhRecord, GhShot, GhNoteText, GhNoteCopy, GhResize, GhPin };
+const char* const kGameNames[kGwCount] = {"Resources", "Volume", "Recorder", "Notes", "Crosshair"};
+const char* const kGameIcons[kGwCount] = {"cpu", "volume-loud", "videocamera-record", "notebook-minimalistic", "target"};
 
 double gameEase(double p) { p = std::clamp(p, 0.0, 1.0); return 1 - std::pow(1 - p, 4); }  // (fast start, long landing)
 
@@ -60,14 +60,15 @@ const wl_callback_listener kGameFrame = {gameFrameDone};
 
 
 constexpr double kGameTile = 76, kGameTileGap = 8, kGameTempH = 52, kGameCardPad = 12, kGameBadge = 44;
-double gameCardH(int w) {
+double gameCardH(const GameOverlay& G, int w) {
+    if (w == GwNotes) return G.nh;
     const double head = kGameCardPad + kGameBadge + 12;
     if (w == GwResources) return head + 3 * kGameTile + 3 * kGameTileGap + kGameTempH + kGameCardPad;
     if (w == GwVolume) return head + 84 + kGameCardPad;
     return head + 2 * 56 + kGameTileGap + kGameCardPad;  // recorder
 }
 
-Rect gameCardRect(const GameOverlay& G, int w) { return {G.wx[w], G.wy[w], kGameCardW, gameCardH(w)}; }
+Rect gameCardRect(const GameOverlay& G, int w) { return {G.wx[w], G.wy[w], w == GwNotes ? G.nw : kGameCardW, gameCardH(G, w)}; }
 
 Rect gameTaskbarRect(const App& app, const GameOverlay& G) {
     const double w = 8 * 2 + kGwCount * kGameBtn + (kGwCount - 1) * 4 + 12 + 1 + 12 + 70 + (app.batPresent ? 60 : 0);
@@ -92,30 +93,56 @@ void gameBar(App& app, cairo_t* cr, double x, double y, double w, double h, doub
     }
 }
 
+#include "14ya_game_notes.inc"
+
 void drawGameCard(App& app, cairo_t* cr, PangoLayout* L, int w, std::vector<GameHit>& hits) {
     GameOverlay& G = app.game;
     const Rect r = gameCardRect(G, w);
     const Color ink = app.color("on_surface"), dim = app.color("on_surface_variant");
+    static cairo_surface_t* shadow[kGwCount] = {};  // (a soft shadow under each card; not rebuilt while the notes card is being resized)
+    static int shadowW[kGwCount] = {}, shadowH[kGwCount] = {};
+    if (G.rsMode == 0 && (!shadow[w] || shadowW[w] != static_cast<int>(r.w) || shadowH[w] != static_cast<int>(r.h))) {
+        if (shadow[w]) cairo_surface_destroy(shadow[w]);
+        shadow[w] = makeShadowMask(r.w, r.h, kGameRadius);
+        shadowW[w] = static_cast<int>(r.w);
+        shadowH[w] = static_cast<int>(r.h);
+    }
+    if (shadow[w]) {
+        setSource(cr, app.color("shadow"), 0.5);
+        cairo_mask_surface(cr, shadow[w], r.x - kLaunShadow, r.y - kLaunShadow + 3);
+    }
     roundedRect(cr, r.x, r.y, r.w, r.h, kGameRadius);
     setSource(cr, app.color("surface_container"), 0.98);
     cairo_fill(cr);
+    const bool ghost = w == GwNotes && g_gn.ghostDraw;  // (pinned, the overlay closed: only the box of text)
     // the header: an M3 shape badge with the icon, a title and a line under it, and the close button; the header drags the card
-    hits.push_back({{r.x, r.y, r.w - 64, kGameCardPad + kGameBadge + 8}, GhHead, w});
+    const double headRight = w == GwNotes ? 112 : 64;
+    if (!ghost) hits.push_back({{r.x, r.y, r.w - headRight, kGameCardPad + kGameBadge + 8}, GhHead, w});
     const double hx = r.x + 16, hy = r.y + kGameCardPad;
-    shapePath(cr, kM3IconShape, hx, hy, kGameBadge);
-    setSource(cr, app.color("primary_container"));
-    cairo_fill(cr);
-    drawIcon(cr, kGameIcons[w], hx + (kGameBadge - 24) / 2, hy + (kGameBadge - 24) / 2, 24, app.color("on_primary_container"));
-    const char* sub = w == GwResources ? "Live" : w == GwVolume ? (app.muted ? "Muted" : "Output") : (app.recording ? "Recording" : "Ready");
-    const double tx = hx + kGameBadge + 14;
-    clkText(cr, L, i18n::tr(kGameNames[w]), 16, true, tx, hy + 14, ink, 1, r.w - 120);
-    clkText(cr, L, i18n::tr(sub), 12.5, false, tx, hy + 33, app.recording && w == GwRecorder ? app.color("error") : dim, 1, r.w - 120);
-    const Rect x{r.x + r.w - 16 - 40, hy + 2, 40, 40};
-    hits.push_back({x, GhClose, w});
-    cairo_arc(cr, x.x + 20, x.y + 20, 20, 0, 2 * M_PI);
-    setSource(cr, app.color("surface_container_highest"), G.hover == GhClose * 10 + w ? 1 : 0.7);
-    cairo_fill(cr);
-    drawIcon(cr, "close-circle", x.x + 10, x.y + 10, 20, dim);
+    if (!ghost) {
+        shapePath(cr, kM3IconShape, hx, hy, kGameBadge);
+        setSource(cr, app.color("primary_container"));
+        cairo_fill(cr);
+        drawIcon(cr, kGameIcons[w], hx + (kGameBadge - 24) / 2, hy + (kGameBadge - 24) / 2, 24, app.color("on_primary_container"));
+        const char* sub = w == GwResources ? "Live" : w == GwVolume ? (app.muted ? "Muted" : "Output") : w == GwNotes ? (g_gn.dirty ? "Saving..." : "Saved") : (app.recording ? "Recording" : "Ready");
+        const double tx = hx + kGameBadge + 14, tw = r.w - (w == GwNotes ? 180 : 120);
+        clkText(cr, L, i18n::tr(kGameNames[w]), 16, true, tx, hy + 14, ink, 1, tw);
+        clkText(cr, L, i18n::tr(sub), 12.5, false, tx, hy + 33, app.recording && w == GwRecorder ? app.color("error") : dim, 1, tw);
+        const Rect x{r.x + r.w - 16 - 40, hy + 2, 40, 40};
+        hits.push_back({x, GhClose, w});
+        cairo_arc(cr, x.x + 20, x.y + 20, 20, 0, 2 * M_PI);
+        setSource(cr, app.color("surface_container_highest"), G.hover == GhClose * 10 + w ? 1 : 0.7);
+        cairo_fill(cr);
+        drawIcon(cr, "close-circle", x.x + 10, x.y + 10, 20, dim);
+        if (w == GwNotes) {  // pinned: it stays on the screen, translucent, when the overlay closes
+            const Rect pin{x.x - 8 - 40, x.y, 40, 40};
+            hits.push_back({pin, GhPin, 0});
+            cairo_arc(cr, pin.x + 20, pin.y + 20, 20, 0, 2 * M_PI);
+            setSource(cr, app.color(G.notesPinned ? "primary" : "surface_container_highest"), G.notesPinned || G.hover == GhPin * 10 ? 1 : 0.7);
+            cairo_fill(cr);
+            drawIcon(cr, "pin", pin.x + 10, pin.y + 10, 20, app.color(G.notesPinned ? "on_primary" : "on_surface_variant"));
+        }
+    }
     const double bx = r.x + kGameCardPad, bw = r.w - 2 * kGameCardPad;
     double y = hy + kGameBadge + 12;
     const auto tile = [&](double h) {
@@ -123,6 +150,10 @@ void drawGameCard(App& app, cairo_t* cr, PangoLayout* L, int w, std::vector<Game
         setSource(cr, app.color("surface_container_high"));
         cairo_fill(cr);
     };
+    if (w == GwNotes) {
+        drawGameNotes(app, cr, L, r, hits);
+        return;
+    }
     if (w == GwResources) {
         const App::Resources& R = app.res;
         char ram[40];
@@ -409,6 +440,9 @@ void closeGameNow(App& app) {
     G.framePending = G.dirty = false;
     freeGameBuffers(G);
     app.onGame = false;
+    g_gn.selDrag = false;
+    G.rsMode = 0;
+    gameNotesGhostSync(app);
 }
 
 void onGameConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t w, uint32_t h) {
@@ -420,9 +454,10 @@ void onGameConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uin
     if (!G.configured) {
         G.t0 = std::chrono::steady_clock::now();
         if (!G.placed) {  // first time: the cards sit in a row under the taskbar
-            for (int i = 0; i < GwCrosshair; i++) { G.wx[i] = 60 + i * (kGameCardW + 24); G.wy[i] = 150; }
+            for (int i = 0; i < GwNotes; i++) { G.wx[i] = 60 + i * (kGameCardW + 24); G.wy[i] = 150; }
             G.placed = true;
         }
+        gnPlace(*app);
     }
     G.configured = true;
     drawGame(*app);
@@ -439,6 +474,7 @@ void openGame(App& app) {
     }
     closeAllPopups(app);
     syncCatcher(app);
+    closeNotesGhost(app);
     const Bar* bar = mainBar(app);
     G.hover = 0;
     G.closing = false;
@@ -468,6 +504,7 @@ void tickGame(App& app, std::chrono::steady_clock::time_point now) {
     if (!G.surface || !G.configured) return;
     if (G.closing && now - G.t0 >= std::chrono::milliseconds(static_cast<int>(kGameCloseMs))) { closeGameNow(app); return; }
     bool redraw = G.animating;
+    gameNotesTick(app, now, redraw);
     if (!G.closing && now >= G.nextRes) {  // the numbers of the resources card
         G.nextRes = now + std::chrono::seconds(1);
         updateResources(app);
@@ -475,17 +512,26 @@ void tickGame(App& app, std::chrono::steady_clock::time_point now) {
     }
     if (redraw) drawGame(app);
 }
+int gameCursorShape(const App& app) {
+    const int over = app.game.hover;
+    if (g_gn.selDrag || over == GhNoteText * 10) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT;
+    const int id = over / 10, arg = over % 10;
+    if (app.game.rsMode == 3 || (id == GhResize && arg == 3)) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_SE_RESIZE;
+    if (app.game.rsMode == 1 || (id == GhResize && arg == 1)) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_E_RESIZE;
+    if (app.game.rsMode == 2 || (id == GhResize && arg == 2)) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_S_RESIZE;
+    return id == GhNone ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
+}
 std::chrono::steady_clock::time_point gameWake(const App& app) {
     const GameOverlay& G = app.game;
     if (!G.surface || !G.configured) return std::chrono::steady_clock::time_point::max();
     if (G.animating || G.closing) return std::chrono::steady_clock::now() + std::chrono::milliseconds(16);
-    return G.nextRes;
+    return std::min(G.nextRes, gameNotesWake());
 }
 
 // ---- input --------------------------------------------------------------------------------------------------------------------------
 int gameHitAt(const GameOverlay& G, double x, double y, GameHit* out = nullptr) {
     for (auto it = G.hits.rbegin(); it != G.hits.rend(); ++it)
-        if (it->r.contains(x, y)) { if (out) *out = *it; return it->id * 10 + it->arg; }
+        if (it->r.contains(x, y)) { if (out) *out = *it; return it->id * 10 + std::min(it->arg, 9); }
     return 0;
 }
 
@@ -503,10 +549,27 @@ void gameSetVolume(App& app, double x, const GameHit& track) {
 
 void gameMotion(App& app) {
     GameOverlay& G = app.game;
+    if (g_gn.selDrag) {
+        gnDragSelect(app);
+        drawGame(app);
+        return;
+    }
+    if (G.rsMode != 0) {  // resizing the notes card from its right edge, its bottom edge or its corner
+        const Rect before = gameCardRect(G, GwNotes);
+        if (G.rsMode & 1) G.nw = std::clamp(G.rsW + app.pointerX - G.rsX, kGnMinW, std::max(kGnMinW, G.W - G.wx[GwNotes]));
+        if (G.rsMode & 2) G.nh = std::clamp(G.rsH + app.pointerY - G.rsY, kGnMinH, std::max(kGnMinH, G.H - G.wy[GwNotes]));
+        const Rect after = gameCardRect(G, GwNotes);
+        const double x0 = before.x - kLaunShadow - 4, y0 = before.y - kLaunShadow - 4, x1 = std::max(before.x + before.w, after.x + after.w) + kLaunShadow + 4, y1 = std::max(before.y + before.h, after.y + after.h) + kLaunShadow + 4;
+        if (G.pendValid) { G.pendX0 = std::min(G.pendX0, x0); G.pendY0 = std::min(G.pendY0, y0); G.pendX1 = std::max(G.pendX1, x1); G.pendY1 = std::max(G.pendY1, y1); }
+        else { G.pendX0 = x0; G.pendY0 = y0; G.pendX1 = x1; G.pendY1 = y1; G.pendValid = true; }
+        G.partialRequest = true;
+        drawGame(app);
+        return;
+    }
     if (G.dragW >= 0) {  // only the part the card passed over is damaged
         const Rect before = gameCardRect(G, G.dragW);
-        G.wx[G.dragW] = std::clamp(app.pointerX - G.grabX, 0.0, std::max(0.0, G.W - kGameCardW));
-        G.wy[G.dragW] = std::clamp(app.pointerY - G.grabY, 0.0, std::max(0.0, G.H - gameCardH(G.dragW)));
+        G.wx[G.dragW] = std::clamp(app.pointerX - G.grabX, 0.0, std::max(0.0, G.W - before.w));
+        G.wy[G.dragW] = std::clamp(app.pointerY - G.grabY, 0.0, std::max(0.0, G.H - before.h));
         const Rect after = gameCardRect(G, G.dragW);
         const double x0 = std::min(before.x, after.x), y0 = std::min(before.y, after.y), x1 = std::max(before.x + before.w, after.x + after.w), y1 = std::max(before.y + before.h, after.y + after.h);
         if (G.pendValid) { G.pendX0 = std::min(G.pendX0, x0); G.pendY0 = std::min(G.pendY0, y0); G.pendX1 = std::max(G.pendX1, x1); G.pendY1 = std::max(G.pendY1, y1); }
@@ -528,7 +591,9 @@ void gameButton(App& app, uint32_t button, bool pressed) {
     GameOverlay& G = app.game;
     if (button != 0x110) return;
     if (!pressed) {
-        const bool was = G.dragW >= 0 || G.volDrag;
+        const bool was = G.dragW >= 0 || G.volDrag || G.rsMode != 0 || g_gn.selDrag;
+        if (G.rsMode != 0 || G.dragW == GwNotes) { G.rsMode = 0; gnSaveState(app); }
+        g_gn.selDrag = false;
         G.dragW = -1;
         G.volDrag = false;
         if (was) drawGame(app);
@@ -538,12 +603,22 @@ void gameButton(App& app, uint32_t button, bool pressed) {
     GameHit h;
     const int over = gameHitAt(G, app.pointerX, app.pointerY, &h);
     if (over == 0) { retractGame(app); return; }  // (the dimmed screen: a click closes)
+    if (h.id != GhNoteText && h.id != GhNoteCopy) g_gn.focus = false;
     switch (h.id) {
         case GhTaskbar:
             if (h.arg == GwCrosshair) { if (G.crossOn) closeCrosshair(app); else openCrosshair(app); }
-            else G.open[h.arg] = !G.open[h.arg];
+            else {
+                G.open[h.arg] = !G.open[h.arg];
+                if (h.arg == GwNotes) { g_gn.focus = G.open[GwNotes]; gnSaveState(app); }
+            }
             break;
-        case GhClose: G.open[h.arg] = false; break;
+        case GhClose: G.open[h.arg] = false; if (h.arg == GwNotes) gnSaveState(app); break;
+        case GhNoteText: gnClick(app, false); break;
+        case GhNoteCopy:
+            if (h.arg >= 0 && h.arg < static_cast<int>(g_gn.copies.size())) copyToClipboard(g_gn.copies[h.arg]);
+            break;
+        case GhPin: G.notesPinned = !G.notesPinned; gnSaveState(app); break;
+        case GhResize: G.rsMode = h.arg; G.rsX = app.pointerX; G.rsY = app.pointerY; G.rsW = G.nw; G.rsH = G.nh; break;
         case GhHead: G.dragW = h.arg; G.grabX = app.pointerX - G.wx[h.arg]; G.grabY = app.pointerY - G.wy[h.arg]; break;
         case GhVolTrack: G.volDrag = true; gameSetVolume(app, app.pointerX, h); break;
         case GhVolMute: app.muted = !app.muted; runDetached({"wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"}); break;

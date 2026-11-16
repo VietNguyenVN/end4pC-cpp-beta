@@ -419,6 +419,9 @@ struct Config {
     // the desktop visualizer (14z_desk_viz.inc)
     std::string deskVizStyle = "bars", deskVizPos = "bottom", deskVizColor = "gradient";
     int deskVizSize = 220, deskVizBars = 48;
+    // the text widget of the desktop (14zb_text_widget.inc)
+    std::string customTextFontName, customTextFont = "Display", customTextColor = "on_surface", customTextAlign = "center";
+    int customTextFit = 1, customTextSize = 56, customTextBold = 0, customTextItalic = 0, customTextShadow = 1;
     int widgetShadow = 1;
     int widgetsLocked = 0;
     int keepAwake = 0;
@@ -1106,6 +1109,7 @@ struct DeskWidget {
     // full surface, 2: the small one, whose origin is (frameOx, frameOy) in the full one.
     int frameMode = 0;
     double frameOx = 0, frameOy = 0;
+    double lastGx = 0, lastGy = 0;  // where the pointer was, on the screen, at the last drag step: each step takes the reading that continues from it
     bool armed = false;
     int fullW = 0, fullH = 0, reqW = 0, reqH = 0;
     double gx = 0, gy = 0;
@@ -1348,7 +1352,7 @@ struct QrState {  // the card that shows a QR code made from a link or a text
     cairo_surface_t* image = nullptr;
     int modules = 0;
 };
-enum GameWidget { GwResources, GwVolume, GwRecorder, GwCrosshair, kGwCount };
+enum GameWidget { GwResources, GwVolume, GwRecorder, GwNotes, GwCrosshair, kGwCount };
 struct GameHit;
 // The visualizer of the desktop: one background-layer surface under the widgets, with no input, fed by the same cava stream as the bar's.
 struct DeskViz {
@@ -1381,8 +1385,14 @@ struct GameOverlay {  // the game overlay (SUPER + G)
     bool configured = false, closing = false, animating = false, placed = false, volDrag = false;
     int W = 0, H = 0, hover = 0, dragW = -1;
     std::chrono::steady_clock::time_point t0{}, nextRes{}, lastVolSet{};
-    bool open[kGwCount] = {true, false, false, false};
+    bool open[kGwCount] = {true, false, false, false, false};
     double wx[kGwCount] = {}, wy[kGwCount] = {}, grabX = 0, grabY = 0;
+    // the notes card: its size, the edge being dragged to resize it (1 right, 2 bottom, 3 both), and the translucent copy that stays when it is pinned
+    double nw = 460, nh = 330, rsX = 0, rsY = 0, rsW = 0, rsH = 0;
+    int rsMode = 0;
+    bool notesPinned = false, ghostConfigured = false;
+    wl_surface* ghostSurface = nullptr;
+    zwlr_layer_surface_v1* ghostLayer = nullptr;
     std::vector<struct GameHit> hits;
     wl_surface* crossSurface = nullptr;
     zwlr_layer_surface_v1* crossLayer = nullptr;
@@ -1767,6 +1777,13 @@ int deskCursorShape(const App& app);
 void weatherSvcConfigure(const App& app);
 void deskSync(App& app);
 void deskVizSync(App& app);
+void textWInit();
+DeskWidget* deskTextWidget();
+int gameCursorShape(const App& app);
+void gameNotesGhostSync(App& app);
+bool gameNotesFocused(const App& app);
+bool gameNotesKey(App& app, uint32_t key);
+void gameNotesScroll(App& app, int dir);
 void deskVizMotion(App& app);
 void deskVizButton(App& app, uint32_t button, bool pressed);
 void deskVizToggle(App& app, const std::string& action, std::string& reply);
