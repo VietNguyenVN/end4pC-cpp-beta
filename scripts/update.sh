@@ -65,7 +65,7 @@ if [ "$BEHIND" = 0 ]; then
 fi
 [ "$AHEAD" = 0 ] || die "this checkout has $AHEAD commit(s) that $TARGET does not: update it by hand (git pull --rebase) so they are not lost"
 say "${G}$BEHIND new commit(s)${N} on $TARGET:"
-git log --format='  %h %s' "HEAD..$TARGET" | head -20
+git log --max-count=20 --format='  %h %s' "HEAD..$TARGET"  # (not piped into head: with pipefail the SIGPIPE ended the whole script when more than 20 commits were new)
 [ "$BEHIND" -le 20 ] || echo "  ... and $((BEHIND - 20)) more"
 [ "$CHECK" = 0 ] || exit 0
 
