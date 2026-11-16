@@ -400,12 +400,16 @@ private:
 #include "tools/page_notes.inc"
 #include "tools/page_converter.inc"
 #include "tools/page_video.inc"
+#include "tools/page_timers.inc"
 
 void buildPages() {
     g.pages.push_back(std::make_unique<TranslatorPage>());
     g.pages.push_back(std::make_unique<NotesPage>());
     g.pages.push_back(std::make_unique<ConverterPage>());
     g.pages.push_back(std::make_unique<VideoPage>());
+    g.pages.push_back(std::make_unique<TimersPage>(0));
+    g.pages.push_back(std::make_unique<TimersPage>(1));
+    g.pages.push_back(std::make_unique<TimersPage>(2));
     for (auto& p : g.pages) p->init();
 }
 
@@ -416,14 +420,28 @@ Rect contentRect() { return {kPad, kBarH, g.width - 2.0 * kPad, g.height - kBarH
 Rect closeRect() { return {g.width - kPad - kCloseSize, (kBarH - kCloseSize) / 2, kCloseSize, kCloseSize}; }
 
 constexpr double kSegPad = 4, kBtnPadX = 18, kBtnGap = 8, kBtnIcon = 20, kLabelPx = 15;
-std::vector<Rect> tabRects() {
-    std::vector<double> w;
+// With room for all the labels each page shows its name; without it only the chosen one does, and the others are their icon.
+bool tabsCompact() {
     double total = 2 * kSegPad;
     for (auto& p : g.pages) {
         double tw = 0, th = 0;
         measure(p->name(), kLabelPx, true, 0, tw, th);
-        w.push_back(2 * kBtnPadX + kBtnIcon + kBtnGap + tw);
+        total += 2 * kBtnPadX + kBtnIcon + kBtnGap + tw;
+    }
+    return total > g.width - 2 * 240.0;  // (the title is on the left and the close button on the right)
+}
+std::vector<Rect> tabRects() {
+    std::vector<double> w;
+    double total = 2 * kSegPad;
+    const bool compact = tabsCompact();
+    int index = 0;
+    for (auto& p : g.pages) {
+        double tw = 0, th = 0;
+        measure(p->name(), kLabelPx, true, 0, tw, th);
+        const bool label = !compact || index == g.page;
+        w.push_back(2 * kBtnPadX + kBtnIcon + (label ? kBtnGap + tw : 0));
         total += w.back();
+        index++;
     }
     std::vector<Rect> out;
     double x = (g.width - total) / 2 + kSegPad;
@@ -477,7 +495,7 @@ void drawTabs(cairo_t* cr) {
         double tw = 0, th = 0;
         measure(name, kLabelPx, true, 0, tw, th);
         icon(cr, g.pages[i]->icon(), t[i].x + kBtnPadX, t[i].y + (t[i].h - kBtnIcon) / 2, static_cast<int>(kBtnIcon), c, on);
-        text(cr, name, t[i].x + kBtnPadX + kBtnIcon + kBtnGap, t[i].y + (t[i].h - th) / 2, kLabelPx, true, c);
+        if (!tabsCompact() || on) text(cr, name, t[i].x + kBtnPadX + kBtnIcon + kBtnGap, t[i].y + (t[i].h - th) / 2, kLabelPx, true, c);
     }
 }
 

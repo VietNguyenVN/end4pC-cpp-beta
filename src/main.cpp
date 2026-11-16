@@ -657,6 +657,8 @@ int main(int argc, char** argv) {
         if (const auto pkw = polkitWake(app); pkw != std::chrono::steady_clock::time_point::max()) wakeIn(pkw);
         if (const auto sww = switcherWake(app); sww != std::chrono::steady_clock::time_point::max()) wakeIn(sww);
         if (const auto pw = powerWake(app); pw != std::chrono::steady_clock::time_point::max()) wakeIn(pw);
+        timersCheck(app);
+        if (const auto tw = timersWake(app); tw != std::chrono::steady_clock::time_point::max()) wakeIn(tw);
         if (const auto iw = islandCardWake(app); iw != std::chrono::steady_clock::time_point::max()) wakeIn(iw);
         if (const auto bw = btWake(app); bw != std::chrono::steady_clock::time_point::max()) wakeIn(bw);
         if (const auto dw = desktopMenuWake(app); dw != std::chrono::steady_clock::time_point::max()) wakeIn(dw);
