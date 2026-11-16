@@ -13,3 +13,6 @@ translate-shell| translator for the terminal
 flatpak        | Flatpak apps
 tesseract       | text recognition (the key bind that copies the text of a region)
 tesseract-data-eng | English data for tesseract (other languages: tesseract-data-<lang>)
+qrencode        | makes the QR codes of the launcher (a link or `qr <text>`)
+zxing-cpp       | reads QR codes (the scan button of the launcher and of the capture bar)
+udisks2         | mounts and ejects the removable drives (the drives bar module)

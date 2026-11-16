@@ -89,5 +89,8 @@ inter-font
 wtype
 tesseract
 tesseract-data-eng
+qrencode
+zxing-cpp
+udisks2
 fd
 libcanberra

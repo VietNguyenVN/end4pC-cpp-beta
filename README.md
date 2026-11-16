@@ -21,8 +21,9 @@ Tested on Arch Linux with Hyprland 0.57.1 (Lua config); niri and sway (SwayFX) a
 - **Wallpaper selector** (local folders, favourites, Wallhaven / Unsplash / Pexels), light/dark and generated palettes (matugen) plus
   ready-made themes.
 - **Screenshot and screen-record tool** with annotations, audio and fps options.
-  Its bar also copies the text of an area (OCR, with tesseract) or searches it with Google Lens (`end4pC "screenshot ocr"` / `lens` start straight on that).
-- **Tools**: translator, notes, image converter, video editor, and timers, a stopwatch and reminders that ring with the window closed.
+  Its bar also copies the text of an area (OCR, with tesseract) or searches it with Google Lens (`end4pC "screenshot ocr"` / `lens` start straight on that). A QR code in an area is read too (`screenshot qr`, or the scan button of the launcher). Typing or pasting a link in the launcher, or `qr <text>`, offers to make its QR code.
+  The `drives` bar module appears while a removable drive is plugged in: its popup mounts, opens and ejects it (`udisks2`), and a notification says when it is safe to pull out (or warns if it was pulled out in use).
+- **Tools**: translator, notes, image converter, video editor, a unit and currency converter (length, weight, temperature, liquid volume, speed, area, time, data and about 160 currencies, rates from open.er-api.com), and timers, a stopwatch and reminders that ring with the window closed.
 - **Accessibility**: a screen magnifier (SUPER + = / SUPER + -, Hyprland), a bigger cursor, and an on-screen keyboard you can drag (`end4pC "osk toggle"`).
 - The launcher can also search files (off by default: Settings > Services > Search): the ones used lately, and from three letters on what `fd` finds in your home folder.
 - **Desktop widgets**: clock (many faces), weather, to-do, calendar, player, resources, user card, image.
