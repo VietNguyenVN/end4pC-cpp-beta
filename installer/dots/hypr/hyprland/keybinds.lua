@@ -139,22 +139,6 @@ hl.bind("CTRL + SUPER + S",   hl.dsp.workspace.toggle_special("special") ) -- # 
 hl.bind("SUPER + mouse:275",  hl.dsp.workspace.toggle_special("special") ) -- # [hidden]
 
 --##! Screen
---###! Zoom
-local function zoomfunction(value)
-    local zoomvalue = hl.get_config("cursor:zoom_factor")
-    if (zoomvalue + value) > 3.0 then
-        hl.config({cursor = {zoom_factor = 3.0}})
-    elseif (zoomvalue + value) < 1.0 then
-        hl.config({cursor = {zoom_factor = 1.0}})
-    else
-        hl.config({cursor = {zoom_factor = zoomvalue + value}})
-    end
-end
-hl.bind("SUPER + Minus", function() zoomfunction(-0.3) end, {repeating = true, description = "Zoom out"} )
-hl.bind("SUPER + Equal", function() zoomfunction(0.3)  end, {repeating = true, description = "Zoom in"} )
-hl.bind("SUPER + code:82", function() zoomfunction(-0.3) end, {repeating = true} ) -- # [hidden]
-hl.bind("SUPER + code:86", function() zoomfunction(0.3)  end, {repeating = true} ) -- # [hidden]
-
 --##! Apps
 hl.bind("SUPER + Return",             hl.dsp.exec_cmd(terminal),      {description = "Terminal"} )
 hl.bind("CTRL + ALT + T",             hl.dsp.exec_cmd(terminal) )                                  -- # [hidden]

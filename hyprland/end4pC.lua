@@ -90,6 +90,15 @@ hl.bind("SUPER + Super_L", hl.dsp.exec_cmd(E .. " launcher toggle"), {release = 
 -- Clipboard history: the launcher, opened straight in its clipboard mode (press again to close).
 hl.bind("SUPER + V", hl.dsp.exec_cmd(E .. " 'launcher clipboard'"), {description = "Clipboard history"})
 
+-- Screen magnifier: SUPER + = / SUPER + - (and the keypad's + / -) zoom the screen between 1x and 3x
+-- On-screen keyboard: SUPER + K shows or hides it
+hl.bind("SUPER + K", hl.dsp.exec_cmd(E .. " 'osk toggle'"), {description = "On-screen keyboard"})
+
+hl.bind("SUPER + Equal", hl.dsp.exec_cmd(E .. " 'magnifier in'"), {repeating = true, description = "Zoom in"})
+hl.bind("SUPER + Minus", hl.dsp.exec_cmd(E .. " 'magnifier out'"), {repeating = true, description = "Zoom out"})
+hl.bind("SUPER + code:86", hl.dsp.exec_cmd(E .. " 'magnifier in'"), {repeating = true})
+hl.bind("SUPER + code:82", hl.dsp.exec_cmd(E .. " 'magnifier out'"), {repeating = true})
+
 -- Brightness keys: change the monitor brightness (DDC) and show the on-screen bar.
 hl.bind("XF86MonBrightnessUp",   hl.dsp.exec_cmd(E .. " brightness up"),   {locked = true, repeating = true, description = "Brightness Up"})
 hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd(E .. " brightness down"), {locked = true, repeating = true, description = "Brightness Down"})
