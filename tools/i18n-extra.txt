@@ -183,3 +183,18 @@ offline
 Conversion
 Getting the exchange rates…
 Update Dots
+Resources
+Volume
+Recorder
+Crosshair
+Temperature
+Stop recording
+Record the screen
+Screenshot
+Memory
+Disk
+Live
+Muted
+Output
+Ready
+Recording
