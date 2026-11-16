@@ -87,6 +87,9 @@ void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, 
     }
     app->hoverBar = barForSurface(*app, surface);
     app->hotCorner = cornerForSurface(*app, surface);
+    app->hotCornerOut.clear();
+    if (app->hotCorner >= 0)
+        for (auto& b : app->bars) for (auto& c : b->corners) if (c.surface == surface) app->hotCornerOut = b->connector;
     if (app->hotCorner < 0) {
         if (!anyPopupOpen(*app)) app->cornerLatch = -1;  // (the pointer is somewhere else and nothing is open: the corners are ready again)
     } else if (app->cfg.hotCorners && app->cfg.hotCornerHover && !anyPopupOpen(*app) && app->cornerLatch != app->hotCorner) {
@@ -562,7 +565,7 @@ void onPointerAxis(void* d, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t val
     if (axis != WL_POINTER_AXIS_VERTICAL_SCROLL) return;
     if (app->hotCorner >= 0) {
         if (!app->cfg.hotCorners) return;
-        if (app->hotCorner == 0) changeBrightness(*app, value > 0 ? -3 : 3);
+        if (app->hotCorner == 0) changeBrightness(*app, value > 0 ? -3 : 3, -1, app->hotCornerOut);  // (the monitor that corner belongs to)
         else if (app->hotCorner == 1) runDetached({"wpctl", "set-volume", "-l", volLimit(*app).c_str(), "@DEFAULT_AUDIO_SINK@", volStep(*app, value > 0).c_str()});
         return;
     }
@@ -582,6 +585,13 @@ void onPointerAxis(void* d, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t val
     if (!app->hoverBar) return;
     const Hit overHit = hitTest(*app->hoverBar, app->pointerX, app->pointerY);
     if (overHit == HitIsland) { islandToggleView(*app); return; }
+    if (overHit == HitNone) {  // the empty part of the bar: its first half changes the brightness of this monitor, the second one the volume
+        const Bar& bar = *app->hoverBar;
+        const bool first = sideBar(*app) ? app->pointerY < bar.height / 2.0 : app->pointerX < bar.width / 2.0;
+        if (first) changeBrightness(*app, value > 0 ? -3 : 3, -1, bar.connector);
+        else runDetached({"wpctl", "set-volume", "-l", volLimit(*app).c_str(), "@DEFAULT_AUDIO_SINK@", volStep(*app, value > 0).c_str()});
+        return;
+    }
     if (overHit != HitVolume) return;
     runDetached({"wpctl", "set-volume", "-l", volLimit(*app).c_str(), "@DEFAULT_AUDIO_SINK@", volStep(*app, value > 0).c_str()});
 }

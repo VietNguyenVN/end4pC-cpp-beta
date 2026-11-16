@@ -631,9 +631,11 @@ void onCcConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint3
 void onCcClosed(void* d, zwlr_layer_surface_v1*) { closeControlCenter(*static_cast<App*>(d)); }
 const zwlr_layer_surface_v1_listener kCcListener = {onCcConfigure, onCcClosed};
 
-void startBrightnessJob(App& app, const char* mode, int percent);
+void startBrightnessJob(App& app, const char* mode, int percent, const std::string& out);
+void brightnessFollowFocus(App& app);
+std::string wmFocusedOutputInfo();
 void pollMedia(App& app);
-void changeBrightness(App& app, int delta, int absolute);
+void changeBrightness(App& app, int delta, int absolute = -1, std::string output = "");
 void toggleSettings();
 void toggleTools();
 pid_t mediaSend(App& app, std::initializer_list<const char*> args);
@@ -689,7 +691,7 @@ void openControlCenter(App& app, bool fromAvatar = false) {
     ccRunScript("status");
     C.nextPoll = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     pollMedia(app);
-    if (app.brightness < 0 && app.brightFd < 0) startBrightnessJob(app, "get", 0);
+    brightnessFollowFocus(app);
     ccReadStatus(app);
 }
 void retractControlCenter(App& app) {

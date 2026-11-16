@@ -175,7 +175,7 @@ void showOsd(App& app, int kind) {
     wl_surface_commit(o.surface);
 }
 
-void startBrightnessJob(App& app, const char* verb, int percent) {
+void startBrightnessJob(App& app, const char* verb, int percent, const std::string& out) {
     int p[2];
     if (pipe2(p, O_CLOEXEC | O_NONBLOCK) < 0) return;
     const std::string script = assetsDir() + "/../scripts/brightness.sh", arg = std::to_string(percent);
@@ -185,7 +185,7 @@ void startBrightnessJob(App& app, const char* verb, int percent) {
         dup2(p[1], STDOUT_FILENO);
         int nul = open("/dev/null", O_RDWR);
         dup2(nul, STDERR_FILENO);
-        execl(script.c_str(), script.c_str(), verb, arg.c_str(), nullptr);
+        execl(script.c_str(), script.c_str(), verb, arg.c_str(), out.c_str(), nullptr);
         _exit(127);
     }
     close(p[1]);
@@ -193,35 +193,64 @@ void startBrightnessJob(App& app, const char* verb, int percent) {
     app.brightFd = p[0];
     app.brightBuf.clear();
     app.brightJobIsGet = std::strcmp(verb, "get") == 0;
+    app.brightJobOut = out;
 }
 
-void changeBrightness(App& app, int delta, int absolute = -1) {
-    if (app.brightness < 0) {
-        app.brightPending += delta;
-        app.brightPendingAbs = absolute;
-        if (app.brightFd < 0) startBrightnessJob(app, "get", 0);
+// The monitor that has the focus (the one the pointer is on): its name, asked of the compositor at most every 300 ms.
+std::string focusedOutputName() {
+    static std::string name;
+    static std::chrono::steady_clock::time_point at{};
+    const auto now = std::chrono::steady_clock::now();
+    if (now - at < std::chrono::milliseconds(300) && !name.empty()) return name;
+    const std::string info = wmFocusedOutputInfo();
+    name = info.substr(0, info.find_first_of(" \n"));
+    at = now;
+    return name;
+}
+
+// Changes the brightness of one monitor: `output` (the one under the pointer when it comes from a bar or a corner), or the focused one.
+void changeBrightness(App& app, int delta, int absolute, std::string output) {
+    if (output.empty()) output = focusedOutputName();
+    app.brightOut = output;
+    const auto known = app.brightVal.find(output);
+    if (known == app.brightVal.end()) {  // its value is not known yet: ask, and apply the change when it arrives
+        auto& pend = app.brightPend[output];
+        pend.first += delta;
+        pend.second = absolute;
+        if (app.brightFd < 0) startBrightnessJob(app, "get", 0, output);
         return;
     }
-    app.brightness = std::clamp(absolute >= 0 ? absolute : app.brightness + delta, 0, 100);
+    known->second = std::clamp(absolute >= 0 ? absolute : known->second + delta, 0, 100);
+    app.brightness = known->second;
+    app.brightDirtyOuts.insert(output);
     app.brightDirty = true;
     app.brightSetAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
     showOsd(app, OsdBrightness);
 }
 
+// The control center and the OSD follow the monitor in focus: its value is shown, and read when it is not known.
+void brightnessFollowFocus(App& app) {
+    const std::string out = focusedOutputName();
+    app.brightOut = out;
+    const auto known = app.brightVal.find(out);
+    app.brightness = known == app.brightVal.end() ? -1 : known->second;
+    if (known == app.brightVal.end() && app.brightFd < 0) startBrightnessJob(app, "get", 0, out);
+}
+
 void brightnessJobDone(App& app) {
     close(app.brightFd);
     app.brightFd = -1;
-    if (app.brightJobIsGet) {
-        int cur = 0, max = 0;
-        if (std::sscanf(app.brightBuf.c_str(), "%d %d", &cur, &max) == 2 && max > 0) {
-            app.brightness = std::clamp(cur * 100 / max, 0, 100);
-            if (app.brightPending != 0 || app.brightPendingAbs >= 0) {
-                const int d = app.brightPending, a = app.brightPendingAbs;
-                app.brightPending = 0;
-                app.brightPendingAbs = -1;
-                changeBrightness(app, d, a);
-            }
-        }
+    if (!app.brightJobIsGet) return;
+    int cur = 0, max = 0;
+    if (std::sscanf(app.brightBuf.c_str(), "%d %d", &cur, &max) != 2 || max <= 0) { app.brightPend.erase(app.brightJobOut); return; }
+    const std::string out = app.brightJobOut;
+    app.brightVal[out] = std::clamp(cur * 100 / max, 0, 100);
+    if (app.brightOut == out) app.brightness = app.brightVal[out];
+    const auto pend = app.brightPend.find(out);
+    if (pend != app.brightPend.end()) {
+        const int d = pend->second.first, a = pend->second.second;
+        app.brightPend.erase(pend);
+        if (d != 0 || a >= 0) changeBrightness(app, d, a, out);
     }
 }
 

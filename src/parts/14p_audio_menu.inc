@@ -533,9 +533,9 @@ void drawAudioMenu(App& app) {
             cairo_clip(cr);
             if (A.ta.fading) {
                 amDrawList(app, cr, layout, A.prevItems, false, A.prevScroll, h, A.ta.outDx(kAmSlide), A.ta.outAlpha());
-                amDrawList(app, cr, layout, A.items, true, A.scroll, h, A.ta.inDx(kAmSlide), A.ta.inAlpha());
+                amDrawList(app, cr, layout, A.items, true, A.scroll + static_cast<int>(std::lround(A.band.over)), h, A.ta.inDx(kAmSlide), A.ta.inAlpha());
             } else {
-                amDrawList(app, cr, layout, A.items, true, A.scroll, h, 0, 1);
+                amDrawList(app, cr, layout, A.items, true, A.scroll + static_cast<int>(std::lround(A.band.over)), h, 0, 1);
             }
             for (size_t k = 0; k < A.items.size(); k++)
                 if (A.items[k].fixed) amDrawItem(app, cr, layout, A.items[k], k, A.scroll);
@@ -673,14 +673,14 @@ void tickAudioMenu(App& app, std::chrono::steady_clock::time_point now) {
     if (!A.open() || !A.configured) return;
     bool moving = false;
     if (popTick(A.anim, now, moving)) { closeAudioMenu(app); return; }
-    if (moving || (A.layoutMoving && now - A.stepLast >= std::chrono::milliseconds(8))) drawAudioMenu(app);
+    if (A.band.step() || moving || (A.layoutMoving && now - A.stepLast >= std::chrono::milliseconds(8))) drawAudioMenu(app);
 }
 
 std::chrono::steady_clock::time_point audioWake(const App& app) {
     if (!app.amenu.open() || !app.amenu.configured) return std::chrono::steady_clock::time_point::max();
     const auto now = std::chrono::steady_clock::now();
     const auto wake = popWake(app.amenu.anim.phase, app.amenu.anim.settleAt, now);
-    return app.amenu.layoutMoving ? std::min(wake, now + std::chrono::milliseconds(16)) : wake;
+    return app.amenu.layoutMoving || app.amenu.band.over != 0 ? std::min(wake, now + std::chrono::milliseconds(16)) : wake;
 }
 
 void amRefresh(App& app) {
@@ -900,9 +900,10 @@ void audioMenuMotion(App& app) {
 void audioMenuScroll(App& app, int dir) {
     AudioMenu& A = app.amenu;
     const int maxScroll = std::max(0, A.contentH - A.cardH);
-    const int next = std::clamp(A.scroll + dir * static_cast<int>(kAmScrollStep), 0, maxScroll);
-    if (next == A.scroll) return;
-    A.scroll = next;
+    double v = A.scroll;
+    elasticWheel(A.band, v, maxScroll, dir * static_cast<double>(kAmScrollStep));
+    if (static_cast<int>(std::lround(v)) == A.scroll && A.band.over == 0) return;
+    A.scroll = static_cast<int>(std::lround(v));
     A.hover = amItemAt(A, amCardX(app), amCardY(app));
     drawAudioMenu(app);
     updateCursor(app);

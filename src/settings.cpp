@@ -1,6 +1,7 @@
 #include <cairo.h>
 #include "i18n.h"
 #include "bubble.h"
+#include "elastic.h"
 #include "tabanim.h"
 #include "clipboard.h"
 #include "textsel_pango.h"
@@ -2988,6 +2989,8 @@ void roundedRectCornersS(cairo_t* cr, double x, double y, double w, double h, do
     cairo_close_path(cr);
 }
 
+Elastic g_scrollEl, g_searchEl;  // the rubber band at the ends of a page / of the search results (g.scroll stays the real position)
+
 void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
     const Page& pg = g.pages[pi];
     const Layout L = layoutPage(pi);
@@ -4131,7 +4134,7 @@ void drawSearchResults(cairo_t* cr) {
     cairo_rectangle(cr, 0, kHeader, cardW(), searchViewH());
     cairo_clip(cr);
     for (size_t i = 0; i < g_searchHits.size(); i++) {
-        const double y = kHeader + i * kSearchItemH - g.searchScroll;
+        const double y = kHeader + i * kSearchItemH - (g.searchScroll + g_searchEl.over);
         if (y + kSearchItemH < kHeader || y > cardH()) continue;
         const SearchHit& h = g_searchHits[i];
         const bool on = static_cast<int>(i) == g.searchSel;
@@ -4344,15 +4347,15 @@ void render() {
         cairo_paint_with_alpha(cr, g.secAnim.outAlpha());
         cairo_restore(cr);
         cairo_push_group(cr);
-        drawPageBody(cr, g.page, g.scroll, true);
+        drawPageBody(cr, g.page, g.scroll + g_scrollEl.over, true);
         cairo_pop_group_to_source(cr);
         cairo_save(cr);
         cairo_translate(cr, g.secAnim.inDx(), 0);
         cairo_paint_with_alpha(cr, g.secAnim.inAlpha());
         cairo_restore(cr);
-        drawPageHeader(cr, g.page, g.scroll, true);
+        drawPageHeader(cr, g.page, g.scroll + g_scrollEl.over, true);
     } else {
-        drawPage(cr, g.page, g.scroll, true);
+        drawPage(cr, g.page, g.scroll + g_scrollEl.over, true);
     }
     drawDragGhost(cr);
 
@@ -4435,6 +4438,7 @@ void switchPage(int to) {
     if (g.pages[to].name == "Appearance") { loadThemes(); loadPresets(); }
     savePage();
     g.scroll = 0;
+    g_scrollEl.over = 0;
     g.animT = 0;
     g.animStart = Clock::now();
     g.hoverHit = -1;
@@ -4725,6 +4729,7 @@ void click() {
         }
         g.secSel[g.page] = h.opt;
         g.scroll = 0;
+    g_scrollEl.over = 0;
         g.hoverHit = -1;
         g.dirty = true;
         motion();
@@ -5044,13 +5049,19 @@ void onPAxis(void*, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t value) {
         return;
     }
     if (searchResultsShown()) {
-        g.searchScroll = std::clamp(g.searchScroll + (value > 0 ? 48 : -48), 0.0, searchMaxScroll());
+        g_searchEl.pos = g.searchScroll;
+        g_searchEl.max = searchMaxScroll();
+        g_searchEl.by(value > 0 ? 48 : -48);
+        g.searchScroll = g_searchEl.pos;
         motion();
         g.dirty = true;
         return;
     }
     const Layout L = layoutPage(g.page);
-    g.scroll = std::clamp(g.scroll + (value > 0 ? 48 : -48), 0.0, maxScroll(L));
+    g_scrollEl.pos = g.scroll;
+    g_scrollEl.max = maxScroll(L);
+    g_scrollEl.by(value > 0 ? 48 : -48);
+    g.scroll = g_scrollEl.pos;
     motion();
     g.dirty = true;
 }
@@ -5183,7 +5194,7 @@ int main() {
 
         const auto before = Clock::now();
         int timeout = 1000;
-        if (g.animT < 1 || g.dragHit >= 0 || g_bubbleMoving || g_springsMoving || searchFlashing() || g.secAnim.moving() || g.sideAnim.moving() || g.pillA != g.pillTarget || g.selDrag || (!g_splitOpen.empty() && g_splitT < 1)) timeout = 16;
+        if (g.animT < 1 || g.dragHit >= 0 || g_bubbleMoving || g_springsMoving || searchFlashing() || g.secAnim.moving() || g.sideAnim.moving() || g.pillA != g.pillTarget || g.selDrag || g_scrollEl.over != 0 || g_searchEl.over != 0 || (!g_splitOpen.empty() && g_splitT < 1)) timeout = 16;
         else if (g.focusRow >= 0 || g.searchOpen || g.createPid > 0 || g.updChecking || collagePickBusy()) timeout = 200;
         if (g.repeatKey) timeout = std::min<long>(timeout, std::max<long>(1, std::chrono::duration_cast<std::chrono::milliseconds>(g.repeatAt - before).count()));
 
@@ -5268,6 +5279,7 @@ int main() {
                 g.scroll = std::clamp(g.scroll, 0.0, maxScroll(layoutPage(g.page)));
             }
         }
+        if (g_scrollEl.step() | g_searchEl.step()) g.dirty = true;
         if (g.dirty) render();
     }
 

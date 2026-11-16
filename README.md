@@ -120,8 +120,8 @@ do
 end
 ```
 
-[`hyprland/end4pC.lua`](hyprland/end4pC.lua) holds the layer rules (blur, animations), the window rule of the Settings app, the key
-binds, and it **starts the shell with the session**. Read it before using it: some binds replace the ones you may already have
+[`hyprland/end4pC.lua`](hyprland/end4pC.lua) holds the layer rules (blur, animations), the window rule of the Settings app, loads the key
+binds ([`hyprland/binds.lua`](hyprland/binds.lua)), and it **starts the shell with the session**. Read it before using it: some binds replace the ones you may already have
 (`SUPER+L`, `SUPER+P`).
 
 If something only applies to your machine, put it in `hyprland/local.lua`: it is loaded when it exists and is not in git.
@@ -187,7 +187,15 @@ Open the Settings app from the bar's gear button, with `SUPER + Escape`, or:
 | `ALT + Tab` / `ALT + SHIFT + Tab` | Window switcher (let go of Alt to pick) |
 | Brightness keys | Brightness (with the on-screen bar) |
 
-More are listed, commented out, at the end of `hyprland/end4pC.lua`.
+That is only a taste: there are about a hundred binds (windows, workspaces, volume, media, apps...), and **all of them are yours to change**.
+Open **Tools > Keybinds** (`SUPER + /`): search them, turn any on or off, edit or delete them, and add new ones. To add one you press
+the shortcut itself (like in XFCE) and pick what it does: run a command, a shell action, or a window / workspace action. Two binds on
+the same keys are flagged. Each change is saved and Hyprland reloads at once; the delete button has an undo, and the restore button
+brings the original binds back.
+
+The binds are one plain text table: `hyprland/binds.default.tsv` ships with the shell, and your own copy is
+`~/.config/hypr/keybinds.tsv` (created the first time you change something; delete it to go back to the originals). Binds written by hand
+in Lua still work: put them in `~/.config/hypr/custom/keybinds.lua`.
 
 ---
 

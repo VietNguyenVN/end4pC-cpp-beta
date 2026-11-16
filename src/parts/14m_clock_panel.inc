@@ -5,7 +5,7 @@ inline double clkCardH(const ClockPanel& P) { return P.cardH > 0 ? P.cardH : kCl
 constexpr int kClkSurfW = static_cast<int>(kClkW + 2 * kClkRoom), kClkSurfH = static_cast<int>(kClkH + 2 * kClkRoom);
 constexpr int kClkMaxZones = 4, kClkMaxResults = 5;
 
-enum ClkId { ClkTab = 1, ClkPrev = 10, ClkNext = 11, ClkToday = 12, ClkTimerGo = 20, ClkTimerReset = 21, ClkFab = 40, ClkBack = 41, ClkProfile = 45, ClkWxReload = 46, ClkStyle = 400, ClkLayout = 300, ClkLayoutRemove = 320, ClkLayoutPick = 340, ClkRemove = 50, ClkRow = 60, ClkZone = 200, ClkPreset = 30, ClkDay = 100 };
+enum ClkId { ClkTab = 1, ClkPrev = 10, ClkNext = 11, ClkToday = 12, ClkTimerGo = 20, ClkTimerReset = 21, ClkFab = 40, ClkBack = 41, ClkProfile = 45, ClkWxReload = 48, ClkStyle = 400, ClkLayout = 300, ClkLayoutRemove = 320, ClkLayoutPick = 340, ClkRemove = 50, ClkRow = 60, ClkZone = 200, ClkPreset = 30, ClkDay = 100 };
 constexpr int kClkPresets[4] = {15, 25, 45, 60};
 
 std::tm clkLocalTm(time_t t = std::time(nullptr)) {

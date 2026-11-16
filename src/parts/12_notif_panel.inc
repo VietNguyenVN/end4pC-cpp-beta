@@ -109,7 +109,8 @@ void drawNotifPanel(App& app) {
     const double listH = viewportH + kPanelItemPad;
     const double ph = kPanelHeaderH + listH;
     P.contentH = contentH;
-    P.scroll = std::clamp(P.scroll, 0.0, std::max(0.0, contentH - viewportH));
+    P.maxScroll = std::max(0.0, contentH - viewportH);
+    P.scroll = std::clamp(P.scroll, 0.0, P.maxScroll);
 
     const double py = atBottom ? H - kPanelRoom - ph : kPanelRoom;
     if (!P.shadow || P.shadowH != static_cast<int>(ph)) {
@@ -212,7 +213,7 @@ void drawNotifPanel(App& app) {
         cairo_move_to(cr, (kPanelW - tw) / 2.0, listTop + 120);
         pango_cairo_show_layout(cr, layout);
     }
-    double y = listTop - P.scroll;
+    double y = listTop - (P.scroll + P.band.over);
     for (size_t i = 0; i < app.notifs.size(); i++) {
         const Notif& n = app.notifs[i];
         const PanelRowMetrics& m = metrics[i];
@@ -332,11 +333,11 @@ void drawNotifPanel(App& app) {
     }
     cairo_restore(cr);
 
-    if (contentH > viewportH && P.overList) {
+    if (contentH > viewportH && P.band.thumbAlpha() > 0) {  // (the mark shows while the wheel moves and fades out soon after)
         const double thumbH = std::max(28.0, viewportH * viewportH / contentH);
         const double thumbY = listTop + (viewportH - thumbH) * P.scroll / std::max(1.0, contentH - viewportH);
         roundedRect(cr, kPanelW - 7, thumbY, 3, thumbH, 1.5);
-        setSource(cr, app.color("outline"), 0.7);
+        setSource(cr, app.color("outline"), 0.7 * P.band.thumbAlpha());
         cairo_fill(cr);
     }
     P.pillHeight = ph;
@@ -458,11 +459,12 @@ void tickNotifPanel(App& app, std::chrono::steady_clock::time_point now) {
     if (!P.open() || !P.configured) return;
     bool moving = false;
     if (popTick(P.anim, now, moving)) { closeNotifPanel(app); return; }
-    if (moving) drawNotifPanel(app);
+    if (moving || P.band.step()) drawNotifPanel(app);
 }
 std::chrono::steady_clock::time_point notifPanelWake(const App& app) {
     if (!app.panel.open() || !app.panel.configured) return std::chrono::steady_clock::time_point::max();
-    return popWake(app.panel.anim.phase, app.panel.anim.settleAt, std::chrono::steady_clock::now());
+    const auto now = std::chrono::steady_clock::now(), wake = popWake(app.panel.anim.phase, app.panel.anim.settleAt, now);
+    return app.panel.band.busy() ? std::min(wake, now + std::chrono::milliseconds(16)) : wake;
 }
 
 void deleteNotif(App& app, uint32_t id) {
@@ -546,7 +548,7 @@ void notifPanelClick(App& app) {
 void notifPanelScroll(App& app, int rows) {
     NotifPanel& P = app.panel;
     if (popIsOut(P.anim)) return;
-    P.scroll += rows * 48.0;
+    elasticWheel(P.band, P.scroll, P.maxScroll, rows * 48.0);
     drawNotifPanel(app);
     notifPanelMotion(app);
 }

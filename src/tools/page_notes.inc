@@ -31,6 +31,7 @@ struct NotesPage final : ToolPage {
     std::vector<int> order;
     std::string query;
     double W = 0, H = 0, scrollPos = 0, scrollTarget = 0, edScroll = 0, edViewH = 400;
+    Elastic listEl, edEl;
     bool follow = false, blinkShown = true;
     Clock::time_point blinkBase = Clock::now();
 
@@ -186,7 +187,7 @@ struct NotesPage final : ToolPage {
         return content > gr.viewH ? content - gr.viewH + 80 : 0;
     }
     Rect cardRect(int pos, const Grid& gr) const {
-        return {(pos % gr.cols) * (gr.cw + kGap), gr.top + (pos / gr.cols) * (gr.ch + kGap) - scrollPos, gr.cw, gr.ch};
+        return {(pos % gr.cols) * (gr.cw + kGap), gr.top + (pos / gr.cols) * (gr.ch + kGap) - (scrollPos + listEl.over), gr.cw, gr.ch};
     }
     static Rect pinBtn(const Rect& c) { return {c.x + c.w - 2 * kBtn - 20, c.y + c.h - kBtn - 12, kBtn, kBtn}; }
     static Rect trashBtn(const Rect& c) { return {c.x + c.w - kBtn - 12, c.y + c.h - kBtn - 12, kBtn, kBtn}; }
@@ -337,7 +338,7 @@ struct NotesPage final : ToolPage {
         cairo_rectangle(cr, t.x - 6, t.y, t.w + 12, t.h);
         cairo_clip(cr);
         if (ed.s.empty()) box(cr, "Write something", t.x, t.y, t.w, 0, 18, false, st.fg, 0.5, false);
-        doc.draw(cr, t.x, t.y - edScroll, edScroll, edScroll + t.h, 18, st);
+        doc.draw(cr, t.x, t.y - (edScroll + edEl.over), edScroll + edEl.over, edScroll + edEl.over + t.h, 18, st);
         cairo_restore(cr);
         drawScrollbar(cr, t);
     }
@@ -349,7 +350,7 @@ struct NotesPage final : ToolPage {
         cairo_save(cr);
         cairo_rectangle(cr, t.x - 6, t.y, t.w + 12, t.h);
         cairo_clip(cr);
-        cairo_translate(cr, t.x, t.y - edScroll);
+        cairo_translate(cr, t.x, t.y - (edScroll + edEl.over));
         for (const Rect& s : ed.selectionRects()) { src(cr, g.color("primary"), 0.3); cairo_rectangle(cr, s.x, s.y, s.w, s.h); cairo_fill(cr); }
         if (ed.s.empty()) box(cr, "Write something", 0, 0, t.w, 0, ed.px, false, fg, 0.5, false);
         pango_cairo_update_layout(cr, lay);
@@ -372,7 +373,7 @@ struct NotesPage final : ToolPage {
         if (total <= t.h) return;
         const double bh = std::max(36.0, t.h * t.h / total), by = t.y + (t.h - bh) * (edScroll / std::max(1.0, editMax()));
         rrect(cr, t.x + t.w + 12, by, 5, bh, 2.5);
-        src(cr, g.color("on_surface_variant"), 0.4);
+        src(cr, g.color("on_surface_variant"), 0.4 * edEl.thumbAlpha());  // (shown while the wheel moves, faded out soon after)
         cairo_fill(cr);
     }
     void followCaret() {
@@ -463,8 +464,8 @@ struct NotesPage final : ToolPage {
         return changed;
     }
     bool scroll(double, double, double dy) override {
-        if (view == View::Edit) { edScroll = std::clamp(edScroll + dy * 3, 0.0, editMax()); return true; }
-        scrollTarget = std::clamp(scrollTarget + dy * 3, 0.0, maxScroll());
+        if (view == View::Edit) { elasticWheel(edEl, edScroll, editMax(), dy * 3); return true; }
+        elasticWheel(listEl, scrollTarget, maxScroll(), dy * 3);
         return true;
     }
     Cursor cursor(double x, double y) const override {
@@ -689,9 +690,10 @@ struct NotesPage final : ToolPage {
             scrollPos += (scrollTarget - scrollPos) * 0.35;
             redraw = true;
         } else if (scrollPos != scrollTarget) { scrollPos = scrollTarget; redraw = true; }
+        if (listEl.step() | edEl.step()) redraw = true;
         return redraw;
     }
-    bool animating() const override { return pendingSave || tipMoving || std::abs(scrollTarget - scrollPos) > 0.5; }
+    bool animating() const override { return pendingSave || tipMoving || std::abs(scrollTarget - scrollPos) > 0.5 || listEl.over != 0 || edEl.busy(); }
 };
 }
 

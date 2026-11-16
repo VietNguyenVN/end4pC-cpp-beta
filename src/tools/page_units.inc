@@ -25,12 +25,14 @@ struct UnitsPage final : ToolPage {
 
     int popup = 0;  // 1: the source unit list, 2: the target one
     std::string filter;
-    double popScroll = 0, gridScroll = 0;
+    double popScroll = 0, gridScroll = 0, popMax = 0, gridMax = 0;
+    Elastic popEl, gridEl;
     std::vector<Hit> hits;
     Hover hover;
     Rect fromCard, toCard, gridCard, popArea, gridList;
 
     const char* name() const override { return "Units"; }
+    bool roundClip() const override { return false; }  // (the chips reach the top corners)
     const char* icon() const override { return "calculator-minimalistic"; }
 
     static std::string dataDir() { return configDir() + "/tools"; }
@@ -273,12 +275,13 @@ struct UnitsPage final : ToolPage {
         const int cols = std::max(1, static_cast<int>((gridList.w + kCellGap) / (220 + kCellGap)));
         const double cw = (gridList.w - (cols - 1) * kCellGap) / cols;
         const int rows = (static_cast<int>(others.size()) + cols - 1) / cols;
-        gridScroll = std::clamp(gridScroll, 0.0, std::max(0.0, rows * (kCellH + kCellGap) - kCellGap - gridList.h));
+        gridMax = std::max(0.0, rows * (kCellH + kCellGap) - kCellGap - gridList.h);
+        gridScroll = std::clamp(gridScroll, 0.0, gridMax);
         cairo_save(cr);
         cairo_rectangle(cr, gridList.x, gridList.y, gridList.w, gridList.h);
         cairo_clip(cr);
         for (size_t i = 0; i < others.size(); i++) {
-            const Rect r{gridList.x + (i % cols) * (cw + kCellGap), gridList.y + (i / cols) * (kCellH + kCellGap) - gridScroll, cw, kCellH};
+            const Rect r{gridList.x + (i % cols) * (cw + kCellGap), gridList.y + (i / cols) * (kCellH + kCellGap) - (gridScroll + gridEl.over), cw, kCellH};
             if (r.y + r.h < gridList.y || r.y > gridList.y + gridList.h) continue;
             const bool on = others[i]->id == toId[static_cast<size_t>(cat)];
             const Color bg = on ? g.color("secondary_container") : g.color("surface_container_high"), fg = on ? g.color("on_secondary_container") : g.color("on_surface");
@@ -318,13 +321,14 @@ struct UnitsPage final : ToolPage {
         const Rect list{popArea.x + pad, popArea.y + pad + searchH, popArea.w - 2 * pad, popArea.h - 2 * pad - searchH};
         const int cols = list.w > 330 ? 2 : 1, rows = (static_cast<int>(items.size()) + cols - 1) / cols;
         const double cw = (list.w - (cols - 1) * gap) / cols;
-        popScroll = std::clamp(popScroll, 0.0, std::max(0.0, rows * (chH + gap) - gap - list.h));
+        popMax = std::max(0.0, rows * (chH + gap) - gap - list.h);
+        popScroll = std::clamp(popScroll, 0.0, popMax);
         cairo_save(cr);
         cairo_rectangle(cr, list.x, list.y, list.w, list.h);
         cairo_clip(cr);
         const std::string cur = popup == 1 ? fromId[static_cast<size_t>(cat)] : toId[static_cast<size_t>(cat)];
         for (size_t k = 0; k < items.size(); k++) {
-            const Rect r{list.x + (k % cols) * (cw + gap), list.y + (k / cols) * (chH + gap) - popScroll, cw, chH};
+            const Rect r{list.x + (k % cols) * (cw + gap), list.y + (k / cols) * (chH + gap) - (popScroll + popEl.over), cw, chH};
             if (r.y + r.h < list.y || r.y > list.y + list.h) continue;
             const UnUnit& u = C().units[static_cast<size_t>(items[k])];
             const bool on = u.id == cur;
@@ -472,8 +476,8 @@ struct UnitsPage final : ToolPage {
     }
     bool scroll(double x, double y, double dy) override {
         const double step = dy * 3;
-        if (popup && popArea.contains(x, y)) popScroll += step;
-        else if (gridCard.contains(x, y)) gridScroll += step;
+        if (popup && popArea.contains(x, y)) elasticWheel(popEl, popScroll, popMax, step);
+        else if (gridCard.contains(x, y)) elasticWheel(gridEl, gridScroll, gridMax, step);
         else return false;
         return true;
     }
@@ -509,7 +513,8 @@ struct UnitsPage final : ToolPage {
         if (fetching && job.running() && job.poll()) { finishFetch(); changed = true; }
         if (copiedUntil != Clock::time_point{} && Clock::now() >= copiedUntil) { copiedUntil = Clock::time_point{}; changed = true; }
         const bool caretOn = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - lastKey).count() / 530 % 2 == 0;
+        if (popEl.step() | gridEl.step()) changed = true;
         return changed || caretOn != lastCaret;
     }
-    bool animating() const override { return fetching; }
+    bool animating() const override { return fetching || popEl.over != 0 || gridEl.over != 0; }
 };

@@ -21,6 +21,7 @@ struct ConverterPage final : ToolPage {
     bool dragging = false;
     Rect listRect, sliderRect;
     double scrollY = 0, contentH = 0;
+    Elastic el;
     std::string note;
     Clock::time_point noteUntil, started = Clock::now();
 
@@ -212,14 +213,14 @@ struct ConverterPage final : ToolPage {
         cairo_rectangle(cr, area.x, area.y, area.w, area.h);
         cairo_clip(cr);
         for (size_t i = 0; i < eng.items.size(); i++) {
-            const double y = area.y + 4 + i * rowH - scrollY;
+            const double y = area.y + 4 + i * rowH - (scrollY + el.over);
             if (y + rowH < area.y || y > area.y + area.h) continue;
             drawRow(cr, *eng.items[i], static_cast<int>(i), {area.x + 12, y, area.w - 24, rowH - 6});
         }
         if (contentH > area.h) {
             const double th = std::max(30.0, area.h * area.h / contentH), ty = area.y + (area.h - th) * scrollY / (contentH - area.h);
             rrect(cr, area.x + area.w - 6, ty, 3, th, 1.5);
-            src(cr, g.color("on_surface_variant"), 0.4);
+            src(cr, g.color("on_surface_variant"), 0.4 * el.thumbAlpha());
             cairo_fill(cr);
         }
         cairo_restore(cr);
@@ -440,7 +441,7 @@ struct ConverterPage final : ToolPage {
     }
     bool scroll(double x, double y, double dy) override {
         if (!listRect.contains(x, y)) return false;
-        scrollY = std::clamp(scrollY + dy * 0.6, 0.0, std::max(0.0, contentH - listRect.h));
+        elasticWheel(el, scrollY, std::max(0.0, contentH - listRect.h), dy * 0.6);
         return true;
     }
 
@@ -482,11 +483,11 @@ struct ConverterPage final : ToolPage {
     }
 
     bool tick() override {
-        bool changed = eng.tick();
+        bool changed = eng.tick() | el.step();
         if (pick.finished()) { onPickDone(); changed = true; }
         if (paste.finished()) { onPasteDone(); changed = true; }
         if (!note.empty() && Clock::now() > noteUntil) { note.clear(); changed = true; }
         return loadOneThumb() || changed;
     }
-    bool animating() const override { return eng.running() || thumbsPending(); }
+    bool animating() const override { return eng.running() || thumbsPending() || el.busy(); }
 };

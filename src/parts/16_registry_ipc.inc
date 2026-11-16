@@ -247,10 +247,15 @@ void handleClient(App& app, int listenFd) {
         reply = app.launcher.open() && !popIsOut(app.launcher.anim) ? "open" : "closed";
     }
     else if (cmd.rfind("brightness", 0) == 0) {
-        const std::string a = cmd.size() > 11 ? cmd.substr(11) : "get";
-        if (a == "up") changeBrightness(app, 5);
-        else if (a == "down") changeBrightness(app, -5);
-        else if (a.rfind("set ", 0) == 0) changeBrightness(app, 0, std::atoi(a.c_str() + 4));
+        // brightness [up|down|set N] [output]: the monitor in focus, or the one named
+        std::string a = cmd.size() > 11 ? cmd.substr(11) : "get", output;
+        if (a.rfind("set ", 0) == 0) {
+            const size_t sp = a.find(' ', 4);
+            if (sp != std::string::npos) { output = a.substr(sp + 1); a.resize(sp); }
+        } else if (const size_t sp = a.find(' '); sp != std::string::npos) { output = a.substr(sp + 1); a.resize(sp); }
+        if (a == "up") changeBrightness(app, 5, -1, output);
+        else if (a == "down") changeBrightness(app, -5, -1, output);
+        else if (a.rfind("set ", 0) == 0) changeBrightness(app, 0, std::atoi(a.c_str() + 4), output);
         reply = app.brightness < 0 ? "unknown (asking the monitor)" : std::to_string(app.brightness);
     }
     else if (cmd == "osd volume") { showOsd(app, OsdVolume); reply = "ok"; }

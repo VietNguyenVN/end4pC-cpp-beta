@@ -1,5 +1,6 @@
 #include <cairo.h>
 #include "bubble.h"
+#include "elastic.h"
 #include "i18n.h"
 #include "units.h"
 #include <dirent.h>
@@ -23,6 +24,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <csignal>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -123,7 +125,9 @@ enum class Cursor { Default, Pointer, Text };
 struct KeyEvent {
     xkb_keysym_t sym = 0;
     std::string text;  // what the key types (UTF-8), empty for keys that type nothing
-    bool ctrl = false, shift = false, alt = false;
+    bool ctrl = false, shift = false, alt = false, logo = false;
+    uint32_t code = 0;         // the evdev keycode
+    std::string baseName;      // the key with no modifier (Shift+1 is "1"), as xkb names it: what a Hyprland bind calls the key
 };
 
 struct ToolPage {
@@ -139,6 +143,9 @@ struct ToolPage {
     virtual bool key(const KeyEvent&) { return false; }
     virtual bool tick() { return false; }
     virtual bool animating() const { return false; }
+    virtual bool grabsKeys() const { return false; }  // true: every key, shortcuts of the window included, goes to key()
+    virtual void blur() {}
+    virtual bool roundClip() const { return true; }  // false: the page may use the corners of its area (the clip is a plain rectangle)                            // the keyboard left the window
     virtual Cursor cursor(double, double) const { return Cursor::Default; }
 };
 
@@ -403,6 +410,8 @@ private:
 #include "tools/page_video.inc"
 #include "tools/page_timers.inc"
 #include "tools/page_units.inc"
+#include "tools/keybinds_store.inc"
+#include "tools/page_keybinds.inc"
 
 void buildPages() {
     g.pages.push_back(std::make_unique<TranslatorPage>());
@@ -413,6 +422,7 @@ void buildPages() {
     g.pages.push_back(std::make_unique<TimersPage>(0));
     g.pages.push_back(std::make_unique<TimersPage>(1));
     g.pages.push_back(std::make_unique<TimersPage>(2));
+    g.pages.push_back(std::make_unique<KeybindsPage>());
     for (auto& p : g.pages) p->init();
 }
 
@@ -513,7 +523,8 @@ void drawClose(cairo_t* cr) {
 
 void drawPageAt(cairo_t* cr, int index, Rect r, double dx, double alpha) {
     cairo_save(cr);
-    rrect(cr, r.x, r.y, r.w, r.h, 28);
+    if (g.pages[index]->roundClip()) rrect(cr, r.x, r.y, r.w, r.h, 28);
+    else cairo_rectangle(cr, r.x, r.y, r.w, r.h);
     cairo_clip(cr);
     cairo_translate(cr, r.x + dx, r.y);
     cairo_push_group(cr);
@@ -641,12 +652,22 @@ bool handleKey(uint32_t key) {
     k.ctrl = active(XKB_MOD_NAME_CTRL);
     k.shift = active(XKB_MOD_NAME_SHIFT);
     k.alt = active(XKB_MOD_NAME_ALT);
-    if (windowShortcut(k)) return false;
+    k.logo = active(XKB_MOD_NAME_LOGO);
+    k.code = key;
+    if (g.xkbMap) {
+        const xkb_keysym_t* syms = nullptr;
+        if (xkb_keymap_key_get_syms_by_level(g.xkbMap, key + 8, xkb_state_key_get_layout(g.xkbState, key + 8), 0, &syms) > 0) {
+            char nm[64];
+            if (xkb_keysym_get_name(syms[0], nm, sizeof nm) > 0) k.baseName = nm;
+        }
+    }
+    const bool grab = g.switchT >= 1 && cur().grabsKeys();
+    if (!grab && windowShortcut(k)) return false;
     char buf[16];
     const int n = k.ctrl ? 0 : xkb_state_key_get_utf8(g.xkbState, key + 8, buf, sizeof buf);
     if (n > 0 && static_cast<unsigned char>(buf[0]) >= 32 && buf[0] != 127) k.text.assign(buf, n);
     if (g.switchT >= 1 && cur().key(k)) { g.dirty = true; return true; }
-    plainShortcut(k);
+    if (!grab) plainShortcut(k);
     return false;
 }
 
@@ -719,7 +740,11 @@ void onKKeymap(void*, wl_keyboard*, uint32_t format, int32_t fd, uint32_t size) 
     close(fd);
 }
 void onKEnter(void*, wl_keyboard*, uint32_t, wl_surface*, wl_array*) {}
-void onKLeave(void*, wl_keyboard*, uint32_t, wl_surface*) { g.repeatKey = 0; }
+void onKLeave(void*, wl_keyboard*, uint32_t, wl_surface*) {
+    g.repeatKey = 0;
+    for (auto& p : g.pages) p->blur();
+    g.dirty = true;
+}
 void onKKey(void*, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t state) {
     if (state == WL_KEYBOARD_KEY_STATE_RELEASED) {
         if (key == g.repeatKey) g.repeatKey = 0;
@@ -822,6 +847,9 @@ void teardown() {
 }
 }
 
+volatile sig_atomic_t g_term = 0;  // (pkill from the toggle: leave the loop, so a shortcut capture in progress can give the keys back)
+void onTermSignal(int) { g_term = 1; }
+
 int main() {
     {
         const int lock = open((runtimeDir() + "/end4pC-tools.lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
@@ -836,7 +864,10 @@ int main() {
     buildPages();
     if (const char* p = std::getenv("TOOLS_PAGE")) g.page = g.prevPage = std::clamp(std::atoi(p), 0, pageCount() - 1);
 
-    while (g.running) {
+    std::signal(SIGTERM, onTermSignal);
+    std::signal(SIGINT, onTermSignal);
+    std::signal(SIGHUP, onTermSignal);
+    while (g.running && !g_term) {
         while (wl_display_prepare_read(g.display) != 0) wl_display_dispatch_pending(g.display);
         wl_display_flush(g.display);
         pollfd pfd = {wl_display_get_fd(g.display), POLLIN, 0};
@@ -848,6 +879,7 @@ int main() {
         tickAll();
         if (g.dirty) render();
     }
+    kbGrab(false);
     teardown();
     g_object_unref(g_measure);
     cairo_destroy(dcr);

@@ -596,6 +596,7 @@ struct CcHit {
     std::string key() const { return std::to_string(kind) + "|" + std::to_string(id) + "|" + target; }
 };
 struct CcRadio {
+    Elastic band;  // the rubber band at the ends of the list
     std::string wifi = "absent", bt = "absent";
     std::string wifiIp;
     bool wifiScan = false, btScan = false;
@@ -687,7 +688,8 @@ struct NotifPanel {
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
-    double scroll = 0, contentH = 0;
+    double scroll = 0, contentH = 0, maxScroll = 0;
+    Elastic band;  // the rubber band at the ends of the list, and the fading scroll mark
     uint32_t hoverId = 0;
     bool overList = false;
     int hoverButton = -1;
@@ -1030,6 +1032,7 @@ struct AudioMenu {
     int hover = -1;
     int pressed = -1;
     int scroll = 0, contentH = 0;
+    Elastic band;  // the rubber band at the ends of the list
     double viewH = 0, viewV = 0;
     double cardTop = 0;
     TabAnim ta;
@@ -1647,7 +1650,13 @@ struct App {
     int brightness = -1;
     int hotCorner = -1;
     int cornerLatch = -1;  // the corner that opened something on hover: it does not act again until the pointer has left it with nothing open
-    int brightPending = 0, brightPendingAbs = -1;
+    // brightness, one value per monitor (by output name): what the monitors are at, what is waiting for the first reading, which ones must be
+    // written, and which one the OSD and the control center show (`brightness` is that one's value)
+    std::map<std::string, int> brightVal;
+    std::map<std::string, std::pair<int, int>> brightPend;
+    std::set<std::string> brightDirtyOuts;
+    std::string brightOut, brightJobOut;
+    std::string hotCornerOut;  // the output of the hot corner the pointer is in
     bool brightDirty = false;
     std::chrono::steady_clock::time_point brightSetAt;
     int brightFd = -1;

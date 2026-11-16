@@ -142,6 +142,7 @@ struct TimersPage final : ToolPage {
     Act hotAct = kNone;
     int hotA = -1, hotB = -1;
     double scrollY = 0, contentH = 0;
+    Elastic band;
     Rect listRect;
     Clock::time_point blink = Clock::now();
 
@@ -178,10 +179,10 @@ struct TimersPage final : ToolPage {
         if (noteGone) note.clear();
         const bool caret = fieldFocus && ((Clock::now() - blink).count() / 1000000 / 500) % 2 != static_cast<long>(lastCaret);
         lastCaret = (Clock::now() - blink).count() / 1000000 / 500 % 2;
-        return fileChanged || moved || caret || noteGone;
+        return fileChanged || moved || caret || noteGone || band.step();
     }
     long lastCaret = 0;
-    bool animating() const override { return false; }
+    bool animating() const override { return band.over != 0; }
 
     bool addHit(const Rect& r, Act act, int a = 0, int b = 0) { hits.push_back({r, act, a, b}); return hotAct == act && hotA == a && hotB == b; }
     static void centered(cairo_t* cr, const std::string& str, const Rect& r, double px, bool bold, const Color& c, double alpha = 1) {
@@ -495,7 +496,7 @@ struct TimersPage final : ToolPage {
         src(cr, g.color("surface_container_low"));
         cairo_fill(cr);
         const double top = box.y + 64;
-        double y = top - scrollY;
+        double y = top - (scrollY + band.over);
         const char* title = kind == 0 ? "Timers" : "Reminders";
         text(cr, title, box.x + 24, box.y + 20, 20, true, g.color("on_surface"));
         if (kind == 1 && !note.empty()) {
@@ -580,7 +581,7 @@ struct TimersPage final : ToolPage {
         cairo_save(cr);
         cairo_rectangle(cr, b.x, top, b.w, b.h - (top - b.y) - 8);
         cairo_clip(cr);
-        double ly = top - scrollY;
+        double ly = top - (scrollY + band.over);
         double prev = 0;
         for (size_t i = 0; i < st.laps.size(); i++) {
             const Rect c = {b.x + b.w / 2 - 260, ly, 520, 44};
@@ -786,7 +787,7 @@ struct TimersPage final : ToolPage {
     bool leave() override { const bool had = hotAct != kNone; hotAct = kNone; hotA = hotB = -1; return had; }
     bool scroll(double, double, double dy) override {
         const double view = tab == 1 ? 300 : listRect.h - 64;
-        scrollY = std::clamp(scrollY + dy * 48, 0.0, std::max(0.0, contentH - view));
+        elasticWheel(band, scrollY, std::max(0.0, contentH - view), dy * 48);
         return true;
     }
     Cursor cursor(double x, double y) const override {

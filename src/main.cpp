@@ -2,6 +2,7 @@
 #include "i18n.h"
 #include "units.h"
 #include "bubble.h"
+#include "elastic.h"
 #include "tabanim.h"
 #include "deskplace.h"
 #include "textsel_pango.h"
@@ -756,8 +757,10 @@ int main(int argc, char** argv) {
             if (n == 0) brightnessJobDone(app);
         }
         if (app.brightDirty && app.brightFd < 0 && std::chrono::steady_clock::now() >= app.brightSetAt) {
-            app.brightDirty = false;
-            startBrightnessJob(app, "set", app.brightness);
+            const std::string out = *app.brightDirtyOuts.begin();
+            app.brightDirtyOuts.erase(app.brightDirtyOuts.begin());
+            app.brightDirty = !app.brightDirtyOuts.empty();
+            startBrightnessJob(app, "set", app.brightVal[out], out);
         }
         if (fds[13].revents & POLLIN) {
             char junk[256];

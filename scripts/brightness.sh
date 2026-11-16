@@ -1,40 +1,65 @@
 #!/usr/bin/env bash
 # end4pC brightness helper.
-#   brightness.sh get            -> prints "<current> <max>", then "done"
-#   brightness.sh set <percent>  -> prints "done"
-# Laptops (a /sys/class/backlight device) go through brightnessctl; external monitors through DDC/CI with ddcutil,
-# whose bus number is looked up once and cached.
+#   brightness.sh get [<percent> <output>]   -> prints "<current> <max>", then "done"
+#   brightness.sh set <percent> [<output>]   -> prints "done"
+# <output> is the connector of the monitor (eDP-1, HDMI-A-1, DP-2...). The screen of a laptop (a /sys/class/backlight device and an internal
+# connector) goes through brightnessctl; every other monitor through DDC/CI with ddcutil, on the I2C bus of that connector. The bus of each
+# connector is looked up once and cached. Without an output, the first monitor that answers is used.
 set -u
 verb="${1:-get}"
+pct="${2:-50}"
+out="${3:-}"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/end4pC"
 mkdir -p "$cache"
 
-if compgen -G "/sys/class/backlight/*" >/dev/null; then
+has_backlight() { compgen -G "/sys/class/backlight/*" >/dev/null; }
+internal=0
+case "$out" in
+    eDP*|LVDS*|DSI*) internal=1 ;;
+    "") has_backlight && internal=1 ;;
+esac
+
+if [ "$internal" = 1 ] && has_backlight; then
     case "$verb" in
         get) echo "$(brightnessctl -c backlight g) $(brightnessctl -c backlight m)" ;;
-        set) brightnessctl -c backlight s "${2:-50}%" -q ;;
+        set) brightnessctl -c backlight s "${pct}%" -q ;;
     esac
     echo done
     exit 0
 fi
 
-bus_file="$cache/ddc-bus"
-if [ ! -s "$bus_file" ]; then
-    ddcutil detect --brief 2>/dev/null | sed -n 's|.*I2C bus: */dev/i2c-\([0-9]*\).*|\1|p' | head -1 > "$bus_file"
+# connector -> bus, one "<connector> <bus>" per line
+map_file="$cache/ddc-map"
+build_map() {
+    ddcutil detect --brief 2>/dev/null | awk '
+        /^Display / { if (c != "" && b != "") print c, b; c = ""; b = "" }
+        /I2C bus:/ { b = $NF; sub(".*i2c-", "", b) }
+        /DRM connector:/ { c = $NF; sub("^card[0-9]+-", "", c) }
+        END { if (c != "" && b != "") print c, b }' > "$map_file.tmp" && mv "$map_file.tmp" "$map_file"
+}
+[ -s "$map_file" ] || build_map
+bus=""
+if [ -n "$out" ]; then
+    bus="$(awk -v o="$out" '$1 == o { print $2; exit }' "$map_file" 2>/dev/null)"
+    if [ -z "$bus" ]; then  # (a monitor plugged in since the map was made)
+        build_map
+        bus="$(awk -v o="$out" '$1 == o { print $2; exit }' "$map_file" 2>/dev/null)"
+    fi
+else
+    bus="$(awk 'NR == 1 { print $2 }' "$map_file" 2>/dev/null)"
 fi
-bus="$(cat "$bus_file" 2>/dev/null)"
 [ -n "$bus" ] || { echo fail; exit 1; }
 
 case "$verb" in
     get)
-        out="$(ddcutil -b "$bus" getvcp 10 --brief 2>/dev/null)"   # "VCP 10 C 56 100"
-        set -- $out
-        [ "${5:-}" ] && echo "${5}" > "$cache/ddc-max"
+        res="$(ddcutil -b "$bus" getvcp 10 --brief 2>/dev/null)"   # "VCP 10 C 56 100"
+        set -- $res
+        [ "${5:-}" ] && echo "${5}" > "$cache/ddc-max-$bus"
         echo "${4:-50} ${5:-100}"
         ;;
     set)
-        max="$(cat "$cache/ddc-max" 2>/dev/null || echo 100)"
-        ddcutil -b "$bus" setvcp 10 $(( ${2:-50} * max / 100 )) --noverify >/dev/null 2>&1
+        max="$(cat "$cache/ddc-max-$bus" 2>/dev/null || echo 100)"
+        ddcutil -b "$bus" setvcp 10 $(( pct * max / 100 )) --noverify >/dev/null 2>&1
         ;;
 esac
 echo done

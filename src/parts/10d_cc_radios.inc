@@ -195,6 +195,7 @@ void ccRadioTick(App& app, std::chrono::steady_clock::time_point before, int& ti
     } else {
         C.slideAt = {};
     }
+    if (R.band.step() || R.band.over != 0) { drawControlCenter(app); timeoutMs = timeoutMs < 0 ? 16 : std::min(timeoutMs, 16); }
     if (R.bubbleMoving) { drawControlCenter(app); timeoutMs = timeoutMs < 0 ? 16 : std::min(timeoutMs, 16); }
     if (C.pageOpen && C.page != CcPageNone) {
         if (before >= R.nextPoll) { netbtRun("list"); R.nextPoll = before + std::chrono::milliseconds(kRadioPollMs); }
@@ -299,7 +300,7 @@ void ccRadioScroll(App& app, int dir) {
     if (!C.pageOpen || C.slide < 1 || R.dialog != CcDlgNone) return;
     const double count = static_cast<double>(C.page == CcPageWifi ? R.aps.size() : R.devs.size());
     const double content = count * kRadioRowH, view = kCcListBottom - kCcListTop;
-    R.scroll = std::clamp(R.scroll + dir * 48.0, 0.0, std::max(0.0, content - view));
+    elasticWheel(R.band, R.scroll, std::max(0.0, content - view), dir * 48.0);
     R.hover.clear();
     drawControlCenter(app);
 }

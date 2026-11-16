@@ -198,3 +198,126 @@ Muted
 Output
 Ready
 Recording
+Apps
+Brightness +
+Brightness -
+Brightness Down
+Brightness Up
+Character recognition (OCR)
+Clipboard history
+Close
+Code editor
+Custom
+Decrease split ratio
+Down
+File manager
+Five workspaces back
+Five workspaces forward
+Float/Tile
+Focus down
+Focus left
+Focus left (bracket)
+Focus next workspace (monitor)
+Focus previous workspace (monitor)
+Focus right
+Focus right (bracket)
+Focus up
+Focus workspace
+Focus workspace (keypad)
+Focus workspace on the left
+Focus workspace on the left (page key)
+Focus workspace on the right
+Focus workspace on the right (page key)
+Forcefully zap a window
+Fullscreen
+Fullscreen spoof
+Game overlay
+Generate AI summary for selected text
+Google Lens (Region)
+Increase split ratio
+Keyboard
+Launcher
+Left
+Lens
+Lock Screen
+Lock Screen (alternate)
+Maximize
+Media
+Media & Volume
+Media Player
+Move window
+Move window (middle click)
+Move window down
+Move window left
+Move window right
+Move window up
+Next track
+Next track (key)
+Next track (mouse)
+Next workspace
+Office software
+On-screen keyboard
+Pause (key)
+Pick color
+Play/pause (key)
+Play/pause media
+Power Menu
+Power menu
+Previous track
+Previous track (key)
+Previous track (mouse)
+Previous workspace
+Read a QR code (Region)
+Record
+Record Screen
+Resize window
+Restart the Shell
+Right
+Screenshot (Region)
+Screenshot (Region, Edit in Swappy)
+Screenshot (save to file)
+Screenshots & Tools
+Send to next workspace
+Send to next workspace (relative)
+Send to previous workspace
+Send to previous workspace (relative)
+Send to scratchpad
+Send to workspace (follow)
+Send to workspace (stay)
+Send to workspace on the left
+Send to workspace on the right
+Session
+Settings
+Settings app
+Shell
+Shutdown
+Suspend system
+Task manager
+Terminal
+Terminal (alternate)
+Text editor
+Toggle mic
+Toggle mic (alternate)
+Toggle mic (key)
+Toggle mute
+Toggle scratchpad
+Toggle scratchpad (alternate)
+Toggle scratchpad (mouse)
+Tools
+Up
+Volume down
+Volume down (scroll)
+Volume mixer
+Volume up
+Volume up (scroll)
+Wallpaper
+Wallpaper Selector
+Window Switcher
+Window Switcher (Back)
+Windows
+Workspaces
+Wrong close keybind notice
+Zoom in
+Zoom in (keypad +)
+Zoom out
+Zoom out (keypad -)

@@ -19,6 +19,7 @@ struct GameNotes {
     bool loaded = false, focus = false, selDrag = false, dirty = false, ghostDraw = false, placed = false;
     textsel::Clicks clicks;
     double scroll = 0, textW = 300;
+    Elastic band;  // the rubber band at the ends of the text, and the fading scroll mark
     Rect panel{};
     std::chrono::steady_clock::time_point dirtyAt{};
     std::vector<std::string> copies;
@@ -149,7 +150,7 @@ void drawGameNotes(App& app, cairo_t* cr, PangoLayout* L, const Rect& r, std::ve
     cairo_save(cr);
     roundedRect(cr, p.x, p.y, p.w, p.h, 20);
     cairo_clip(cr);
-    cairo_translate(cr, p.x + kGnPadX, p.y + kGnPadY - g_gn.scroll);
+    cairo_translate(cr, p.x + kGnPadX, p.y + kGnPadY - (g_gn.scroll + g_gn.band.over));
     if (ed.s.empty()) {
         PangoLayout* ph = pango_cairo_create_layout(cr);
         setFont(ph, kGnPx, false);
@@ -189,7 +190,7 @@ void drawGameNotes(App& app, cairo_t* cr, PangoLayout* L, const Rect& r, std::ve
             if (focused && ed.cur >= b.start && ed.cur <= b.end) continue;
             double x = 0, y = 0, h = 0;
             ed.caret(b.start, x, y, h);
-            const double by = p.y + kGnPadY - g_gn.scroll + y + (h - kBtn) / 2;
+            const double by = p.y + kGnPadY - (g_gn.scroll + g_gn.band.over) + y + (h - kBtn) / 2;
             if (by < p.y + 2 || by + kBtn > p.y + p.h - 2) continue;
             const Rect btn{p.x + p.w - 12 - kBtn, by, kBtn, kBtn};
             const int idx = static_cast<int>(g_gn.copies.size());
@@ -202,10 +203,10 @@ void drawGameNotes(App& app, cairo_t* cr, PangoLayout* L, const Rect& r, std::ve
         }
     }
     const double content = ed.contentHeight() + 2 * kGnPadY;
-    if (content > p.h) {  // a thin scroll mark
+    if (content > p.h && g_gn.band.thumbAlpha() > 0) {  // a thin scroll mark, shown while the wheel moves
         const double th = std::max(24.0, (p.h - 16) * p.h / content), ty = p.y + 8 + (p.h - 16 - th) * g_gn.scroll / std::max(1.0, content - p.h);
         roundedRect(cr, p.x + p.w - 6, ty, 3, th, 1.5);
-        setSource(cr, dim, 0.4);
+        setSource(cr, dim, 0.4 * g_gn.band.thumbAlpha());
         cairo_fill(cr);
     }
     if (!live) return;
@@ -257,8 +258,8 @@ void gnDragSelect(App& app) {
 }
 
 void gameNotesScroll(App& app, int dir) {
-    g_gn.scroll += dir * 48;
-    gnClampScroll();
+    const double content = g_gn.ed.contentHeight() + 2 * kGnPadY;
+    elasticWheel(g_gn.band, g_gn.scroll, std::max(0.0, content - g_gn.panel.h), dir * 48.0);
     drawGame(app);
 }
 
@@ -330,6 +331,7 @@ bool gameNotesKey(App& app, uint32_t key) {
 }
 
 void gameNotesTick(App& app, std::chrono::steady_clock::time_point now, bool& redraw) {
+    if (g_gn.band.step()) redraw = true;
     if (!g_gn.dirty || now - g_gn.dirtyAt < std::chrono::milliseconds(kGnSaveMs)) return;
     g_gn.dirty = false;
     gnSaveText();
@@ -337,7 +339,8 @@ void gameNotesTick(App& app, std::chrono::steady_clock::time_point now, bool& re
     (void)app;
 }
 std::chrono::steady_clock::time_point gameNotesWake() {
-    return g_gn.dirty ? g_gn.dirtyAt + std::chrono::milliseconds(kGnSaveMs) : std::chrono::steady_clock::time_point::max();
+    const auto save = g_gn.dirty ? g_gn.dirtyAt + std::chrono::milliseconds(kGnSaveMs) : std::chrono::steady_clock::time_point::max();
+    return g_gn.band.busy() ? std::min(save, std::chrono::steady_clock::now() + std::chrono::milliseconds(16)) : save;
 }
 
 // ---- pinned: the card stays after the overlay closes, translucent, and the clicks go through it ------------------------------------------

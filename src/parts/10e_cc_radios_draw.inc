@@ -199,7 +199,7 @@ void rdList(RdCtx& g) {
         cairo_rectangle(g.cr, 0, kCcListTop, kCcW, kCcListBottom - kCcListTop);
         cairo_clip(g.cr);
         for (size_t i = 0; i < count; i++) {
-            const double y = kCcListTop + i * kRadioRowH - R.scroll;
+            const double y = kCcListTop + i * kRadioRowH - (R.scroll + R.band.over);
             if (y + 60 <= kCcListTop || y >= kCcListBottom) continue;
             if (g.wifi) {
                 const CcAp& a = R.aps[i];

@@ -39,7 +39,8 @@ struct TranslatorPage final : ToolPage {
     bool lastCaret = true;
 
     std::vector<TrHistory> history;
-    double histScroll = 0, tgtScroll = 0;
+    double histScroll = 0, tgtScroll = 0, histMax = 0, tgtMax = 0;
+    Elastic histEl, tgtEl;
     int popup = 0;
     std::vector<Hit> hits;
     Hover hover;
@@ -284,8 +285,10 @@ struct TranslatorPage final : ToolPage {
         if (st == St::Failed) drawError(cr, fg);
         else if (out.empty()) text(cr, "Translation", tgtText.x, tgtText.y, kEdPx, false, fg, tgtText.w, 0.5);
         else {
-            const double h = trBlock(cr, out, tgtText, tgtScroll, fg, st == St::Done ? 1 : 0.5);
-            tgtScroll = std::clamp(tgtScroll, 0.0, std::max(0.0, h - tgtText.h));
+            tgtScroll = std::clamp(tgtScroll, 0.0, tgtMax);  // (with the last size: no empty band for a frame)
+            const double h = trBlock(cr, out, tgtText, tgtScroll + tgtEl.over, fg, st == St::Done ? 1 : 0.5);
+            tgtMax = std::max(0.0, h - tgtText.h);
+            tgtScroll = std::clamp(tgtScroll, 0.0, tgtMax);
         }
         drawTargetFooter(cr, c);
     }
@@ -341,7 +344,8 @@ struct TranslatorPage final : ToolPage {
         histList = {c.x + 10, c.y + 70, c.w - 20, c.h - 80};
         if (history.empty()) { drawHistoryEmpty(cr); return; }
         const double total = history.size() * (kRowH + kRowGap) - kRowGap;
-        histScroll = std::clamp(histScroll, 0.0, std::max(0.0, total - histList.h));
+        histMax = std::max(0.0, total - histList.h);
+        histScroll = std::clamp(histScroll, 0.0, histMax);
         cairo_save(cr);
         cairo_rectangle(cr, histList.x, histList.y, histList.w, histList.h);
         cairo_clip(cr);
@@ -356,7 +360,7 @@ struct TranslatorPage final : ToolPage {
     }
     void drawHistoryRow(cairo_t* cr, size_t i) {
         const TrHistory& h = history[i];
-        const Rect r{histList.x, histList.y + i * (kRowH + kRowGap) - histScroll, histList.w, kRowH};
+        const Rect r{histList.x, histList.y + i * (kRowH + kRowGap) - (histScroll + histEl.over), histList.w, kRowH};
         if (r.y + r.h < histList.y || r.y > histList.y + histList.h) return;
         const bool hov = hot(r, HistRow, static_cast<int>(i));
         const Color bg = g.color("surface_container_high");
@@ -477,8 +481,8 @@ struct TranslatorPage final : ToolPage {
 
     bool scroll(double x, double y, double dy) override {
         const double step = dy * 3;
-        if (histCard.contains(x, y)) histScroll += step;
-        else if (tgtCard.contains(x, y)) tgtScroll += step;
+        if (histCard.contains(x, y)) elasticWheel(histEl, histScroll, histMax, step);
+        else if (tgtCard.contains(x, y)) elasticWheel(tgtEl, tgtScroll, tgtMax, step);
         else if (srcCard.contains(x, y)) ed.scroll += step;
         else return false;
         return true;
@@ -526,7 +530,8 @@ struct TranslatorPage final : ToolPage {
         if (jobD.running() && jobD.poll()) { finishDetect(); changed = true; }
         if (copiedUntil != Clock::time_point{} && !flashing()) { copiedUntil = Clock::time_point{}; changed = true; }
         const bool caretOn = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - lastKey).count() / 530 % 2 == 0;
+        if (histEl.step() | tgtEl.step()) changed = true;
         return changed || caretOn != lastCaret;
     }
-    bool animating() const override { return st == St::Waiting || st == St::Busy; }
+    bool animating() const override { return st == St::Waiting || st == St::Busy || histEl.over != 0 || tgtEl.over != 0; }
 };

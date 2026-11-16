@@ -62,77 +62,13 @@ hl.layer_rule({match = {namespace = "end4pC-desk-viz"}, no_anim = true})
 -- hl.layer_rule({match = {namespace = "end4pC-frame"}, blur = false})
 
 ------------------------------------------------------------------------------------------------------------------
--- Possible keybinds. All commented out so nothing clashes with the ones you already have: uncomment what you want.
--- Every action is `end4pC <command>`; `end4pC config` prints the current settings.
+-- Keybinds: all of them (the shell's, the apps', windows, workspaces, media...) are one table that Tools > Keybinds edits.
+-- See hyprland/binds.lua. Your own Lua binds can still go in hypr/custom/keybinds.lua.
 ------------------------------------------------------------------------------------------------------------------
-
--- Active binds -------------------------------------------------------------------------------------------------
--- The descriptions show in the launcher's key bind list (type `<` and a name): keep them short and in Title Case.
-
--- Wallpaper selector (overlay): open / close
-hl.bind("SUPER + W", hl.dsp.exec_cmd(E .. " selector toggle"), {description = "Wallpaper Selector"})
-
--- Screenshot: drag a region (Esc cancels); saved in Pictures/Screenshots and copied to the clipboard
-hl.bind("SUPER + SHIFT + S", hl.dsp.exec_cmd(E .. " screenshot region"), {description = "Screenshot (Region)"})
-
--- Same, but the picture opens in swappy (draw, crop, text) before it is saved
-hl.bind("SUPER + ALT + S", hl.dsp.exec_cmd(E .. " screenshot edit"), {description = "Screenshot (Region, Edit in Swappy)"})
--- Google Lens / QR: pick an area; letting go of it is the action
-hl.bind("SUPER + SHIFT + A", hl.dsp.exec_cmd(E .. " screenshot lens"), {description = "Google Lens (Region)"})
-hl.bind("SUPER + SHIFT + Q", hl.dsp.exec_cmd(E .. " screenshot qr"), {description = "Read a QR code (Region)"})
-
--- Player card (the media panel): toggle
-hl.bind("SUPER + M", hl.dsp.exec_cmd(E .. " media toggle"), {description = "Media Player"})
-
--- Settings app (separate window)
-hl.bind("SUPER + Escape", hl.dsp.exec_cmd(E .. " settings"), {description = "Settings"})
-
--- Tools app (translator, notes, image converter, video editor): toggles the window.
-hl.bind("SUPER + slash", hl.dsp.exec_cmd(E .. " tools"), {description = "Tools"})
-
--- Launcher: a lone Super press (released without another key).
-hl.bind("SUPER + Super_L", hl.dsp.exec_cmd(E .. " launcher toggle"), {release = true, description = "Launcher"})
-
--- Clipboard history: the launcher, opened straight in its clipboard mode (press again to close).
-hl.bind("SUPER + V", hl.dsp.exec_cmd(E .. " 'launcher clipboard'"), {description = "Clipboard history"})
-
--- Screen magnifier: SUPER + = / SUPER + - (and the keypad's + / -) zoom the screen between 1x and 3x
--- On-screen keyboard: SUPER + K shows or hides it
--- Game overlay: SUPER + G dims the screen and shows a taskbar with resources, volume, recorder and a crosshair
-hl.bind("SUPER + G", hl.dsp.exec_cmd(E .. " 'game toggle'"), {description = "Game overlay"})
-hl.bind("SUPER + K", hl.dsp.exec_cmd(E .. " 'osk toggle'"), {description = "On-screen keyboard"})
-
-hl.bind("SUPER + Equal", hl.dsp.exec_cmd(E .. " 'magnifier in'"), {repeating = true, description = "Zoom in"})
-hl.bind("SUPER + Minus", hl.dsp.exec_cmd(E .. " 'magnifier out'"), {repeating = true, description = "Zoom out"})
-hl.bind("SUPER + code:86", hl.dsp.exec_cmd(E .. " 'magnifier in'"), {repeating = true})
-hl.bind("SUPER + code:82", hl.dsp.exec_cmd(E .. " 'magnifier out'"), {repeating = true})
-
--- Brightness keys: change the monitor brightness (DDC) and show the on-screen bar.
-hl.bind("XF86MonBrightnessUp",   hl.dsp.exec_cmd(E .. " brightness up"),   {locked = true, repeating = true, description = "Brightness Up"})
-hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd(E .. " brightness down"), {locked = true, repeating = true, description = "Brightness Down"})
-
--- Possible binds, off by default ---------------------------------------------------------------------------------
-
--- Screen recording on/off (wf-recorder, saved in ~/Videos)
-hl.bind("SUPER + SHIFT + R", hl.dsp.exec_cmd(E .. " 'quick 1'"), {locked = true, description = "Record Screen"})
-
--- Colour picker (hyprpicker, copies the colour to the clipboard)
--- hl.bind("SUPER + SHIFT + C", hl.dsp.exec_cmd(E .. " quick 0"))
-
--- Move the bar to the top / bottom of the screen
--- hl.bind("SUPER + ALT + Up",   hl.dsp.exec_cmd(E .. " set barPosition top"))
--- hl.bind("SUPER + ALT + Down", hl.dsp.exec_cmd(E .. " set barPosition bottom"))
-
--- Workspace style: numbered boxes (default) or dots (gnome)
--- hl.bind("SUPER + ALT + N", hl.dsp.exec_cmd(E .. " set workspaceStyle default"))
--- hl.bind("SUPER + ALT + D", hl.dsp.exec_cmd(E .. " set workspaceStyle gnome"))
-
--- Show the workspaces on the left next to the media player / hide them again
--- hl.bind("SUPER + ALT + W", hl.dsp.exec_cmd(E .. " set left workspaces,media"))
--- hl.bind("SUPER + ALT + E", hl.dsp.exec_cmd(E .. " set left media"))
-
--- Restart the shell (the control center has a button for it too). The script works from outside, so it also fixes a shell that is stuck.
-hl.bind("SUPER + R", hl.dsp.exec_cmd("bash " .. os.getenv("HOME") .. "/.config/end4pC/scripts/restart.sh"), {description = "Restart the Shell"})
+do
+    local ok, err = pcall(dofile, os.getenv("HOME") .. "/.config/end4pC/hyprland/binds.lua")
+    if not ok then print("end4pC keybinds: " .. tostring(err)) end
+end
 
 -- Settings app (end4pC-settings): a normal window, always floating, centred and with a fixed size.
 hl.window_rule({
@@ -173,24 +109,11 @@ hl.on("hyprland.start", function()
     hl.exec_cmd(os.getenv("HOME") .. "/.config/end4pC/build/end4pC")
 end)
 
--- Lock screen: its own binary (ext-session-lock). It takes over SUPER+L from hypr/hyprland/keybinds.lua (loginctl lock-session);
--- unbinding here leaves that file untouched. SUPER+CTRL+L stays as a second way in.
-local lockCmd = os.getenv("HOME") .. "/.config/end4pC/build/end4pC-lock"
-pcall(hl.unbind, "SUPER + L")
-hl.bind("SUPER + L", hl.dsp.exec_cmd(lockCmd), {description = "Lock Screen"})
-hl.bind("SUPER + CTRL + L", hl.dsp.exec_cmd(lockCmd), {description = "Lock Screen"})
-
--- Power menu (overlay with lock, logout, suspend, shutdown, hibernate, reboot). The unbind keeps working if your own
--- hypr/hyprland/keybinds.lua binds SUPER+P to something else.
-pcall(hl.unbind, "SUPER + P")
-hl.bind("SUPER + P", hl.dsp.exec_cmd(E .. " power toggle"), {description = "Power Menu"})
+-- Power menu (overlay with lock, logout, suspend, shutdown, hibernate, reboot).
 hl.layer_rule({match = {namespace = "end4pC-power"}, blur = true, xray = false, ignore_alpha = 0})
 hl.layer_rule({match = {namespace = "end4pC-power"}, no_anim = true})
 
 -- Window switcher (Alt+Tab): the bind opens it and moves to the next window; letting go of Alt picks it. Shift goes backwards.
--- If Alt+Tab clashes with something, the same can be done on SUPER + Tab.
-hl.bind("ALT + Tab", hl.dsp.exec_cmd(E .. " 'switcher next'"), {repeating = true, description = "Window Switcher"})
-hl.bind("ALT + SHIFT + Tab", hl.dsp.exec_cmd(E .. " 'switcher prev'"), {repeating = true, description = "Window Switcher (Back)"})
 hl.layer_rule({match = {namespace = "end4pC-switcher"}, blur = true, xray = false, ignore_alpha = 0.35})
 hl.layer_rule({match = {namespace = "end4pC-switcher"}, no_anim = true})
 

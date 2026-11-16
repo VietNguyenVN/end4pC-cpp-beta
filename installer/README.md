@@ -100,8 +100,9 @@ the names that have none.
 
 ## Know before you use it
 
-- The hypr config started in another setup (dots-hyprland) and is cleaned of its Quickshell parts: the binds of the shell are in
-  `~/.config/end4pC/hyprland/end4pC.lua`, and the rest are the usual window, workspace, volume and app keys.
+- The hypr config started in another setup (dots-hyprland) and is cleaned of its Quickshell parts: all the keybinds (the shell's, windows,
+  workspaces, volume, apps...) are one table, `~/.config/end4pC/hyprland/binds.default.tsv`, that you edit from Tools > Keybinds
+  (your copy is `~/.config/hypr/keybinds.tsv`). Your own Lua binds still go in `hypr/custom/keybinds.lua`.
 - `hypr/monitors.lua` is generic (any monitor, preferred mode): put your own layout there.
 - Stop any other bar, notification daemon or wallpaper tool before the first run (waybar, mako, swaync, swww, Quickshell...).
 - The package has no wallpapers and no personal files: the first palette uses yours, or a default accent.
