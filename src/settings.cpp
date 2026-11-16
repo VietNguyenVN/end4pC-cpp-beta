@@ -3797,7 +3797,7 @@ std::vector<Rect> sideRects() {
     for (const auto& pg : g.pages) shown += pg.hidden ? 0 : 1;
     const double titleBottom = kMargin + 54, navBottom = g.height - kMargin - 104.0 - 12;
     const double items = shown * 46.0 + std::max(0, shown - 1) * 8.0;
-    double y = titleBottom + std::max(8.0, (navBottom - titleBottom - items) / 2);
+    double y = titleBottom + std::clamp((navBottom - titleBottom - items) / 2, 8.0, 24.0);  // (centred in a short window, but close under the title in a tall one)
     for (size_t i = 0; i < g.pages.size(); i++) {
         if (g.pages[i].hidden) { v.push_back({}); continue; }
         v.push_back({kMargin + 14, y, kSideW - 28, 46});
