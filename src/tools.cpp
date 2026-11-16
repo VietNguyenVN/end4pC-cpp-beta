@@ -1,6 +1,7 @@
 #include <cairo.h>
 #include "bubble.h"
 #include "i18n.h"
+#include "units.h"
 #include <dirent.h>
 #include <fcntl.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
@@ -401,12 +402,14 @@ private:
 #include "tools/page_converter.inc"
 #include "tools/page_video.inc"
 #include "tools/page_timers.inc"
+#include "tools/page_units.inc"
 
 void buildPages() {
     g.pages.push_back(std::make_unique<TranslatorPage>());
     g.pages.push_back(std::make_unique<NotesPage>());
     g.pages.push_back(std::make_unique<ConverterPage>());
     g.pages.push_back(std::make_unique<VideoPage>());
+    g.pages.push_back(std::make_unique<UnitsPage>());
     g.pages.push_back(std::make_unique<TimersPage>(0));
     g.pages.push_back(std::make_unique<TimersPage>(1));
     g.pages.push_back(std::make_unique<TimersPage>(2));

@@ -478,6 +478,7 @@ struct Launcher {
     bool selDrag = false;
     textsel::Drag dragInfo;
     double fieldX = 0, fieldW = 0, scrollX = 0;
+    std::chrono::steady_clock::time_point convPoll{};
     std::vector<LauncherResult> results;
     int selected = 0, scroll = 0, hover = -1;
     bool sliding = false;

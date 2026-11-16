@@ -1366,15 +1366,25 @@ void toggleLauncher(App& app) {
         drawLauncher(app);
     } else retractLauncher(app);
 }
+bool launcherWaitsForRates(const Launcher& L) {
+    for (const LauncherResult& r : L.results) if (r.kind == ResConv && r.payload.empty()) return true;
+    return false;
+}
 void tickLauncher(App& app, std::chrono::steady_clock::time_point now) {
     Launcher& L = app.launcher;
     if (!L.open() || !L.configured) return;
+    if (launcherWaitsForRates(L) && now >= L.convPoll) {  // the exchange rates are being fetched: show the answer as soon as they arrive
+        L.convPoll = now + std::chrono::milliseconds(500);
+        updateLauncherResults(app);
+        drawLauncher(app);
+    }
     bool moving = false;
     if (popTick(L.anim, now, moving)) { closeLauncher(app); return; }
     if (moving) drawLauncher(app);
 }
 std::chrono::steady_clock::time_point launcherWake(const App& app) {
     if (!app.launcher.open() || !app.launcher.configured) return std::chrono::steady_clock::time_point::max();
+    if (launcherWaitsForRates(app.launcher)) return std::min(app.launcher.convPoll, popWake(app.launcher.anim.phase, app.launcher.anim.settleAt, std::chrono::steady_clock::now()));
     return popWake(app.launcher.anim.phase, app.launcher.anim.settleAt, std::chrono::steady_clock::now());
 }
 
