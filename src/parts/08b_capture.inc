@@ -1,5 +1,5 @@
 
-enum CapBtn { bSelect = 0, bArrow, bLine, bRect, bEllipse, bBrush, bText, bNumber, bBlur, bUndo, bRedo, bCopy, bSave, bClose, kCapBtnCount };
+enum CapBtn { bSelect = 0, bArrow, bLine, bRect, bEllipse, bBrush, bText, bNumber, bBlur, bUndo, bRedo, bCopy, bSave, bOcr, bLens, bClose, kCapBtnCount };
 constexpr double kCapBtn = 36, kCapBtnGap = 2, kCapSep = 14, kCapBarPad = 8, kCapHandle = 5, kCapGrab = 10, kCapMin = 6;
 enum { kCapIdle = 0, kCapCreate = 1, kCapMove = 2, kCapResize = 3, kCapDraw = 4 };
 constexpr int kCapColors = 6, kCapSizes = 3;
@@ -19,7 +19,7 @@ bool capBarsShown(const Capture& c) { return c.has && (c.mode == kCapIdle || c.m
 
 CapGeom capGeom(const Capture& c) {
     CapGeom g;
-    const double w = 2 * kCapBarPad + kCapBtnCount * kCapBtn + (kCapBtnCount - 1) * kCapBtnGap + 2 * kCapSep;
+    const double w = 2 * kCapBarPad + kCapBtnCount * kCapBtn + (kCapBtnCount - 1) * kCapBtnGap + 3 * kCapSep;
     const double h = kCapBtn + 2 * kCapBarPad;
     const double x = std::clamp(c.sx + c.sw / 2 - w / 2, 8.0, std::max(8.0, c.w - w - 8.0));
     double y = c.sy + c.sh + 12;
@@ -29,7 +29,7 @@ CapGeom capGeom(const Capture& c) {
     g.bar = {x, y, w, h};
     double bx = x + kCapBarPad;
     for (int i = 0; i < kCapBtnCount; i++) {
-        if (i == bUndo || i == bCopy) bx += kCapSep;
+        if (i == bUndo || i == bCopy || i == bOcr) bx += kCapSep;
         g.btn[i] = {bx, y + kCapBarPad, kCapBtn, kCapBtn};
         bx += kCapBtn + kCapBtnGap;
     }
@@ -496,7 +496,7 @@ void drawCapture(App& app) {
                 cairo_stroke(cr);
             };
             pill(g.bar);
-            static const char* icons[kCapBtnCount] = {"cursor", "arrow-right-up", nullptr, nullptr, nullptr, "pen", "text", "hashtag-circle", nullptr, "undo-left", "undo-right", "copy", "download-minimalistic", "close-circle"};
+            static const char* icons[kCapBtnCount] = {"cursor", "arrow-right-up", nullptr, nullptr, nullptr, "pen", "text", "hashtag-circle", nullptr, "undo-left", "undo-right", "copy", "download-minimalistic", "text-selection", "eye-scan", "close-circle"};
             for (int i = 0; i < kCapBtnCount; i++) {
                 const Rect& r = g.btn[i];
                 const bool hot = c.hoverBtn == i, main = i == bCopy, on = i <= bBlur && i == c.tool;
@@ -572,7 +572,7 @@ void drawCapture(App& app) {
     }
 
     {
-        static const char* names[kCapBtnCount] = {"Select the area", "Arrow", "Line", "Rectangle", "Ellipse", "Brush", "Text  (Enter to finish)", "Numbered marker", "Pixelate", "Undo  (Ctrl+Z)", "Redo  (Ctrl+Y)", "Copy  (Enter)", "Save  (Ctrl+S)", "Close  (Esc)"};
+        static const char* names[kCapBtnCount] = {"Select the area", "Arrow", "Line", "Rectangle", "Ellipse", "Brush", "Text  (Enter to finish)", "Numbered marker", "Pixelate", "Undo  (Ctrl+Z)", "Redo  (Ctrl+Y)", "Copy  (Enter)", "Save  (Ctrl+S)", "Copy the text in the area (OCR)", "Search the area with Google Lens", "Close  (Esc)"};
         if (c.record && c.hoverBtn >= 0 && c.hoverBtn < kRecBtnCount && capBarsShown(c)) {
             static const char* rec[kRecBtnCount] = {nullptr, nullptr, "Frame rate: automatic", "24 frames per second", "30 frames per second", "60 frames per second", "Start recording  (Enter)", "Close  (Esc)"};
             const Rect r = capRecGeom(c).btn[c.hoverBtn];
@@ -675,6 +675,88 @@ void captureFinish(App& app, bool save) {
     if (ok && (!save || app.cfg.screenshotCopy)) { const std::string cmd = "wl-copy --type image/png < '" + file + "'"; runDetached({"bash", "-c", cmd.c_str()}); }
     if (ok && saved) runDetached({"notify-send", "-a", "end4pC", "-i", file.c_str(), "Screenshot saved", file.c_str()});
     closeCapture(app);
+}
+
+// tesseract's names for the languages this shell is shown in, besides English
+std::string capOcrLanguages(const App& app) {
+    std::string lang = app.cfg.language;
+    if (lang.empty()) { const char* l = std::getenv("LANG"); lang = l ? l : "en"; }
+    static const std::map<std::string, std::string> codes = {{"es", "spa"}, {"fr", "fra"}, {"de", "deu"}, {"it", "ita"}, {"pt", "por"}, {"ru", "rus"}, {"ja", "jpn"}, {"ko", "kor"},
+        {"zh-Hans", "chi_sim"}, {"zh-Hant", "chi_tra"}, {"zh", "chi_sim"}, {"ar", "ara"}, {"he", "heb"}, {"nl", "nld"}, {"pl", "pol"}, {"sv", "swe"}, {"tr", "tur"}, {"uk", "ukr"},
+        {"cs", "ces"}, {"hu", "hun"}, {"vi", "vie"}, {"ca", "cat"}, {"be", "bel"}, {"gl", "glg"}, {"nn", "nor"}};
+    std::string out = "eng";
+    for (const auto& [k, v] : codes)
+        if (lang.compare(0, k.size(), k) == 0) { out = v + " eng"; break; }
+    return out;
+}
+
+// tesseract reads dark text on a light ground best: the area becomes grey, light-on-dark ones are inverted, and small ones are enlarged.
+bool capPrepareForOcr(const std::string& file) {
+    cairo_surface_t* in = cairo_image_surface_create_from_png(file.c_str());
+    if (cairo_surface_status(in) != CAIRO_STATUS_SUCCESS) { cairo_surface_destroy(in); return false; }
+    const int w = cairo_image_surface_get_width(in), h = cairo_image_surface_get_height(in);
+    const double scale = std::clamp(1600.0 / std::max(1, w), 1.0, 3.0);
+    const int ow = static_cast<int>(std::lround(w * scale)), oh = static_cast<int>(std::lround(h * scale));
+    cairo_surface_t* out = cairo_image_surface_create(CAIRO_FORMAT_RGB24, ow, oh);
+    cairo_t* cr = mkcr(out);
+    cairo_scale(cr, scale, scale);
+    cairo_set_source_surface(cr, in, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BEST);
+    cairo_paint(cr);
+    cairo_destroy(cr);
+    cairo_surface_flush(out);
+    unsigned char* px = cairo_image_surface_get_data(out);
+    const int stride = cairo_image_surface_get_stride(out);
+    double sum = 0;
+    for (int y = 0; y < oh; y++)
+        for (int x = 0; x < ow; x++) {
+            const unsigned char* p = px + y * stride + x * 4;
+            sum += 0.114 * p[0] + 0.587 * p[1] + 0.299 * p[2];
+        }
+    const bool invert = sum / std::max(1.0, double(ow) * oh) < 128;
+    for (int y = 0; y < oh; y++)
+        for (int x = 0; x < ow; x++) {
+            unsigned char* p = px + y * stride + x * 4;
+            unsigned char grey = static_cast<unsigned char>(0.114 * p[0] + 0.587 * p[1] + 0.299 * p[2]);
+            if (invert) grey = 255 - grey;
+            p[0] = p[1] = p[2] = grey;
+        }
+    cairo_surface_mark_dirty(out);
+    const bool ok = cairo_surface_write_to_png(out, file.c_str()) == CAIRO_STATUS_SUCCESS;
+    cairo_surface_destroy(in);
+    cairo_surface_destroy(out);
+    return ok;
+}
+
+// Text recognition (tesseract, the text goes to the clipboard) or a Google Lens search (the area is uploaded to uguu.se, which keeps it a few hours).
+void captureRecognize(App& app, bool lens) {
+    Capture& c = app.cap;
+    if (!c.open()) return;
+    capCommitText(c);
+    if (!c.has) { c.has = true; c.sx = 0; c.sy = 0; c.sw = c.w; c.sh = c.h; }
+    std::filesystem::create_directories(capCacheDir());
+    const std::string file = capCacheDir() + "/capture-search.png";
+    bool ok = capWrite(app, file);
+    if (ok && !lens) capPrepareForOcr(file);
+    const std::string langs = capOcrLanguages(app);
+    closeCapture(app);
+    if (!ok) return;
+    if (lens) {
+        static const char* kScript =
+            "f=\"$1\"; notify-send -a end4pC 'Google Lens' 'Uploading the area to uguu.se (kept for about 3 hours)'; "
+            "url=$(curl -sf -m 30 -F \"files[]=@$f\" https://uguu.se/upload | jq -r '.files[0].url // empty'); rm -f \"$f\"; "
+            "if [ -n \"$url\" ]; then xdg-open \"https://lens.google.com/uploadbyurl?url=$url\"; else notify-send -a end4pC 'Google Lens' 'The upload failed'; fi";
+        runDetached({"bash", "-c", kScript, "bash", file.c_str()});
+        return;
+    }
+    static const char* kScript =
+        "f=\"$1\"; want=\"$2\"; have=$(tesseract --list-langs 2>/dev/null | tail -n +2); langs=''; "
+        "for l in $want; do printf '%s\\n' \"$have\" | grep -qx \"$l\" && langs=\"${langs:+$langs+}$l\"; done; [ -n \"$langs\" ] || langs=eng; "
+        "text=$(tesseract \"$f\" stdout -l \"$langs\" 2>/dev/null | sed -e 's/[[:space:]]*$//' | cat -s); rm -f \"$f\"; "
+        "if [ -n \"$(printf %s \"$text\" | tr -d '[:space:]')\" ]; then printf %s \"$text\" | wl-copy; "
+        "notify-send -a end4pC 'Text copied' \"$(printf %s \"$text\" | head -c 240)\"; "
+        "else notify-send -a end4pC 'No text found' 'Try a larger or sharper selection'; fi";
+    runDetached({"bash", "-c", kScript, "bash", file.c_str(), langs.c_str()});
 }
 
 void captureRecordStart(App& app) {
@@ -805,6 +887,7 @@ void captureButton(App& app, uint32_t button, bool pressed) {
         if (b >= 0) {
             if (b == bCopy) { captureFinish(app, false); return; }
             if (b == bSave) { captureFinish(app, true); return; }
+            if (b == bOcr || b == bLens) { captureRecognize(app, b == bLens); return; }
             if (b == bClose) { closeCapture(app); return; }
             if (b == bUndo) capUndo(c);
             else if (b == bRedo) capRedo(c);
@@ -870,8 +953,10 @@ void captureButton(App& app, uint32_t button, bool pressed) {
         captureRedraw(app);
         updateCursor(app);
     } else if (c.mode != kCapIdle) {
+        const bool created = c.mode == kCapCreate;
         c.mode = kCapIdle;
         if (c.sw < kCapMin || c.sh < kCapMin) { c.has = false; c.items.clear(); c.redo.clear(); }
+        if (created && c.has && c.autoAct) { captureRecognize(app, c.autoAct == 2); return; }  // "screenshot ocr": letting go of the area is the action
         c.hoverBtn = capButtonAt(c, x, y);
         captureRedraw(app);
         updateCursor(app);

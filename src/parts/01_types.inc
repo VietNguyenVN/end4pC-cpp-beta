@@ -770,6 +770,7 @@ struct CapAnnot {
 };
 
 struct Capture {
+    int autoAct = 0;  // 1: text recognition, 2: Google Lens, as soon as an area is chosen
     wl_surface* surface = nullptr;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
