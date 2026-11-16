@@ -15,7 +15,7 @@
 namespace matsym {
 constexpr const char* kFamilyOutline = "End4pC Material Symbols";
 constexpr const char* kFamilyFill = "End4pC Material Symbols Fill";
-constexpr double kScale = 1.08;
+constexpr double kScale = 1.0;
 
 inline bool& enabled() { static bool on = false; return on; }
 inline std::string& assetsDir() { static std::string d; return d; }
