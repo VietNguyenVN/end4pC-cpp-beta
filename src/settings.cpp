@@ -96,6 +96,8 @@ std::string configPath() {
 }
 std::string pageFile() { return stateDir() + "/settings-page"; }
 void savePage();
+double searchFlash(int pi, int ri);  // (Search, below)
+void commitText();
 std::string colorsPath() { return stateDir() + "/generated/colors.json"; }
 std::string runtimeDir() { const char* d = std::getenv("XDG_RUNTIME_DIR"); return d ? d : "/tmp"; }
 
@@ -690,6 +692,13 @@ struct App {
     EdGeom edGeom;
     Clock::time_point lastSend;
 
+    bool searchOpen = false, hoverSearch = false, hoverSearchClear = false, hoverResult = false;
+    std::string searchQ;
+    size_t searchCaret = 0, searchAnchor = 0;
+    int searchSel = 0;
+    double searchScroll = 0, searchTextX = 0, searchPointerX = -1, searchPointerY = -1;
+    int flashPage = -1, flashRow = -1;
+    Clock::time_point flashAt;
     int focusRow = -1;
     std::string edit;
     size_t caret = 0, anchor = 0;
@@ -2909,6 +2918,11 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
         if (!rowShown(pi, r)) continue;
         const RowLayout& rl = L.rows[i];
         const double oy = -scroll;
+        if (const double lit = live ? searchFlash(pi, static_cast<int>(i)) : 0; lit > 0.01) {  // the row the search led to
+            rrect(cr, kPadX - 14, rl.y + oy + 2, cardW() - 2 * kPadX + 28, rl.h - 4, 18);
+            src(cr, primary, 0.28 * lit);
+            cairo_fill(cr);
+        }
         if (!firstShown) {
             src(cr, outline, 0.45);
             cairo_rectangle(cr, kPadX, rl.y + oy, cardW() - 2 * kPadX, 1);
@@ -3790,6 +3804,321 @@ void syncTabAnims() {
 void wlBufferRelease(void*, wl_buffer* b) { wl_buffer_destroy(b); }
 const wl_buffer_listener kBufferListener = {wlBufferRelease};
 
+// ------------------------------------------------------------------------------------------------ Search
+// A search icon beside the close button. It opens into a pill, and while it has text the card shows the matches (every row of every page, by its
+// title, description, chip, page and config key) in place of the page; Up and Down choose, Enter goes to that row's page and chip and pulses the row.
+struct SearchHit { int page = 0, row = 0, secIdx = -1; std::string title, crumb, desc; double score = 0; };
+std::vector<SearchHit> g_searchHits;
+constexpr double kSearchW = 320, kSearchItemH = 68, kSearchGap = 10;
+void switchPage(int to);
+
+std::string sNorm(const std::string& in) {  // lower case, without the accents of the Latin languages
+    std::string o;
+    for (size_t i = 0; i < in.size(); i++) {
+        const unsigned char c = static_cast<unsigned char>(in[i]);
+        if (c == 0xC3 && i + 1 < in.size()) {
+            const unsigned char d = static_cast<unsigned char>(in[++i]);
+            const char* from = "\xA0\xA1\xA2\xA3\xA4\xA5\xA7\xA8\xA9\xAA\xAB\xAC\xAD\xAE\xAF\xB1\xB2\xB3\xB4\xB5\xB6\xB9\xBA\xBB\xBC";
+            const char* to = "aaaaaaceeeeiiiinooooouuuu";
+            const char* p = std::strchr(from, d);
+            o += p && d ? to[p - from] : '?';
+        } else o += static_cast<char>(std::tolower(c));
+    }
+    return o;
+}
+bool sWordPrefix(const std::string& hay, const std::string& tok) {
+    for (size_t p = hay.find(tok); p != std::string::npos; p = hay.find(tok, p + 1))
+        if (p == 0 || !std::isalnum(static_cast<unsigned char>(hay[p - 1]))) return true;
+    return false;
+}
+int sEdit(const std::string& a, const std::string& b) {
+    std::vector<int> prev(b.size() + 1), cur(b.size() + 1);
+    for (size_t j = 0; j <= b.size(); j++) prev[j] = static_cast<int>(j);
+    for (size_t i = 1; i <= a.size(); i++) {
+        cur[0] = static_cast<int>(i);
+        for (size_t j = 1; j <= b.size(); j++) cur[j] = std::min({prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1)});
+        std::swap(prev, cur);
+    }
+    return prev[b.size()];
+}
+bool sSubsequence(const std::string& hay, const std::string& tok) {
+    size_t at = 0;
+    for (const char c : hay) if (at < tok.size() && c == tok[at]) at++;
+    return at == tok.size();
+}
+// Words people use that the settings do not: each also looks for these.
+const std::vector<std::pair<const char*, const char*>>& sSynonyms() {
+    static const std::vector<std::pair<const char*, const char*>> v = {
+        {"wifi", "network"}, {"internet", "network"}, {"red", "network"}, {"sound", "volume"}, {"audio", "volume"}, {"sonido", "volume"},
+        {"theme", "themes"}, {"tema", "themes"}, {"colour", "color"}, {"colors", "color"}, {"transparency", "opacity"}, {"transparencia", "opacity"},
+        {"font", "font"}, {"letra", "font"}, {"fuente", "font"}, {"icon", "icons"}, {"icono", "icons"}, {"panel", "bar"}, {"barra", "bar"},
+        {"notification", "notifications"}, {"aviso", "notifications"}, {"keyboard", "keyboard"}, {"teclado", "keyboard"}};
+    return v;
+}
+double sScoreToken(const std::string& tok, const std::string& title1, const std::string& title2, const std::string& where1, const std::string& where2,
+                   const std::string& desc1, const std::string& desc2, const std::string& key) {
+    double best = 0;
+    const auto consider = [&](const std::string& t, double k) {
+        double s = 0;
+        for (const std::string* f : {&title1, &title2}) {
+            if (f->empty()) continue;
+            if (sWordPrefix(*f, t)) s = std::max(s, 100.0);
+            else if (f->find(t) != std::string::npos) s = std::max(s, 70.0);
+            else if (t.size() >= 4) {
+                std::istringstream words(*f);
+                for (std::string w; words >> w;) {
+                    const int cap = t.size() >= 7 ? 2 : 1;
+                    if (std::abs(static_cast<int>(w.size()) - static_cast<int>(t.size())) <= cap && sEdit(w, t) <= cap) s = std::max(s, 50.0);
+                    else if (w.size() > t.size() && sEdit(w.substr(0, t.size()), t) <= 1) s = std::max(s, 45.0);
+                }
+            }
+            if (s == 0 && t.size() >= 3 && sSubsequence(*f, t)) s = 25;
+        }
+        if (!key.empty() && key.find(t) != std::string::npos) s = std::max(s, 60.0);
+        for (const std::string* f : {&where1, &where2}) {
+            if (f->empty()) continue;
+            if (sWordPrefix(*f, t)) s = std::max(s, 50.0);
+            else if (f->find(t) != std::string::npos) s = std::max(s, 40.0);
+        }
+        for (const std::string* f : {&desc1, &desc2}) {
+            if (f->empty()) continue;
+            if (sWordPrefix(*f, t)) s = std::max(s, 35.0);
+            else if (f->find(t) != std::string::npos) s = std::max(s, 30.0);
+        }
+        best = std::max(best, s * k);
+    };
+    consider(tok, 1.0);
+    for (const auto& [from, to] : sSynonyms()) if (tok == from) consider(to, 0.8);
+    return best;
+}
+
+void searchRun() {
+    g_searchHits.clear();
+    std::vector<std::string> tokens;
+    {
+        std::istringstream in(sNorm(g.searchQ));
+        for (std::string t; in >> t;) tokens.push_back(t);
+    }
+    if (tokens.empty()) return;
+    const std::string whole = sNorm(g.searchQ);
+    for (size_t pi = 0; pi < g.pages.size(); pi++) {
+        const Page& pg = g.pages[pi];
+        if (pg.hidden || pg.about || pg.placeholder) continue;
+        const std::vector<std::string> names = sectionNames(pg);
+        for (size_t ri = 0; ri < pg.rows.size(); ri++) {
+            const Row& r = pg.rows[ri];
+            if (r.title.empty() || !rowAvailable(r)) continue;
+            int secIdx = -1;
+            if (names.size() >= 2) {
+                const auto at = std::find(names.begin(), names.end(), r.section);
+                if (at == names.end()) continue;
+                secIdx = static_cast<int>(at - names.begin());
+            }
+            const std::string desc = descOf(r), titleTr = i18n::tr(r.title.c_str()), descTr = i18n::tr(desc.c_str());
+            const std::string pageTr = i18n::tr(pg.name.c_str()), secTr = r.section.empty() ? "" : i18n::tr(r.section.c_str());
+            const std::string t1 = sNorm(r.title), t2 = sNorm(titleTr), w1 = sNorm(pg.name + " " + r.section), w2 = sNorm(pageTr + " " + secTr);
+            const std::string d1 = sNorm(desc), d2 = sNorm(descTr), key = sNorm(r.key);
+            double total = 0;
+            bool all = true;
+            for (const std::string& tok : tokens) {
+                const double s = sScoreToken(tok, t1, t2, w1, w2, d1, d2, key);
+                if (s <= 0) { all = false; break; }
+                total += s;
+            }
+            if (!all) continue;
+            if (t1 == whole || t2 == whole) total += 40;
+            SearchHit h;
+            h.page = static_cast<int>(pi);
+            h.row = static_cast<int>(ri);
+            h.secIdx = secIdx;
+            h.title = titleTr;
+            h.crumb = pageTr + (secTr.empty() || names.size() < 2 ? "" : "  \xE2\x80\xBA  " + secTr);
+            h.desc = descTr;
+            h.score = total;
+            g_searchHits.push_back(std::move(h));
+        }
+    }
+    std::stable_sort(g_searchHits.begin(), g_searchHits.end(), [](const SearchHit& a, const SearchHit& b) { return a.score > b.score; });
+    if (g_searchHits.size() > 60) g_searchHits.resize(60);
+}
+
+bool searchResultsShown() { return g.searchOpen && !g.searchQ.empty(); }
+double searchT() { return std::max(0.0, springValue("search", g.searchOpen ? 1.0 : 0.0)); }
+Rect searchRect() {
+    const Rect c = closeRect();
+    const double room = cardW() - 2 * kPadX - 40 - kSearchGap - 230;
+    const double w = 40 + (std::min(kSearchW, std::max(180.0, room)) - 40) * std::min(1.05, searchT());
+    return {c.x - kSearchGap - w, c.y, w, 40};
+}
+Rect searchClearRect() { const Rect s = searchRect(); return {s.x + s.w - 38, s.y + 2, 36, 36}; }
+void searchOpenNow() {
+    commitText();
+    g.searchOpen = true;
+    g.caretReset = Clock::now();
+    g.dirty = true;
+}
+void searchClose() {
+    g.searchOpen = false;
+    g.searchQ.clear();
+    g.searchCaret = g.searchAnchor = 0;
+    g.searchSel = 0;
+    g.searchScroll = 0;
+    g_searchHits.clear();
+    g.dirty = true;
+}
+double searchViewH() { return cardH() - kHeader - 12; }
+double searchMaxScroll() { return std::max(0.0, g_searchHits.size() * kSearchItemH - searchViewH()); }
+void searchKeepVisible() {
+    const double top = g.searchSel * kSearchItemH, bottom = top + kSearchItemH;
+    if (top < g.searchScroll) g.searchScroll = top;
+    else if (bottom > g.searchScroll + searchViewH()) g.searchScroll = bottom - searchViewH();
+    g.searchScroll = std::clamp(g.searchScroll, 0.0, searchMaxScroll());
+}
+int searchItemAt(double lx, double ly) {
+    if (!searchResultsShown() || lx < 16 || lx > cardW() - 16 || ly < kHeader || ly > cardH() - 12) return -1;
+    const int i = static_cast<int>(std::floor((ly - kHeader + g.searchScroll) / kSearchItemH));
+    return i >= 0 && i < static_cast<int>(g_searchHits.size()) ? i : -1;
+}
+
+// Goes to the page and chip of a result, scrolls its row to the top and makes it pulse.
+void searchGo(int index) {
+    if (index < 0 || index >= static_cast<int>(g_searchHits.size())) return;
+    const SearchHit h = g_searchHits[index];
+    searchClose();
+    if (h.secIdx >= 0) g.secSel[h.page] = h.secIdx;
+    if (h.page != g.page) switchPage(h.page);
+    else { g.secAnim.snap(chipIndex(h.page)); g_splitOpen.clear(); }
+    const Layout L = layoutPage(h.page);
+    if (h.row < static_cast<int>(L.rows.size())) g.scroll = std::clamp(L.rows[h.row].y - pageTop(h.page) - 8, 0.0, maxScroll(L));
+    g.flashPage = h.page;
+    g.flashRow = h.row;
+    g.flashAt = Clock::now();
+    g.hoverHit = -1;
+    g.dirty = true;
+}
+double searchFlash(int pi, int ri) {  // 0..1: how strongly the row found by the search is lit
+    if (pi != g.flashPage || ri != g.flashRow) return 0;
+    const double t = std::chrono::duration<double>(Clock::now() - g.flashAt).count();  // three blinks, on and off, then gone
+    if (t >= 1.2) return 0;
+    return std::clamp(1.5 * std::cos(2 * M_PI * t / 0.4), 0.0, 1.0);
+}
+bool searchFlashing() { return g.flashRow >= 0 && std::chrono::duration<double>(Clock::now() - g.flashAt).count() < 1.3; }
+
+double textRaw(cairo_t* cr, const std::string& s, double x, double y, double px, bool bold, const Color& c, double alpha = 1) {
+    PangoLayout* l = pango_cairo_create_layout(cr);
+    setFont(l, px, bold);
+    pango_layout_set_text(l, s.c_str(), static_cast<int>(s.size()));  // (with a length: not looked up in the language catalog)
+    int w = 0, h = 0;
+    pango_layout_get_pixel_size(l, &w, &h);
+    src(cr, c, alpha);
+    cairo_move_to(cr, x, y);
+    pango_cairo_show_layout(cr, l);
+    g_object_unref(l);
+    return h;
+}
+void textFit(cairo_t* cr, const std::string& s, double x, double y, double w, double px, bool bold, const Color& c, double alpha = 1) {
+    PangoLayout* l = pango_cairo_create_layout(cr);
+    setFont(l, px, bold);
+    pango_layout_set_width(l, static_cast<int>(w * PANGO_SCALE));
+    pango_layout_set_ellipsize(l, PANGO_ELLIPSIZE_END);
+    pango_layout_set_text(l, s.c_str(), static_cast<int>(s.size()));
+    src(cr, c, alpha);
+    cairo_move_to(cr, x, y);
+    pango_cairo_show_layout(cr, l);
+    g_object_unref(l);
+}
+
+// The matches, in the card in place of the page (card coordinates).
+void drawSearchResults(cairo_t* cr) {
+    const Color onSurface = g.color("on_surface"), variant = g.color("on_surface_variant");
+    text(cr, "Search", kPadX, 40 - 18, 30, true, onSurface);
+    if (g_searchHits.empty()) {
+        icon(cr, "magnifer", cardW() / 2 - 20, 190, 40, variant);
+        double w = 0, h = 0;
+        measure("No results", 18, true, 0, w, h);
+        text(cr, "No results", (cardW() - w) / 2, 244, 18, true, onSurface);
+        return;
+    }
+    cairo_save(cr);
+    cairo_rectangle(cr, 0, kHeader, cardW(), searchViewH());
+    cairo_clip(cr);
+    for (size_t i = 0; i < g_searchHits.size(); i++) {
+        const double y = kHeader + i * kSearchItemH - g.searchScroll;
+        if (y + kSearchItemH < kHeader || y > cardH()) continue;
+        const SearchHit& h = g_searchHits[i];
+        const bool on = static_cast<int>(i) == g.searchSel;
+        if (on) { rrect(cr, 16, y + 2, cardW() - 32, kSearchItemH - 4, 20); src(cr, g.color("secondary_container")); cairo_fill(cr); }
+        const Color ink = on ? g.color("on_secondary_container") : onSurface, sub = on ? g.color("on_secondary_container") : variant;
+        icon(cr, g.pages[h.page].icon, 38, y + (kSearchItemH - 22) / 2, 22, sub);
+        const double tx = 80, tw = cardW() - tx - 36;
+        const double block = 19 + 2 + 15 + (h.desc.empty() ? 0 : 2 + 14), top = y + 2 + (kSearchItemH - 4 - block) / 2;  // the lines centred in the row
+        textFit(cr, h.title, tx, top, tw, 16, false, ink);
+        textFit(cr, h.crumb, tx, top + 21, tw, 12.5, false, sub, on ? 0.9 : 0.8);
+        if (!h.desc.empty()) textFit(cr, h.desc, tx, top + 38, tw, 11.5, false, sub, 0.6);
+    }
+    cairo_restore(cr);
+}
+
+// The search icon, and the pill it grows into (window coordinates).
+void drawSearchPill(cairo_t* cr) {
+    const Rect s = searchRect();
+    const double t = std::min(1.0, searchT());
+    const Color onSurface = g.color("on_surface"), variant = g.color("on_surface_variant"), primary = g.color("primary");
+    const bool hot = g.hoverSearch && !g.searchOpen;
+    // closed: the same filled circle as the close button; it opens into an outlined pill
+    rrect(cr, s.x, s.y, s.w, s.h, s.h / 2);
+    const Color closed = hot ? mix(g.color("on_surface"), g.color("surface_container_highest"), 0.08) : g.color("surface_container_highest");
+    src(cr, mix(g.color("surface_container_low"), closed, t));
+    cairo_fill(cr);
+    if (t > 0.01) {
+        rrect(cr, s.x + 0.75, s.y + 0.75, s.w - 1.5, s.h - 1.5, s.h / 2 - 0.75);
+        src(cr, primary, std::min(1.0, t));
+        cairo_set_line_width(cr, 2);
+        cairo_stroke(cr);
+    }
+    icon(cr, "magnifer", s.x + 9, s.y + 9, 22, g.searchOpen ? primary : (hot ? onSurface : variant));
+    if (t < 0.35) return;
+    const double fa = std::clamp((t - 0.35) / 0.4, 0.0, 1.0);
+    const double tx = s.x + 44, tw = s.w - 44 - 40;
+    cairo_save(cr);
+    cairo_rectangle(cr, tx, s.y, tw, s.h);
+    cairo_clip(cr);
+    if (g.searchQ.empty()) {
+        text(cr, "Search settings", tx, s.y + 12, 14, false, variant, 0, 0.7 * fa);
+    } else {
+        double qw = 0, qh = 0;
+        measure(g.searchQ, 14, false, 0, qw, qh);
+        double cw = 0, ch = 0;
+        measure(g.searchQ.substr(0, g.searchCaret), 14, false, 0, cw, ch);
+        const double shift = std::max(0.0, cw + 3 - tw);
+        if (g.searchCaret != g.searchAnchor) {
+            double x0 = 0, x1 = 0, hh = 0;
+            measure(g.searchQ.substr(0, std::min(g.searchCaret, g.searchAnchor)), 14, false, 0, x0, hh);
+            measure(g.searchQ.substr(0, std::max(g.searchCaret, g.searchAnchor)), 14, false, 0, x1, hh);
+            rrect(cr, tx - shift + x0 - 1, s.y + 9, x1 - x0 + 2, 22, 5);
+            src(cr, primary, 0.35);
+            cairo_fill(cr);
+        }
+        textRaw(cr, g.searchQ, tx - shift, s.y + 20 - qh / 2, 14, false, onSurface, fa);
+        g.searchTextX = tx - shift;
+        if (g.searchOpen && std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - g.caretReset).count() % 1000 < 600) {
+            src(cr, primary, fa);
+            cairo_rectangle(cr, tx - shift + cw, s.y + 10, 2, 20);
+            cairo_fill(cr);
+        }
+    }
+    if (g.searchQ.empty() && g.searchOpen && std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - g.caretReset).count() % 1000 < 600) {
+        src(cr, primary, fa);
+        cairo_rectangle(cr, tx, s.y + 10, 2, 20);
+        cairo_fill(cr);
+    }
+    cairo_restore(cr);
+    if (g.searchOpen) {
+        const Rect c = searchClearRect();
+        icon(cr, "close-circle", c.x + 8, c.y + 8, 20, g.hoverSearchClear ? onSurface : variant);
+    }
+}
+
 void motion();
 void render() {
     if (!g.configured || !g.surface) return;
@@ -3898,7 +4227,9 @@ void render() {
     cairo_clip(cr);
     cairo_translate(cr, cx, cy);
     auto eased = [](double t) { return 1 - std::pow(1 - t, 3); };
-    if (g.animT < 1) {
+    if (searchResultsShown()) {
+        drawSearchResults(cr);
+    } else if (g.animT < 1) {
         const double e = eased(g.animT), slide = 64;
         cairo_push_group(cr);
         drawPage(cr, g.prevPage, 0, false);
@@ -3947,6 +4278,7 @@ void render() {
         cairo_fill(cr);
         icon(cr, "close-circle", c.x + 9, c.y + 9, 22, g.hoverClose ? g.color("error") : g.color("on_surface_variant"));
     }
+    drawSearchPill(cr);
     cairo_destroy(cr);
     cairo_surface_destroy(surf);
     wl_shm_pool* pool = wl_shm_create_pool(g.shm, fd, size);
@@ -3967,7 +4299,7 @@ void updateCursor() {
     if (!g.cursorDev) g.cursorDev = wp_cursor_shape_manager_v1_get_pointer(g.cursorMgr, g.pointer);
     int shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
     if ((g.drag.on && g.drag.moved) || (g_mapDrag.on && g_mapDrag.moved)) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_GRABBING;
-    else if (g.hoverSide >= 0 || g.hoverClose) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
+    else if (g.hoverSide >= 0 || g.hoverClose || g.hoverSearch || g.hoverResult) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
     else if (g.hoverHit >= 0 && g.hoverHit < static_cast<int>(g.hits.size()))
         shape = g.hits[g.hoverHit].kind == Text ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT : (g.hits[g.hoverHit].kind == Widgets || (g.hits[g.hoverHit].kind == DisplayMap && g.hits[g.hoverHit].opt < 100)) ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_GRAB : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
     if (shape == g.cursorShape) return;
@@ -4202,10 +4534,17 @@ void motion() {
     if (g.dragHit >= 0) { setSliderFrom(g.dragHit, false); return; }
     int side = -1, hit = -1;
     const bool onClose = closeRect().contains(g.px, g.py);
+    const bool onSearch = searchRect().contains(g.px, g.py), onSearchClear = g.searchOpen && searchClearRect().contains(g.px, g.py);
+    if (g.px != g.searchPointerX || g.py != g.searchPointerY) {  // the mouse chooses only when it moves: the keys keep the choice while it rests (a redraw asks again)
+        g.searchPointerX = g.px;
+        g.searchPointerY = g.py;
+        if (const int over = searchItemAt(lx, ly); over >= 0 && over != g.searchSel) { g.searchSel = over; g.dirty = true; }
+    }
+    const bool overResult = searchItemAt(lx, ly) >= 0;
     const auto sr = sideRects();
     for (size_t i = 0; i < sr.size(); i++)
         if (sr[i].contains(g.px, g.py)) side = static_cast<int>(i);
-    if (side < 0 && g.animT >= 1)
+    if (side < 0 && g.animT >= 1 && !searchResultsShown())
         for (size_t i = 0; i < g.hits.size(); i++) {
             const Rect& r = g.hits[i].r;
             if (Rect{r.x, r.y - g.scroll, r.w, r.h}.contains(lx, ly) && ly >= 0 && ly < cardH() && (g.hits[i].row == -2 || ly >= pageTop(g.page))) hit = static_cast<int>(i);
@@ -4218,6 +4557,13 @@ void motion() {
             if (k >= 0 && k < static_cast<int>(pr.opts.size())) over = pr.opts[k].first;
         }
         if (over.empty() || g_presetConfirm.compare(2, std::string::npos, over) != 0) { g_presetConfirm.clear(); g.dirty = true; }
+    }
+    if (onSearch != g.hoverSearch || onSearchClear != g.hoverSearchClear || overResult != g.hoverResult) {
+        g.hoverSearch = onSearch;
+        g.hoverSearchClear = onSearchClear;
+        g.hoverResult = overResult;
+        g.dirty = true;
+        updateCursor();
     }
     if (side != g.hoverSide || hit != g.hoverHit || onClose != g.hoverClose) {
         g.hoverClose = onClose;
@@ -4235,7 +4581,34 @@ void runSystemUpdate() {
     g.running = false;
 }
 
+bool searchClick() {
+    const Rect sr = searchRect();
+    if (sr.contains(g.px, g.py)) {
+        if (!g.searchOpen) { searchOpenNow(); return true; }
+        if (searchClearRect().contains(g.px, g.py)) {
+            if (g.searchQ.empty()) searchClose();
+            else { g.searchQ.clear(); g.searchCaret = g.searchAnchor = 0; searchRun(); g.dirty = true; }
+            return true;
+        }
+        textsel::Field fld(g.searchQ, g.searchCaret, g.searchAnchor);
+        const int n = g.clicks.press(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count(), g.px, g.py);
+        textsel::applyClick(fld, fieldIndexAt(g.searchQ, g.px - g.searchTextX), n, shiftHeld());
+        g.caretReset = Clock::now();
+        g.dirty = true;
+        return true;
+    }
+    if (!g.searchOpen) return false;
+    const double lx = g.px - (kMargin + kSideW + kGap), ly = g.py - kMargin;
+    if (searchResultsShown() && lx >= 0 && ly >= kHeader) {
+        if (const int i = searchItemAt(lx, ly); i >= 0) searchGo(i);
+        return true;
+    }
+    searchClose();  // a click anywhere else folds it back (and does what it was aimed at)
+    return false;
+}
+
 void click() {
+    if (searchClick()) return;
     if (closeRect().contains(g.px, g.py)) { commitText(); g.running = false; return; }
     const auto sr = sideRects();
     for (size_t i = 0; i < sr.size(); i++)
@@ -4422,16 +4795,7 @@ void dragScrollTick() {
     g.dirty = true;
 }
 
-bool handleKey(uint32_t key) {
-    if (!g.xkbState) return false;
-    const xkb_keysym_t sym = xkb_state_key_get_one_sym(g.xkbState, key + 8);
-    const bool ctrl = xkb_state_mod_name_is_active(g.xkbState, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0;
-    if (ctrl && (sym == XKB_KEY_w || sym == XKB_KEY_q)) { g.running = false; return false; }
-    if (g.focusRow < 0) return false;
-    g.caretReset = Clock::now();
-    g.dirty = true;
-    if (sym == XKB_KEY_Return || sym == XKB_KEY_KP_Enter) { commitText(); return false; }
-    if (sym == XKB_KEY_Escape) { g.focusRow = -1; return false; }
+bool editKey(std::string& text, size_t& caret, size_t& anchor, xkb_keysym_t sym, uint32_t key, bool ctrl) {
     textsel::Key k = textsel::Key::None;
     const xkb_keysym_t low = xkb_keysym_to_lower(sym);
     if (sym == XKB_KEY_Left || sym == XKB_KEY_KP_Left) k = textsel::Key::Left;
@@ -4444,7 +4808,7 @@ bool handleKey(uint32_t key) {
     else if (ctrl && low == XKB_KEY_c) k = textsel::Key::Copy;
     else if (ctrl && low == XKB_KEY_x) k = textsel::Key::Cut;
     else if (ctrl && low == XKB_KEY_v) k = textsel::Key::Paste;
-    textsel::Field fld(g.edit, g.caret, g.anchor);
+    textsel::Field fld(text, caret, anchor);
     if (k != textsel::Key::None) {
         const textsel::Result r = textsel::handleKey(fld, k, ctrl, shiftHeld());
         if (r.wantCopy) clipboard::copy(r.copyText);
@@ -4462,6 +4826,61 @@ bool handleKey(uint32_t key) {
         return true;
     }
     return false;
+}
+
+bool searchKey(xkb_keysym_t sym, uint32_t key, bool ctrl) {
+    g.caretReset = Clock::now();
+    g.dirty = true;
+    const auto step = [](int d) {
+        if (g_searchHits.empty()) return;
+        g.searchSel = std::clamp(g.searchSel + d, 0, static_cast<int>(g_searchHits.size()) - 1);
+        searchKeepVisible();
+    };
+    if (sym == XKB_KEY_Escape) { searchClose(); return false; }
+    if (sym == XKB_KEY_Return || sym == XKB_KEY_KP_Enter) { searchGo(g.searchSel); return false; }
+    if (sym == XKB_KEY_Down || sym == XKB_KEY_KP_Down) { step(1); return true; }
+    if (sym == XKB_KEY_Up || sym == XKB_KEY_KP_Up) { step(-1); return true; }
+    if (sym == XKB_KEY_Page_Down) { step(6); return true; }
+    if (sym == XKB_KEY_Page_Up) { step(-6); return true; }
+    const std::string before = g.searchQ;
+    const bool repeat = editKey(g.searchQ, g.searchCaret, g.searchAnchor, sym, key, ctrl);
+    if (g.searchQ != before) {
+        searchRun();
+        g.searchSel = 0;
+        g.searchScroll = 0;
+    }
+    return repeat;
+}
+
+bool handleKey(uint32_t key) {
+    if (!g.xkbState) return false;
+    const xkb_keysym_t sym = xkb_state_key_get_one_sym(g.xkbState, key + 8);
+    const bool ctrl = xkb_state_mod_name_is_active(g.xkbState, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0;
+    if (ctrl && (sym == XKB_KEY_w || sym == XKB_KEY_q)) { g.running = false; return false; }
+    if (g.searchOpen) return searchKey(sym, key, ctrl);
+    if (g.focusRow < 0) {  // typing, with nothing in focus, starts a search
+        const xkb_keysym_t lowSym = xkb_keysym_to_lower(sym);
+        const bool alt = xkb_state_mod_name_is_active(g.xkbState, XKB_MOD_NAME_ALT, XKB_STATE_MODS_EFFECTIVE) > 0;
+        if (ctrl && lowSym == XKB_KEY_f) { searchOpenNow(); return false; }
+        if (ctrl || alt) return false;
+        if (sym == XKB_KEY_slash) { searchOpenNow(); return false; }
+        char first[16];
+        const int fn = xkb_state_key_get_utf8(g.xkbState, key + 8, first, sizeof first);
+        if (fn > 0 && static_cast<unsigned char>(first[0]) > 32 && first[0] != 127) {
+            searchOpenNow();
+            textsel::Field fld(g.searchQ, g.searchCaret, g.searchAnchor);
+            fld.insert(std::string(first, static_cast<size_t>(fn)));
+            searchRun();
+            g.searchSel = 0;
+            g.searchScroll = 0;
+        }
+        return false;
+    }
+    g.caretReset = Clock::now();
+    g.dirty = true;
+    if (sym == XKB_KEY_Return || sym == XKB_KEY_KP_Enter) { commitText(); return false; }
+    if (sym == XKB_KEY_Escape) { g.focusRow = -1; return false; }
+    return editKey(g.edit, g.caret, g.anchor, sym, key, ctrl);
 }
 
 void onWmPing(void*, xdg_wm_base* wm, uint32_t serial) { xdg_wm_base_pong(wm, serial); }
@@ -4519,6 +4938,12 @@ void onPAxis(void*, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t value) {
     if (axis != WL_POINTER_AXIS_VERTICAL_SCROLL || g.animT < 1) return;
     if (!g_splitOpen.empty() && g_splitRect.contains(g.px - (kMargin + kSideW + kGap), g.py - kMargin)) {
         g_splitScroll += value > 0 ? 40 : -40;
+        g.dirty = true;
+        return;
+    }
+    if (searchResultsShown()) {
+        g.searchScroll = std::clamp(g.searchScroll + (value > 0 ? 48 : -48), 0.0, searchMaxScroll());
+        motion();
         g.dirty = true;
         return;
     }
@@ -4656,8 +5081,8 @@ int main() {
 
         const auto before = Clock::now();
         int timeout = 1000;
-        if (g.animT < 1 || g.dragHit >= 0 || g_bubbleMoving || g_springsMoving || g.secAnim.moving() || g.sideAnim.moving() || g.pillA != g.pillTarget || g.selDrag || (!g_splitOpen.empty() && g_splitT < 1)) timeout = 16;
-        else if (g.focusRow >= 0 || g.createPid > 0 || g.updChecking || collagePickBusy()) timeout = 200;
+        if (g.animT < 1 || g.dragHit >= 0 || g_bubbleMoving || g_springsMoving || searchFlashing() || g.secAnim.moving() || g.sideAnim.moving() || g.pillA != g.pillTarget || g.selDrag || (!g_splitOpen.empty() && g_splitT < 1)) timeout = 16;
+        else if (g.focusRow >= 0 || g.searchOpen || g.createPid > 0 || g.updChecking || collagePickBusy()) timeout = 200;
         if (g.repeatKey) timeout = std::min<long>(timeout, std::max<long>(1, std::chrono::duration_cast<std::chrono::milliseconds>(g.repeatAt - before).count()));
 
         pollfd pfd = {wl_display_get_fd(g.display), POLLIN, 0};
@@ -4705,7 +5130,13 @@ int main() {
             if (!handleKey(g.repeatKey)) g.repeatKey = 0;
             g.repeatAt = now + std::chrono::milliseconds(std::max(1, 1000 / std::max(1, g.kbRate)));
         }
-        if (g.focusRow >= 0 || g_galPending) { g.dirty = true; g_galPending = false; }
+        if (g.focusRow >= 0 || g.searchOpen || g_galPending) { g.dirty = true; g_galPending = false; }
+        {
+            static bool wasFlashing = false;
+            const bool flashing = searchFlashing();
+            if (flashing || wasFlashing) g.dirty = true;  // (once more when it ends, so the last frame is clean)
+            wasFlashing = flashing;
+        }
         if (mtimeOf(colorsPath()) != g.colorsStamp) { loadColors(); g.dirty = true; }
         if (g.pages[g.page].name == "Appearance") {
             if (mtimeOf(themesDir()) != g_themesStamp || g.val["colorMode"] != g_themesMode) loadThemes();
