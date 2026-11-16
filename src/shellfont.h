@@ -14,25 +14,36 @@ inline bool validFontFamily(const std::string& f) {
     return true;
 }
 
+// The big desktop clock and its siblings ask for this family: it is Google Sans Flex with the weights they choose themselves, so the shell's weight
+// rules (which are for the generic text) leave it alone, and so does the shell's font setting.
+inline constexpr const char* kDisplayFamily = "E4Display";
+
 inline void applyShellFont(const std::string& family, int textWeight = 450, int titleWeight = 550) {
     static std::string current = "\x01";
     const std::string key = family + "|" + std::to_string(textWeight) + "|" + std::to_string(titleWeight);
     if (key == current) return;
     current = key;
     FcInitReinitialize();
+    std::string xml = "<?xml version=\"1.0\"?><fontconfig>";
+    xml += std::string("<match target=\"pattern\"><test name=\"family\" qual=\"any\"><string>") + kDisplayFamily +
+           "</string></test><edit name=\"family\" mode=\"prepend\" binding=\"strong\"><string>Google Sans Flex</string></edit></match>";
     if (!family.empty() && validFontFamily(family)) {
-        std::string xml = "<?xml version=\"1.0\"?><fontconfig>";
         for (const char* alias : {"Sans", "sans-serif", "sans"})
             xml += std::string("<match target=\"pattern\"><test name=\"family\" qual=\"any\"><string>") + alias +
                    "</string></test><edit name=\"family\" mode=\"prepend\" binding=\"strong\"><string>" + family + "</string></edit></match>";
-        // The weights of the variable font (end-4's defaults: 450 for the normal text, 550 for bold and titles; Settings changes them).
-        // (Pattern stage: it sees the weight that was asked for; a font with no wght axis ignores the variation.)
-        const std::string fam = "<test name=\"family\" qual=\"any\"><string>" + family + "</string></test>";
-        xml += "<match target=\"pattern\">" + fam + "<test name=\"weight\" compare=\"less_eq\"><const>regular</const></test><edit name=\"fontvariations\" mode=\"assign\"><string>wght=" + std::to_string(textWeight) + "</string></edit></match>";
-        xml += "<match target=\"pattern\">" + fam + "<test name=\"weight\" compare=\"more_eq\"><const>bold</const></test><edit name=\"fontvariations\" mode=\"assign\"><string>wght=" + std::to_string(titleWeight) + "</string></edit></match>";
-        xml += "</fontconfig>";
-        FcConfigParseAndLoadFromMemory(FcConfigGetCurrent(), reinterpret_cast<const FcChar8*>(xml.c_str()), FcTrue);
+        // The weights of the variable font (end-4's defaults: 450 for the normal text, 550 for bold and titles; Settings changes them), for the
+        // generic text only: whatever asks for the display family or for a script font by its own name keeps its weight. Pattern stage: it sees
+        // the weight that was asked for; a font with no wght axis ignores the variation.
+        const std::string others = std::string("<test name=\"family\" qual=\"all\" compare=\"not_eq\"><string>") + kDisplayFamily + "</string></test>"
+                                   "<test name=\"family\" qual=\"all\" compare=\"not_eq\"><string>cursive</string></test>";
+        for (const char* alias : {"Sans", "sans-serif", "sans"}) {
+            const std::string fam = std::string("<test name=\"family\" qual=\"any\"><string>") + alias + "</string></test>" + others;
+            xml += "<match target=\"pattern\">" + fam + "<test name=\"weight\" compare=\"less_eq\"><const>regular</const></test><edit name=\"fontvariations\" mode=\"assign\"><string>wght=" + std::to_string(textWeight) + "</string></edit></match>";
+            xml += "<match target=\"pattern\">" + fam + "<test name=\"weight\" compare=\"more_eq\"><const>bold</const></test><edit name=\"fontvariations\" mode=\"assign\"><string>wght=" + std::to_string(titleWeight) + "</string></edit></match>";
+        }
     }
+    xml += "</fontconfig>";
+    FcConfigParseAndLoadFromMemory(FcConfigGetCurrent(), reinterpret_cast<const FcChar8*>(xml.c_str()), FcTrue);
     if (matsym::fontsAdded()) matsym::addFontFiles();
     if (PangoFontMap* map = pango_cairo_font_map_get_default())
         if (PANGO_IS_FC_FONT_MAP(map)) pango_fc_font_map_config_changed(PANGO_FC_FONT_MAP(map));

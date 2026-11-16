@@ -104,7 +104,7 @@ void clockPixelPaint(App& app, cairo_t* cr, int W, int H, const std::tm& tm) {
     std::snprintf(hm, sizeof hm, "%02d%02d", app.cfg.clock24 ? tm.tm_hour : (tm.tm_hour % 12 == 0 ? 12 : tm.tm_hour % 12), tm.tm_min);
     auto makeFont = [&](PangoLayout* lay) {
         PangoFontDescription* fd = pango_font_description_new();
-        pango_font_description_set_family(fd, "Google Sans Flex");
+        pango_font_description_set_family(fd, kDisplayFamily);
         pango_font_description_set_weight(fd, static_cast<PangoWeight>(1000));
         pango_font_description_set_variations(fd, "wght=1000");
         pango_font_description_set_absolute_size(fd, glyph * PANGO_SCALE);
@@ -214,7 +214,7 @@ void clockDailyPaint(App& app, ClockW& X, cairo_t* cr, int W, int H, const std::
         pango_layout_get_pixel_size(layout, &tw, &th);
         return std::pair<double, double>(tw, th);
     };
-    const char* F = "Google Sans Flex";
+    const char* F = kDisplayFamily;
     auto content = [&](bool sp) {
         shadowPass = sp;
         if (variant == "morning") {
@@ -358,11 +358,11 @@ void clockPaint(App& app, DeskWidget& d, cairo_t* cr, int W, int H) {
         const double pad = W * 0.03, px = std::min(H * 0.78, (W - 2 * pad) / 2.9);
         const Color tint = mixColor(app.color("primary"), app.color("on_surface"), 0.55);
         const double timeY = H * 0.46;
-        text(hm, "Google Sans Flex", px, 900, pad, timeY, tint, 0.42, false);
+        text(hm, kDisplayFamily, px, 900, pad, timeY, tint, 0.42, false);
         const double datePx = std::clamp(px * 0.27, 14.0, 44.0);
         double dateW = 0;
-        text(date, "Google Sans Flex", datePx, 800, 0, -1000, tint, 0.0, false, &dateW);
-        text(date, "Google Sans Flex", datePx, 800, W - pad - dateW, timeY + px * 0.40, tint, 0.85, false);
+        text(date, kDisplayFamily, datePx, 800, 0, -1000, tint, 0.0, false, &dateW);
+        text(date, kDisplayFamily, datePx, 800, W - pad - dateW, timeY + px * 0.40, tint, 0.85, false);
         g_object_unref(layout);
         return;
     }
@@ -414,7 +414,7 @@ void clockPaint(App& app, DeskWidget& d, cairo_t* cr, int W, int H) {
         } else if (dial == "numbers") {
             for (int i = 1; i <= 4; i++) {
                 const double a = i * M_PI / 2 - M_PI / 2;
-                text(std::to_string(i * 3), "Google Sans Flex", 80, 900, cx + std::cos(a) * 65, cy + std::sin(a) * 65, onBg, 1.0);
+                text(std::to_string(i * 3), kDisplayFamily, 80, 900, cx + std::cos(a) * 65, cy + std::sin(a) * 65, onBg, 1.0);
             }
         }
     }
@@ -426,9 +426,9 @@ void clockPaint(App& app, DeskWidget& d, cairo_t* cr, int W, int H) {
         std::snprintf(mm, sizeof mm, "%02d", tm.tm_min);
         const bool ampm = !app.cfg.clock24;
         const double y0 = cy - (ampm ? 36 : 25);
-        text(hh, "Google Sans Flex", 68, 700, cx, y0, info, 1.0);
-        text(mm, "Google Sans Flex", 68, 700, cx, y0 + 52, info, 1.0);
-        if (ampm) text(tm.tm_hour < 12 ? "AM" : "PM", "Google Sans Flex", 26, 700, cx, y0 + 96, info, 1.0);
+        text(hh, kDisplayFamily, 68, 700, cx, y0, info, 1.0);
+        text(mm, kDisplayFamily, 68, 700, cx, y0 + 52, info, 1.0);
+        if (ampm) text(tm.tm_hour < 12 ? "AM" : "PM", kDisplayFamily, 26, 700, cx, y0 + 96, info, 1.0);
     }
 
     auto bar = [&](double deg, double start, double length, double w, double r, const Color& c, bool hollow) {
@@ -483,20 +483,20 @@ void clockPaint(App& app, DeskWidget& d, cairo_t* cr, int W, int H) {
         shapePath(cr, "Pentagon", 0, 0, sz);
         setSource(cr, app.color("tertiary_container"));
         cairo_fill(cr);
-        text(std::to_string(tm.tm_mday), "Google Sans Flex", 30, 900, sz / 2, sz / 2, app.color("on_tertiary_container"), 1.0);
+        text(std::to_string(tm.tm_mday), kDisplayFamily, 30, 900, sz / 2, sz / 2, app.color("on_tertiary_container"), 1.0);
         shapePath(cr, "Pill", 230 - sz, 230 - sz, sz);
         setSource(cr, app.color("secondary_container"));
         cairo_fill(cr);
         char mo[8];
         std::snprintf(mo, sizeof mo, "%02d", tm.tm_mon + 1);
-        text(mo, "Google Sans Flex", 30, 900, 230 - sz / 2, 230 - sz / 2, app.color("on_secondary_container"), 1.0);
+        text(mo, kDisplayFamily, 30, 900, 230 - sz / 2, 230 - sz / 2, app.color("on_secondary_container"), 1.0);
     } else if (app.cfg.cookieDate == "rect") {
         roundedRect(cr, 230 - 40 - 45, 115 - 15, 45, 30, 8);
         setSource(cr, mixColor(info, app.color("secondary_container"), 0.5));
         cairo_fill(cr);
         char dd[8];
         std::snprintf(dd, sizeof dd, "%02d", tm.tm_mday);
-        text(dd, "Google Sans Flex", 20, 900, 230 - 40 - 22.5, 115, app.color("secondary"), 1.0);
+        text(dd, kDisplayFamily, 20, 900, 230 - 40 - 22.5, 115, app.color("secondary"), 1.0);
     }
     cairo_restore(cr);
     g_object_unref(layout);

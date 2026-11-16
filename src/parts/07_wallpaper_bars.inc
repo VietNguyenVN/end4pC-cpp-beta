@@ -717,7 +717,16 @@ bool cwpStep(App& app, std::chrono::steady_clock::time_point now) {
 void placeNotifSurface(App& app);
 void applyConfig(App& app) {
     app.dtp.dirty = true;
-    applyShellFont(app.cfg.fontFamily, app.cfg.fontWeightText, app.cfg.fontWeightTitle);
+    {
+        static std::string lastFont = "\x01";
+        const std::string font = app.cfg.fontFamily + "|" + std::to_string(app.cfg.fontWeightText) + "|" + std::to_string(app.cfg.fontWeightTitle);
+        applyShellFont(app.cfg.fontFamily, app.cfg.fontWeightText, app.cfg.fontWeightTitle);
+        if (font != lastFont) {  // the bar clock keeps its width until its text changes: measure it again with the new font
+            const bool first = lastFont == "\x01";
+            lastFont = font;
+            if (!first) { app.clockTime.clear(); updateClock(app); }
+        }
+    }
     measureMusic(app);
     {
         static int lastTemplates = -1;
