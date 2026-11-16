@@ -1,5 +1,6 @@
 #include <cairo/cairo.h>
 #include "i18n.h"
+#include "oled.h"
 #include "units.h"
 #include "bubble.h"
 #include "elastic.h"

@@ -1,5 +1,6 @@
 #include <cairo.h>
 #include "i18n.h"
+#include "oled.h"
 #include "shellfont.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <librsvg/rsvg.h>
@@ -136,7 +137,7 @@ void loadColors() {
         for (const char* n : {"background", "surface", "surface_dim", "surface_container_lowest"}) g_colors[n] = {0, 0, 0};
         for (const char* n : {"surface_container_low", "surface_container", "surface_container_high", "surface_container_highest", "surface_variant", "surface_bright"}) {
             auto it = g_colors.find(n);
-            if (it != g_colors.end()) it->second = {it->second.r * 0.15, it->second.g * 0.15, it->second.b * 0.15};
+            if (it != g_colors.end()) it->second = {it->second.r * kOledSurfaceLift, it->second.g * kOledSurfaceLift, it->second.b * kOledSurfaceLift};
         }
     }
 }

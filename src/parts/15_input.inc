@@ -585,6 +585,7 @@ void onPointerAxis(void* d, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t val
     if (!app->hoverBar) return;
     const Hit overHit = hitTest(*app->hoverBar, app->pointerX, app->pointerY);
     if (overHit == HitIsland) { islandToggleView(*app); return; }
+    if (overHit >= kHitWs && overHit < kHitQuick) { focusWorkspaceRelative(value > 0 ? 1 : -1); return; }  // (the wheel over the workspaces: the next or previous one)
     if (overHit == HitNone) {  // the empty part of the bar: its first half changes the brightness of this monitor, the second one the volume
         const Bar& bar = *app->hoverBar;
         const bool first = sideBar(*app) ? app->pointerY < bar.height / 2.0 : app->pointerX < bar.width / 2.0;

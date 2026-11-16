@@ -1,5 +1,6 @@
 #include <cairo.h>
 #include "i18n.h"
+#include "oled.h"
 #include "bubble.h"
 #include "elastic.h"
 #include "tabanim.h"
@@ -770,7 +771,7 @@ void loadColors() {
         for (const char* n : {"background", "surface", "surface_dim", "surface_container_lowest"}) g.colors[n] = Color{0, 0, 0};
         for (const char* n : {"surface_container_low", "surface_container", "surface_container_high", "surface_container_highest", "surface_variant", "surface_bright"}) {
             auto it = g.colors.find(n);
-            if (it != g.colors.end()) it->second = Color{it->second.r * 0.15, it->second.g * 0.15, it->second.b * 0.15};
+            if (it != g.colors.end()) it->second = Color{it->second.r * kOledSurfaceLift, it->second.g * kOledSurfaceLift, it->second.b * kOledSurfaceLift};
         }
     }
 }

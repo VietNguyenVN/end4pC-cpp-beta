@@ -56,7 +56,7 @@ void applyUiBackground(App& app) {
     for (const char* n : {"surface_container_low", "surface_container", "surface_container_high", "surface_container_highest", "surface_variant", "surface_bright"}) {
         auto it = app.rawColors.find(n);
         if (it == app.rawColors.end()) continue;
-        app.colors[n] = Color{it->second.r * 0.15, it->second.g * 0.15, it->second.b * 0.15};
+        app.colors[n] = Color{it->second.r * kOledSurfaceLift, it->second.g * kOledSurfaceLift, it->second.b * kOledSurfaceLift};
     }
 }
 

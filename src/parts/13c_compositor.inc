@@ -194,6 +194,14 @@ void focusWorkspace(int id) {
     if (r.rfind("ok", 0) != 0) hyprRequest("dispatch workspace " + std::to_string(id));
 }
 
+// The wheel over the workspaces of the bar: the next or the previous one.
+void focusWorkspaceRelative(int dir) {
+    if (wmKind() == Wm::Niri) { runDetached({"niri", "msg", "action", dir > 0 ? "focus-workspace-down" : "focus-workspace-up"}); return; }
+    if (wmKind() == Wm::Sway) { runDetached({"swaymsg", "workspace", dir > 0 ? "next" : "prev"}); return; }
+    const std::string r = hyprRequest(std::string("dispatch hl.dsp.focus({ workspace = \"r") + (dir > 0 ? "+1" : "-1") + "\" })");
+    if (r.rfind("ok", 0) != 0) hyprRequest(std::string("dispatch workspace r") + (dir > 0 ? "+1" : "-1"));
+}
+
 // niri's workspaces are dynamic: the ones that exist on the focused output (always one empty at the end). 0 on Hyprland (its count is
 // the configured one).
 int wmWorkspaceCount() {
