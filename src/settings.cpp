@@ -2205,7 +2205,8 @@ void drawCompositorPlaceholder(cairo_t* cr) {
     text(cr, line2, cx - w2 / 2, top + kShape + 28 + h1 + 4, 15, false, g.color("on_surface_variant"));
 }
 
-void drawAbout(cairo_t* cr, double scroll, bool live, bool hotTile) {
+constexpr int kAboutDotsOpt = 7;  // the "Update Dots" button's hit (the Updates tile has none)
+void drawAbout(cairo_t* cr, double scroll, bool live, bool hotTile, bool hotDots) {
     std::vector<AboutTile> tiles;
     double heroY = 0;
     aboutLayout(tiles, heroY);
@@ -2248,7 +2249,7 @@ void drawAbout(cairo_t* cr, double scroll, bool live, bool hotTile) {
         }
         double chipX = tx;
         const double chipY = hy + kHeroH - 30 - 32;
-        for (const std::string& c : {"Linux " + g_sys.kernel, g_sys.hyprland, g_sys.session}) {
+        for (const std::string& c : {"Linux " + g_sys.kernel}) {
             if (c.empty() || c == "Linux ") continue;
             double cw = 0, ch = 0;
             measure(c, 13, false, 0, cw, ch);
@@ -2258,6 +2259,19 @@ void drawAbout(cairo_t* cr, double scroll, bool live, bool hotTile) {
             cairo_fill(cr);
             text(cr, c, chipX + 14, chipY + (32 - ch) / 2, 13, false, onSurface);
             chipX += cw + 28 + 8;
+        }
+        {  // updates the shell (the dots' own files, the keybinds and the compositor config stay as they are)
+            const char* label = "Update Dots";
+            double lw = 0, lh = 0;
+            measure(label, 14, true, 0, lw, lh);
+            const double bw = 26 + 8 + lw + 28, bx = kPadX + inner - 20 - bw;
+            const Rect b{bx, chipY, bw, 32};
+            if (live) g.hits.push_back({{b.x, b.y - oy, b.w, b.h}, -1, kAboutDotsOpt, Action});
+            rrect(cr, b.x, b.y, b.w, b.h, 16);
+            src(cr, hotDots ? mix(g.color("on_primary"), primary, 0.14) : primary);
+            cairo_fill(cr);
+            icon(cr, "refresh", b.x + 14, b.y + 6, 20, g.color("on_primary"));
+            text(cr, label, b.x + 14 + 20 + 8, b.y + (32 - lh) / 2, 14, true, g.color("on_primary"));
         }
     }
     for (const AboutTile& a : tiles) {
@@ -2918,7 +2932,7 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
     if (live) g.hits.clear();
     const Color onSurface = g.color("on_surface"), variant = g.color("on_surface_variant"), primary = g.color("primary");
     const Color onPrimary = g.color("on_primary"), chip = g.color("surface_container_highest"), outline = g.color("outline_variant");
-    if (pg.about) { drawAbout(cr, scroll, live, live && hv.row == -1); return; }
+    if (pg.about) { drawAbout(cr, scroll, live, live && hv.row == -1 && hv.opt != kAboutDotsOpt, live && hv.row == -1 && hv.opt == kAboutDotsOpt); return; }
     if (pg.placeholder) { drawCompositorPlaceholder(cr); return; }
     bool firstShown = true;
     for (size_t i = 0; i < pg.rows.size(); i++) {
@@ -4582,6 +4596,17 @@ void motion() {
     }
 }
 
+// Closes Settings and runs `update.sh -y` in the user's terminal, so the output is there to read; the shell restart is offered at the end.
+void runDotsUpdate() {
+    const std::string term = g.val.count("terminal") && !g.val["terminal"].empty() ? g.val["terminal"] : "kitty";
+    static const char* kScript =
+        "bash \"$1\" -y; rc=$?; echo; "
+        "if [ $rc -eq 0 ]; then read -rp 'Restart the shell now? [y/N] ' a; case \"$a\" in y|Y) bash \"$(dirname \"$1\")/restart.sh\" ;; esac; "
+        "else read -rp 'The update failed. Press Enter to close. ' _; fi";
+    spawn({term, "-e", "bash", "-c", kScript, "bash", scriptPath("update.sh")});
+    g.running = false;
+}
+
 void runSystemUpdate() {
     const std::string term = g.val.count("terminal") && !g.val["terminal"].empty() ? g.val["terminal"] : "kitty";
     const bool aur = g.val["updatesAur"] == "1", flatpak = g.val["updatesFlatpak"] == "1";
@@ -4730,7 +4755,7 @@ void click() {
         g.dirty = true;
         return;
     }
-    if (h.row < 0) { runSystemUpdate(); return; }
+    if (h.row < 0) { if (h.opt == kAboutDotsOpt) runDotsUpdate(); else runSystemUpdate(); return; }
     const Row& r = g.pages[g.page].rows[h.row];
     if (h.kind != Text && g.focusRow >= 0) commitText();
     if (h.kind == Toggle) sendSet(r.key, valInt(r) ? "0" : "1");

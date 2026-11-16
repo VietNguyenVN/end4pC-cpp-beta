@@ -182,3 +182,4 @@ min ago
 offline
 Conversion
 Getting the exchange rates…
+Update Dots
