@@ -267,6 +267,7 @@ struct WmEvents {
     bool window = false;
     bool focus = false;
     bool keyboard = false;
+    bool covered = false;   // a window may have gone fullscreen or left it
     bool reread = false;    // the workspace in use must be asked again (niri's events do not name it)
     int workspace = 0;
 };
@@ -305,6 +306,7 @@ void wmClassifyEvent(const std::string& line, WmEvents& e) {
     if (starts("activewindow>>") || starts("windowtitle>>") || starts("closewindow>>") || starts("openwindow>>") || starts("workspace>>"))
         e.window = true;
     if (starts("activewindow>>")) e.focus = true;
+    if (starts("fullscreen>>") || starts("workspace>>") || starts("activewindow>>") || starts("closewindow>>") || starts("openwindow>>") || starts("movewindow>>")) e.covered = true;
     if (starts("activelayout>>") || starts("configreloaded>>")) e.keyboard = true;
     if (starts("workspace>>")) {
         const int id = std::atoi(line.c_str() + 11);

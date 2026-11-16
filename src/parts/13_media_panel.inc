@@ -292,7 +292,8 @@ void startCava(App& app) {
     M.cavaBuf.clear();
 }
 
-bool vizWanted(const App& app) { return app.musicStatus == "Playing" && (inBarLayout(app, "visualizer") || (islandActive(app) && islandShowsMusic(app))); }
+bool barVizWanted(const App& app) { return inBarLayout(app, "visualizer") || (islandActive(app) && islandShowsMusic(app)); }
+bool vizWanted(const App& app) { return app.musicStatus == "Playing" && (barVizWanted(app) || deskVizWanted(app)); }
 
 void killCava(App& app) {
     MediaPanel& M = app.media;
@@ -301,6 +302,7 @@ void killCava(App& app) {
     M.cavaPid = 0;
     M.cavaFd = -1;
     M.points.clear();
+    deskVizIdle(app);
 }
 
 void stopCava(App& app) {
@@ -1044,7 +1046,8 @@ void vizFrame(App& app, std::chrono::steady_clock::time_point now) {
         if (!app.vizShown.empty()) { app.vizShown.clear(); for (auto& bar : app.bars) draw(*bar); }
         return;
     }
-    if (now < app.vizNext) return;
+    deskVizFrame(app, now);
+    if (!barVizWanted(app) || now < app.vizNext) return;
     app.vizNext = now + std::chrono::milliseconds(33);
     const auto& pts = app.media.points;
     app.vizShown.resize(kVizBars, 0.0);

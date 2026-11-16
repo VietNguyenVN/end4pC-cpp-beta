@@ -146,6 +146,7 @@ namespace {
 #include "parts/14w_qr_card.inc"
 #include "parts/14x_drives.inc"
 #include "parts/14y_game_overlay.inc"
+#include "parts/14z_desk_viz.inc"
 #include "parts/15_input.inc"
 #include "parts/16_registry_ipc.inc"
 }
@@ -375,6 +376,7 @@ int main(int argc, char** argv) {
     deskInit(app);
     for (DeskWidget* d : deskList(app)) deskLoad(*d);
     deskRestore(app);
+    deskVizRestore(app);
 
     const std::string sockPath = runtimeDir() + "/end4pC.sock";
     int ipcFd = listenSocket(sockPath);

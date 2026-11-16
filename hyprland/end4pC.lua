@@ -55,6 +55,9 @@ hl.layer_rule({match = {namespace = "end4pC-dock"}, blur = true, xray = false, i
 -- On-screen display (volume / brightness bar at the right edge). Opaque, so no blur; it just slides in from the edge.
 hl.layer_rule({match = {namespace = "end4pC-osd"}, no_anim = true})
 
+-- Desktop visualizer: a background layer under the widgets, drawn each frame, so no fade or slide when it appears.
+hl.layer_rule({match = {namespace = "end4pC-desk-viz"}, no_anim = true})
+
 -- The frame is solid black: nothing to blur. The wallpaper is a plain background layer.
 -- hl.layer_rule({match = {namespace = "end4pC-frame"}, blur = false})
 

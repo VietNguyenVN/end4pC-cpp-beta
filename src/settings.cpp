@@ -564,7 +564,7 @@ std::vector<Page> makePages() {
         {Slider, "collageRadius", "Corner radius", "How round each tile is.", {}, 0, 80, 2, "px"},
         {Slider, "collageBlur", "Backdrop blur", "How much the picture behind the tiles is blurred. 0 keeps it sharp.", {}, 0, 100, 5, "%"},
         {Action, "collageReset", "Reset layout", "Back to one tile with the normal wallpaper.", {}, 0, 100, 1, "Reset"},
-        {WCards, "wcards", "Widgets", "The widgets of the desktop. Click one to show or hide it; right click the wallpaper for the same.", {{"todo", "To-Do"}, {"weather", "Weather"}, {"player", "Player"}, {"resources", "Resources"}, {"calendar", "Calendar"}, {"clock", "Clock"}, {"usercard", "User card"}, {"image", "Image"}}},
+        {WCards, "wcards", "Widgets", "The widgets of the desktop. Click one to show or hide it; right click the wallpaper for the same.", {{"todo", "To-Do"}, {"weather", "Weather"}, {"player", "Player"}, {"resources", "Resources"}, {"calendar", "Calendar"}, {"clock", "Clock"}, {"usercard", "User card"}, {"image", "Image"}, {"visualizer", "Visualizer"}}},
         {Choice, "widgetScreen", "Widgets on screen", "The screen where the desktop widgets (clock, calendar, weather...) live.", {}},
         {Toggle, "widgetsLocked", "Lock widgets", "Keeps the desktop widgets where they are: they cannot be resized or moved while this is on."},
         {Toggle, "widgetShadow", "Widget shadow", "A soft shadow under the desktop widgets."},
@@ -581,6 +581,11 @@ std::vector<Page> makePages() {
         {Choice, "cookieSecond", "Second hand", "A dot, a line or both going round once a minute. Hidden by default.", {{"hide", "Hidden"}, {"dot", "Dot"}, {"line", "Line"}, {"classic", "Classic"}}},
         {Choice, "cookieDate", "Date", "The day in a pentagon and the month in a pill, or just the day in a small box.", {{"bubble", "Bubble"}, {"rect", "Box"}, {"hide", "Hidden"}}},
         {Toggle, "cookieTime", "Time in the middle", "The hour and the minutes in big numbers behind the hands."},
+        {Choice, "deskVizStyle", "Design", "How the music is drawn on the desktop, behind the widgets.", {{"bars", "Bars"}, {"reflect", "Reflection"}, {"wave", "Wave"}, {"dots", "Dots"}, {"winamp", "Winamp"}, {"ring", "Ring"}}},
+        {Choice, "deskVizPos", "Position", "Where it sits on the screen.", {{"bottom", "Bottom"}, {"top", "Top"}, {"center", "Center"}, {"left", "Left"}, {"right", "Right"}}},
+        {Choice, "deskVizColor", "Color", "The gradient of your theme, or a single color.", {{"gradient", "Gradient"}, {"primary", "Primary"}, {"secondary", "Secondary"}, {"tertiary", "Tertiary"}, {"on_surface", "Text"}}},
+        {Slider, "deskVizSize", "Size", "How tall it is (how wide, on the sides; the diameter of the ring).", {}, 80, 600, 10, "px"},
+        {Slider, "deskVizBars", "Bars", "How many bars the music is split into.", {}, 12, 96, 2, ""},
     }});
     if (compositorName() == "Hyprland") p.push_back({"Hyprland", "widget", hyprRows()});
     else if (compositorName() == "Niri") p.push_back({"Niri", "widget", niriRows()});
@@ -597,7 +602,7 @@ std::vector<Page> makePages() {
         else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"dividerStyle", "Divider"}, {"aiClaude", "AI usage"}});
         else if (pg.name == "Hyprland") sections(pg, {{"mon:map", "Displays"}, {"hypr:general:layout", "Layout"}, {"hypr:input:kb_layout", "Keyboard"}, {"hypr:input:sensitivity", "Mouse"}, {"hypr:input:touchpad:natural_scroll", "Touchpad"}, {"idle:lock", "Idle"}, {"hypr:decoration:rounding", "Look"}, {"borderColor", "Borders"}, {"hypr:animations:enabled", "Animations"}, {"hypr:general:resize_on_border", "Windows"}, {"hypr:misc:focus_on_activate", "Misc"}});
         else if (pg.name == "Niri") sections(pg, {{"niri:gaps", "Layout"}, {"niri:radius", "Windows"}, {"niri:follow", "Behavior"}, {"niri:repeatDelay", "Input"}, {"niriReset", "Reset"}});
-        else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}});
+        else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}, {"deskVizStyle", "Visualizer"}});
         else if (pg.name == "System") sections(pg, {{"sys:cursor", "Cursor"}, {"sys:icons", "Icons"}, {"sys:font", "Fonts"}, {"sys:app:browser", "Default Apps"}, {"screenshotDir", "Capture"}, {"doNotDisturb", "Notifications"}, {"periphSummary", "Devices"}});
         else if (pg.name == "Interface") sections(pg, {{"animEnabled", "Animations"}, {"hotCorners", "Hot Corners"}, {"lockOnStart", "Lock screen"}, {"dock", "Dock"}, {"osdPosition", "OSD"}, {"magnifier", "Accessibility"}});
         else if (pg.name == "Services") sections(pg, {{"weatherUnit", "Weather"}, {"updatesEnable", "Updates"}, {"lyricsProvider", "Lyrics"}, {"webappAdd", "Webapps"}, {"searchEngine", "Search"}});
@@ -760,7 +765,7 @@ std::string g_profPic;
 void loadProfile();
 bool loadWidgetStates() {
     bool changed = false;
-    for (const char* n : {"todo", "weather", "player", "resources", "calendar", "clock", "usercard", "image"}) {
+    for (const char* n : {"todo", "weather", "player", "resources", "calendar", "clock", "usercard", "image", "visualizer"}) {
         const std::string v = widgetEnabled(n) ? "1" : "0", k = std::string("w:") + n;
         if (g.val[k] != v) { g.val[k] = v; changed = true; }
     }
@@ -842,6 +847,7 @@ void loadConfig() {
     g.val.insert({"themeTertiary", ""});
     g.val.insert({"clockDaily", "badge"});
     g.val.insert({"clockPixel", "horizontal"});
+    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"deskVizStyle", "bars"}, {"deskVizPos", "bottom"}, {"deskVizColor", "gradient"}, {"deskVizSize", "220"}, {"deskVizBars", "48"}}) g.val.insert(d);
     g.val.insert({"language", ""});
     g.val.insert({"updatesAur", "0"});
     g.val.insert({"updatesFlatpak", "0"});
@@ -2333,6 +2339,8 @@ bool rowAvailable(const Row& r) {
     if (r.key == "barScreens" || r.key == "widgetScreen") return g_screens.size() > 1;
     if (r.key == "themePrimary" || r.key == "themeSecondary" || r.key == "themeTertiary") return !g.val["theme"].empty();
     if (r.key == "colorScheme" || r.key == "accent") return g.val["theme"].empty();
+    if (r.key == "deskVizPos") return g.val["w:visualizer"] == "1" && g.val["deskVizStyle"] != "ring";  // (the ring is moved by hand)
+    if (r.key.compare(0, 7, "deskViz") == 0) return g.val["w:visualizer"] == "1";
     if (r.key.compare(0, 6, "cookie") == 0) return g.val["clockStyle"] == "cookie";
     if (r.key == "clockDaily") return g.val["clockStyle"] == "daily";
     if (r.key == "clockPixel") return g.val["clockStyle"] == "pixel";

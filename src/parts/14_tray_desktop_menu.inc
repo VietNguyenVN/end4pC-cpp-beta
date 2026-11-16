@@ -398,7 +398,7 @@ void trayMenuClick(App& app) {
 
 constexpr double kDmRoom = 20, kDmCardW = 348, kDmSubW = 324, kDmGap = 8, kDmCarH = 160, kDmRowH = 56, kDmSubH = 430;
 constexpr double kDmCardH = 8 + kDmCarH + 4 + 3 * kDmRowH + 2 * 2 + 8;
-constexpr double kDmModeH = 56, kDmTogH = 48, kDmSepH = 16, kDmWSubH = 12 + 2 * (kDmTogH + 2) + kDmSepH + 8 * (kDmTogH + 2) + 10;
+constexpr double kDmModeH = 56, kDmTogH = 48, kDmSepH = 16, kDmWSubH = 12 + 2 * (kDmTogH + 2) + kDmSepH + 9 * (kDmTogH + 2) + 10;
 constexpr double kDmItemRadius = 28, kDmItemGap = 8, kDmCarPad = 8, kDmCarRadius = 36, kDmSmallMin = 40, kDmSmallMax = 56;
 constexpr int kDmCount = 6;
 
@@ -613,11 +613,11 @@ void drawDesktopMenu(App& app) {
         roundedRect(cr, S.x, S.y, S.w, S.h, 26);
         setSource(cr, app.color("surface"), alpha);
         cairo_fill(cr);
-        const bool states[10] = {app.cfg.widgetsLocked != 0, app.cfg.widgetShadow != 0, app.todo.open(), app.weather.open(), app.mediaW.open(), app.resW.open(), app.calW.open(), app.deskClock.open(), app.userW.open(), app.imageW.open()};
-        const char* names[10] = {"Lock widgets", "Widget shadow", "To-Do", "Weather", "Player", "Resources", "Calendar", "Clock", "User card", "Image"};
-        const char* tIcons[10] = {"lock", "layers", "checklist", "cloud-sun", "music_note", "cpu", "calendar-date", "clock-circle", "user-circle", "gallery"};
+        const bool states[11] = {app.cfg.widgetsLocked != 0, app.cfg.widgetShadow != 0, app.todo.open(), app.weather.open(), app.mediaW.open(), app.resW.open(), app.calW.open(), app.deskClock.open(), app.userW.open(), app.imageW.open(), app.dv.surface != nullptr};
+        const char* names[11] = {"Lock widgets", "Widget shadow", "To-Do", "Weather", "Player", "Resources", "Calendar", "Clock", "User card", "Image", "Visualizer"};
+        const char* tIcons[11] = {"lock", "layers", "checklist", "cloud-sun", "music_note", "cpu", "calendar-date", "clock-circle", "user-circle", "gallery", "soundwave"};
         const double rx = S.x + 8, rw = S.w - 16;
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 11; i++) {
             const double ry = S.y + 12 + i * (kDmTogH + 2) + (i >= 2 ? kDmSepH : 0);
             toggleRow(rx, ry, rw, 400 + i, tIcons[i], names[i], states[i]);
         }
@@ -911,7 +911,8 @@ void openDesktopMenu(App& app, Bar* bar) {
     popStart(D.anim);
     const double sw = bar->wpW, sh = bar->wpH;
     const double cx = std::clamp(app.pointerX - kDmCardW / 2, 8.0, std::max(8.0, sw - kDmCardW - 8));
-    const double cy = std::clamp(app.pointerY - kDmCardH / 2, 8.0, std::max(8.0, sh - kDmCardH - 8));
+    const double reach = std::max({kDmCardH, kDmSubH + 40, kDmWSubH + 8});  // (the submenus can be taller than the card: the whole thing must fit, so it moves up)
+    const double cy = std::clamp(app.pointerY - kDmCardH / 2, 8.0, std::max(8.0, sh - reach - 8));
     D.subLeft = cx + kDmCardW + kDmGap + kDmSubW + 8 > sw;
     D.surfW = static_cast<int>(2 * kDmRoom + 2 * (kDmSubW + kDmGap) + kDmCardW);
     D.surfH = static_cast<int>(2 * kDmRoom + std::max({kDmCardH, kDmSubH + 40, kDmWSubH + 8}));
@@ -974,10 +975,13 @@ void dmenuClick(App& app) {
     }
     if (D.hoverSub >= 0) {
         const int id = D.hoverSub;
-        if (id >= 400 && id <= 409) {
+        if (id >= 400 && id <= 410) {
             const int i = id - 400;
             if (i < 2) {
                 if (setConfig(app, i == 0 ? "widgetsLocked" : "widgetShadow", (i == 0 ? app.cfg.widgetsLocked : app.cfg.widgetShadow) ? "0" : "1").empty()) { applyConfig(app); drawAll(app); }
+            } else if (i == 10) {
+                std::string ignored;
+                deskVizToggle(app, "toggle", ignored);
             } else {
                 DeskWidget& w = i == 2 ? static_cast<DeskWidget&>(app.todo) : i == 3 ? static_cast<DeskWidget&>(app.weather) : i == 4 ? static_cast<DeskWidget&>(app.mediaW) : i == 5 ? static_cast<DeskWidget&>(app.resW) : i == 6 ? static_cast<DeskWidget&>(app.calW) : i == 7 ? static_cast<DeskWidget&>(app.deskClock) : i == 8 ? static_cast<DeskWidget&>(app.userW) : static_cast<DeskWidget&>(app.imageW);
                 if (w.open()) deskClose(app, w); else deskOpen(app, w);

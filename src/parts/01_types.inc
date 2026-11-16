@@ -416,6 +416,9 @@ struct Config {
     std::string clockStyle = "cookie";
     int calendarMonday = 1;
     int widgetGap = 12;
+    // the desktop visualizer (14z_desk_viz.inc)
+    std::string deskVizStyle = "bars", deskVizPos = "bottom", deskVizColor = "gradient";
+    int deskVizSize = 220, deskVizBars = 48;
     int widgetShadow = 1;
     int widgetsLocked = 0;
     int keepAwake = 0;
@@ -1347,6 +1350,31 @@ struct QrState {  // the card that shows a QR code made from a link or a text
 };
 enum GameWidget { GwResources, GwVolume, GwRecorder, GwCrosshair, kGwCount };
 struct GameHit;
+// The visualizer of the desktop: one background-layer surface under the widgets, with no input, fed by the same cava stream as the bar's.
+struct DeskViz {
+    wl_surface* surface = nullptr;
+    zwlr_layer_surface_v1* layer = nullptr;
+    wl_output* output = nullptr;
+    bool enabled = false, configured = false;
+    bool covered = false;                // a window is fullscreen on its screen: nothing is drawn
+    int W = 0, H = 0;
+    cairo_surface_t* cs[2] = {nullptr, nullptr};
+    wl_buffer* buf[2] = {nullptr, nullptr};
+    unsigned char* mem = nullptr;
+    size_t memSize = 0;
+    bool busy[2] = {false, false};
+    int bufW = 0, bufH = 0, lastBuf = 1;
+    bool framePending = false, dirty = false, idleDrawn = false;
+    std::vector<double> shown, peaks;
+    cairo_surface_t* art = nullptr;      // the cover of the ring, loaded at its own size (the bar's copy is tiny)
+    std::string artKey;
+    int ringL = -1, ringT = -1;          // where the ring sits (its own margins from the screen corner; -1: centred)
+    bool dragging = false, movePending = false;
+    double grabX = 0, grabY = 0;
+    std::string sig, layoutSig;                     // style, position, size, colors and bars last applied
+    std::chrono::steady_clock::time_point last{};
+};
+
 struct GameOverlay {  // the game overlay (SUPER + G)
     wl_surface* surface = nullptr;
     zwlr_layer_surface_v1* layer = nullptr;
@@ -1574,7 +1602,7 @@ struct App {
     DrivesBar drives;
     DrivesMenu drivesMenu;
     bool onBtMenu = false;
-    bool onOsk = false, onQr = false, onDrives = false, onGame = false;
+    bool onOsk = false, onQr = false, onDrives = false, onGame = false, onViz = false;
     IslandCard ic;
     bool onIsland = false;
     int screenH = 0;
@@ -1593,6 +1621,7 @@ struct App {
     OskState osk;
     QrState qr;
     GameOverlay game;
+    DeskViz dv;
     bool onDock = false;
     ClockW deskClock;
     UserW userW;
@@ -1737,6 +1766,15 @@ void closeDesktopMenu(App& app);
 int deskCursorShape(const App& app);
 void weatherSvcConfigure(const App& app);
 void deskSync(App& app);
+void deskVizSync(App& app);
+void deskVizMotion(App& app);
+void deskVizButton(App& app, uint32_t button, bool pressed);
+void deskVizToggle(App& app, const std::string& action, std::string& reply);
+void deskVizFrame(App& app, std::chrono::steady_clock::time_point now);
+void deskVizIdle(App& app);
+bool deskVizWanted(const App& app);
+void deskVizReopen(App& app);
+void deskVizCheckCovered(App& app);
 void deskRedrawAll(App& app);
 void mediaWTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs);
 void mediaWApply(App& app);

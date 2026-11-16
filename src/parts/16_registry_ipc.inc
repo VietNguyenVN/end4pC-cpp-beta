@@ -398,6 +398,7 @@ void handleClient(App& app, int listenFd) {
             reply = app.drivesMenu.open() ? "open" : "closed";
         } else reply = "no drives";
     }
+    else if (cmd == "visualizer" || cmd.rfind("visualizer ", 0) == 0) deskVizToggle(app, cmd.size() > 11 ? cmd.substr(11) : "toggle", reply);
     else if (cmd == "game" || cmd.rfind("game ", 0) == 0) {
         const std::string a = cmd.size() > 5 ? cmd.substr(5) : "toggle";
         if (a == "open") openGame(app); else if (a == "close") retractGame(app); else toggleGame(app);
@@ -531,6 +532,7 @@ bool readWmEvents(App& app, int fd, std::string& pending) {
         wmClassifyEvent(line, ev);
     }
     if (ev.workspace > 0 && ev.workspace != app.workspace) { app.workspace = ev.workspace; changed = true; }
+    if (ev.covered && app.dv.surface) deskVizCheckCovered(app);
     if (ev.reread) {
         const int id = wmActiveWorkspace();
         if (id > 0 && id != app.workspace) { app.workspace = id; changed = true; }

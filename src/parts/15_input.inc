@@ -93,6 +93,7 @@ void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, 
     app->onOsk = app->osk.surface && surface == app->osk.surface;
     app->onQr = app->qr.surface && surface == app->qr.surface;
     app->onGame = app->game.surface && surface == app->game.surface;
+    app->onViz = app->dv.surface && surface == app->dv.surface;
     app->onIsland = app->ic.surface && surface == app->ic.surface;
     app->onDmenu = app->dmenu.surface && surface == app->dmenu.surface;
     app->onDock = app->dock.surface && surface == app->dock.surface;
@@ -122,6 +123,7 @@ void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, 
     islandHoverCheck(*app);
     if (app->onDmenu) dmenuMotion(*app);
     if (app->onDesk) deskMotion(*app, *app->onDesk);
+    if (app->onViz) deskVizMotion(*app);
     if (app->onDock) dockEnter(*app);
     updateCursor(*app);
 }
@@ -194,6 +196,7 @@ void onPointerLeave(void* d, wl_pointer*, uint32_t, wl_surface*) {
     if (app->onDock) dockLeave(*app);
     app->wallBar = nullptr;
     if (app->onDesk && !app->onDesk->drag) deskLeave(*app, *app->onDesk);
+    if (app->onViz && !app->dv.dragging) app->onViz = false;
     if (app->onDmenu) {
         app->onDmenu = false;
         app->dmenu.hovered = app->dmenu.hoverRow = app->dmenu.hoverSub = -1;
@@ -350,6 +353,12 @@ void onPointerMotion(void* d, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y)
         deskMotion(*app, *app->onDesk);
         return;
     }
+    if (app->onViz) {
+        app->pointerX = wl_fixed_to_double(x);
+        app->pointerY = wl_fixed_to_double(y);
+        deskVizMotion(*app);
+        return;
+    }
     if (app->wallBar) {
         app->pointerX = wl_fixed_to_double(x);
         app->pointerY = wl_fixed_to_double(y);
@@ -402,6 +411,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     if (app->onCap) { captureButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onAmenu) { audioMenuButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onIsland) { islandCardButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
+    if (app->onViz) { deskVizButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onGame) { gameButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onQr) { qrButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onOsk) { oskButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }

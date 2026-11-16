@@ -859,4 +859,5 @@ void createBar(App& app, wl_output* output, uint32_t name) {
     app.bars.back()->frameApplied = app.cfg.frame;
     app.bars.back()->positionApplied = app.cfg.barPosition;
     app.bars.back()->styleApplied = app.cfg.barStyle + (app.cfg.barShadow && app.cfg.barBackground ? "+shadow" : "");
+    deskVizReopen(app);
 }

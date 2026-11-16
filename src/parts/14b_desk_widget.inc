@@ -653,6 +653,7 @@ void deskScroll(App& app, DeskWidget& d, int dir) {
 }
 
 void deskSync(App& app) {
+    deskVizSync(app);
     static std::string lastKey;
     const std::string key = deskScreenKey(app);
     if (!key.empty() && key != lastKey) {
@@ -690,5 +691,7 @@ void deskSync(App& app) {
 }
 
 void deskRedrawAll(App& app) {
+    app.dv.sig.clear();
+    deskVizSync(app);
     for (DeskWidget* d : deskList(app)) if (d->open()) deskDraw(app, *d);
 }
