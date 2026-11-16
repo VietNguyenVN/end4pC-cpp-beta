@@ -694,6 +694,7 @@ void deskSync(App& app) {
 }
 
 void deskRedrawAll(App& app) {
+    if (app.cfg.hotCornerVisible) applyCorners(app, true);  // (the corners follow the colors of the theme)
     app.dv.sig.clear();
     deskVizSync(app);
     for (DeskWidget* d : deskList(app)) if (d->open()) deskDraw(app, *d);

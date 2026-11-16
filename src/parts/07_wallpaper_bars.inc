@@ -404,23 +404,57 @@ void onStripConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, ui
     st->h = h;
     drawStrip(*st, *st->bar->app);
 }
-constexpr uint32_t kCornerSize = 6;
 void onCornerRelease(void*, wl_buffer* buffer) { wl_buffer_destroy(buffer); }
 const wl_buffer_listener kCornerBufferListener = {onCornerRelease};
-void onCornerConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t, uint32_t) {
-    auto* st = static_cast<Strip*>(d);
-    zwlr_layer_surface_v1_ack_configure(layer, serial);
-    const int stride = kCornerSize * 4, size = stride * kCornerSize;
-    const int fd = memfd_create("end4pC-corner", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;  // a fresh memfd is zero-filled: transparent
-    wl_shm_pool* pool = wl_shm_create_pool(st->bar->app->shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, kCornerSize, kCornerSize, stride, WL_SHM_FORMAT_ARGB8888);
+// One hot corner: an invisible region of the configured size, or a translucent one in the color of the theme (to see where it is).
+void drawCorner(Strip& st) {
+    const App& app = *st.bar->app;
+    const int w = app.cfg.hotCornerWidth, h = app.cfg.hotCornerHeight, stride = w * 4, size = stride * h;
+    const int fd = memfd_create("end4pC-corner", MFD_CLOEXEC);
+    if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }  // a fresh memfd is zero-filled: transparent
+    if (app.cfg.hotCornerVisible) {
+        void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (data != MAP_FAILED) {
+            cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, w, h, stride);
+            cairo_t* cr = mkcr(surf);
+            const Color c = app.color("primary");
+            roundedRect(cr, 0.75, 0.75, w - 1.5, h - 1.5, std::min(8.0, std::min(w, h) / 3.0));
+            cairo_set_source_rgba(cr, c.r, c.g, c.b, 0.3);
+            cairo_fill_preserve(cr);
+            cairo_set_source_rgba(cr, c.r, c.g, c.b, 0.85);
+            cairo_set_line_width(cr, 1.5);
+            cairo_stroke(cr);
+            cairo_destroy(cr);
+            cairo_surface_destroy(surf);
+            munmap(data, size);
+        }
+    }
+    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
+    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, w, h, stride, WL_SHM_FORMAT_ARGB8888);
     wl_shm_pool_destroy(pool);
     close(fd);
     wl_buffer_add_listener(buffer, &kCornerBufferListener, nullptr);
-    wl_surface_attach(st->surface, buffer, 0, 0);
-    wl_surface_damage_buffer(st->surface, 0, 0, kCornerSize, kCornerSize);
-    wl_surface_commit(st->surface);
+    wl_surface_attach(st.surface, buffer, 0, 0);
+    wl_surface_damage_buffer(st.surface, 0, 0, w, h);
+    wl_surface_commit(st.surface);
+}
+void onCornerConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t, uint32_t) {
+    auto* st = static_cast<Strip*>(d);
+    zwlr_layer_surface_v1_ack_configure(layer, serial);
+    drawCorner(*st);
+}
+// The size or the look of the corners changed: every corner is resized and drawn again.
+void applyCorners(App& app, bool force = false) {
+    static std::string last;
+    const std::string now = std::to_string(app.cfg.hotCornerWidth) + "x" + std::to_string(app.cfg.hotCornerHeight) + (app.cfg.hotCornerVisible ? "v" : "");
+    if (now == last && !force) return;
+    last = now;
+    for (auto& bar : app.bars)
+        for (Strip& st : bar->corners) {
+            if (!st.layer || !st.surface) continue;
+            zwlr_layer_surface_v1_set_size(st.layer, app.cfg.hotCornerWidth, app.cfg.hotCornerHeight);
+            drawCorner(st);
+        }
 }
 void onCornerClosed(void*, zwlr_layer_surface_v1*) {}
 const zwlr_layer_surface_v1_listener kCornerListener = {onCornerConfigure, onCornerClosed};
@@ -672,7 +706,7 @@ void applyFrame(Bar& bar) {
         st.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, st.surface, bar.output, ZWLR_LAYER_SHELL_V1_LAYER_TOP, "end4pC-corner");
         zwlr_layer_surface_v1_add_listener(st.layer, &kCornerListener, &st);
         zwlr_layer_surface_v1_set_anchor(st.layer, cornerAnchor[i]);
-        zwlr_layer_surface_v1_set_size(st.layer, kCornerSize, kCornerSize);
+        zwlr_layer_surface_v1_set_size(st.layer, app.cfg.hotCornerWidth, app.cfg.hotCornerHeight);
         zwlr_layer_surface_v1_set_exclusive_zone(st.layer, -1);
         wl_surface_commit(st.surface);
     }
@@ -716,6 +750,7 @@ bool cwpStep(App& app, std::chrono::steady_clock::time_point now) {
 
 void placeNotifSurface(App& app);
 void applyConfig(App& app) {
+    applyCorners(app);
     app.dtp.dirty = true;
     {
         static std::string lastFont = "\x01";

@@ -60,6 +60,19 @@ void closeAllPopups(App& app) {
     if (app.ic.open()) retractIslandCard(app);
 }
 
+// What a hot corner opens (a click on it, or the pointer entering it when that is turned on).
+void hotCornerAct(App& app, int corner) {
+    const std::string& act = corner == 0 ? app.cfg.cornerTL : corner == 1 ? app.cfg.cornerTR : corner == 2 ? app.cfg.cornerBL : app.cfg.cornerBR;
+    if (act == "controlcenter") toggleControlCenter(app);
+    else if (act == "media") toggleMediaPanel(app);
+    else if (act == "wallpapers") toggleSelector(app);
+    else if (act == "launcher") toggleLauncher(app);
+    else if (act == "notifications") toggleNotifPanel(app);
+    else if (act == "power") togglePowerMenu(app);
+    else if (act == "lock") startLock();
+    else if (act == "settings") toggleSettings();
+}
+
 void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, wl_fixed_t x, wl_fixed_t y) {
     auto* app = static_cast<App*>(d);
     app->enterSerial = serial;
@@ -74,6 +87,14 @@ void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, 
     }
     app->hoverBar = barForSurface(*app, surface);
     app->hotCorner = cornerForSurface(*app, surface);
+    if (app->hotCorner < 0) {
+        if (!anyPopupOpen(*app)) app->cornerLatch = -1;  // (the pointer is somewhere else and nothing is open: the corners are ready again)
+    } else if (app->cfg.hotCorners && app->cfg.hotCornerHover && !anyPopupOpen(*app) && app->cornerLatch != app->hotCorner) {
+        // Opens on entering, with no click, and only opens: what it opens covers the corner and the compositor sends the pointer in again, which
+        // used to close it, and open it again.
+        app->cornerLatch = app->hotCorner;
+        hotCornerAct(*app, app->hotCorner);
+    }
     app->onCap = app->cap.surface && surface == app->cap.surface;
     app->onSw = app->sw.surface && surface == app->sw.surface;
     app->onPk = app->pk.surface && surface == app->pk.surface;
@@ -133,6 +154,7 @@ void onPointerLeave(void* d, wl_pointer*, uint32_t, wl_surface*) {
     if (app->osk.dragging) return;  // (the drag goes on with whatever surface comes next: see onPointerEnter)
     Bar* bar = app->hoverBar;
     app->hoverBar = nullptr;
+    if (app->hotCorner >= 0 && !anyPopupOpen(*app)) app->cornerLatch = -1;  // (it left the corner with nothing open)
     app->hotCorner = -1;
     app->dtp.pressIdx = -1;
     app->dtp.dragging = false;
@@ -464,16 +486,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     }
     if (button != kBtnLeft) return;
     if (app->hotCorner >= 0) {
-        if (!app->cfg.hotCorners) return;
-        const std::string& act = app->hotCorner == 0 ? app->cfg.cornerTL : app->hotCorner == 1 ? app->cfg.cornerTR : app->hotCorner == 2 ? app->cfg.cornerBL : app->cfg.cornerBR;
-        if (act == "controlcenter") toggleControlCenter(*app);
-        else if (act == "media") toggleMediaPanel(*app);
-        else if (act == "wallpapers") toggleSelector(*app);
-        else if (act == "launcher") toggleLauncher(*app);
-        else if (act == "notifications") toggleNotifPanel(*app);
-        else if (act == "power") togglePowerMenu(*app);
-        else if (act == "lock") startLock();
-        else if (act == "settings") toggleSettings();
+        if (app->cfg.hotCorners) hotCornerAct(*app, app->hotCorner);
         return;
     }
     if (app->onSelector) { selectorClick(*app); return; }

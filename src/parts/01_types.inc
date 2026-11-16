@@ -313,6 +313,7 @@ struct Config {
     int animSpeed = 100;
     std::string animStyle = "boing";
     int hotCorners = 1;
+    int hotCornerWidth = 6, hotCornerHeight = 6, hotCornerVisible = 0, hotCornerHover = 0;  // the size of the corner regions, drawing them, and acting when the pointer enters (no click)
     std::string notificationPosition = "top_right";
     int doNotDisturb = 0;
     int notificationTimeout = 4000;
@@ -1645,6 +1646,7 @@ struct App {
     int hugRadius = 22, hugGap = 5;
     int brightness = -1;
     int hotCorner = -1;
+    int cornerLatch = -1;  // the corner that opened something on hover: it does not act again until the pointer has left it with nothing open
     int brightPending = 0, brightPendingAbs = -1;
     bool brightDirty = false;
     std::chrono::steady_clock::time_point brightSetAt;

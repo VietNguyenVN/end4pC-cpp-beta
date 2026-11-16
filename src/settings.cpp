@@ -443,6 +443,10 @@ std::vector<Page> makePages() {
         {Choice, "animStyle", "Animation style", "Boing grows out of its widget with a bounce; Fade only fades; Slide comes in from the bar's side; Zoom grows from its own middle.", {{"boing", "Boing"}, {"fade", "Fade"}, {"slide", "Slide"}, {"zoom", "Zoom"}}},
         {Slider, "animSpeed", "Animation speed", "How fast the animations run. 100 % is the default.", {}, 50, 200, 10, "%"},
         {Toggle, "hotCorners", "Hot corners", "Act when the pointer is in a screen corner. Scrolling always works: brightness in the top-left, volume in the top-right. A click opens what you choose below.", {}},
+        {Toggle, "hotCornerHover", "Open on hover", "Open what a corner holds as soon as the pointer enters it, with no click. Off by default.", {}},
+        {Toggle, "hotCornerVisible", "Show the corners", "Paints the regions of the corners, to see where they are.", {}},
+        {Slider, "hotCornerWidth", "Corner width", "How wide each corner region is.", {}, 4, 240, 2, "px"},
+        {Slider, "hotCornerHeight", "Corner height", "How tall each corner region is.", {}, 4, 240, 2, "px"},
         {Split, "cornerTL", "Top left", "What a click in this corner opens.", {{"none", "Nothing"}, {"controlcenter", "Control center"}, {"media", "Player"}, {"wallpapers", "Wallpapers"}, {"launcher", "Launcher"}, {"notifications", "Notifications"}, {"power", "Power menu"}, {"lock", "Lock screen"}, {"settings", "Settings"}}},
         {Split, "cornerTR", "Top right", "What a click in this corner opens.", {{"none", "Nothing"}, {"controlcenter", "Control center"}, {"media", "Player"}, {"wallpapers", "Wallpapers"}, {"launcher", "Launcher"}, {"notifications", "Notifications"}, {"power", "Power menu"}, {"lock", "Lock screen"}, {"settings", "Settings"}}},
         {Split, "cornerBL", "Bottom left", "What a click in this corner opens.", {{"none", "Nothing"}, {"controlcenter", "Control center"}, {"media", "Player"}, {"wallpapers", "Wallpapers"}, {"launcher", "Launcher"}, {"notifications", "Notifications"}, {"power", "Power menu"}, {"lock", "Lock screen"}, {"settings", "Settings"}}},
@@ -788,6 +792,7 @@ void loadConfig() {
     if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
     g.val.insert({"lyricsProvider", "auto"});
     g.val.insert({"updatesEnable", "1"});
+    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"hotCornerWidth", "6"}, {"hotCornerHeight", "6"}, {"hotCornerVisible", "0"}, {"hotCornerHover", "0"}}) g.val.insert(d);
     g.val.insert({"cornerTL", "none"});
     g.val.insert({"cornerTR", "controlcenter"});
     g.val.insert({"cornerBL", "media"});
@@ -2379,6 +2384,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "barScreens" || r.key == "widgetScreen") return g_screens.size() > 1;
     if (r.key == "themePrimary" || r.key == "themeSecondary" || r.key == "themeTertiary") return !g.val["theme"].empty();
     if (r.key == "colorScheme" || r.key == "accent") return g.val["theme"].empty();
+    if (r.key.compare(0, 9, "hotCorner") == 0 && r.key != "hotCorners") return g.val["hotCorners"] == "1";
     if (r.key == "customTextSize") return g.val["w:text"] == "1" && g.val["customTextFit"] != "1";
     if (r.key.compare(0, 10, "customText") == 0) return g.val["w:text"] == "1";
     if (r.key == "deskVizPos") return g.val["w:visualizer"] == "1" && g.val["deskVizStyle"] != "ring";  // (the ring is moved by hand)
