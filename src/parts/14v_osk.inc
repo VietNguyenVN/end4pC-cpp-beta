@@ -249,10 +249,18 @@ void drawOsk(App& app) {
 
 // One move per frame: the pointer's position is relative to the surface, so a second move before the compositor has shown the first
 // would be measured from the old place and applied twice (that was the flicker). The next one waits for the frame callback.
+void oskPlace(App& app);
 void oskFrameDone(void* d, wl_callback* cb, uint32_t) {
     auto* app = static_cast<App*>(d);
     wl_callback_destroy(cb);
     app->osk.movePending = false;
+    OskState& S = app->osk;
+    if (S.dragging && S.onOther && (S.accDx != 0 || S.accDy != 0)) {  // moves that came in while the last one was still on its way
+        S.marginLeft = std::max(0.0, S.marginLeft + S.accDx);
+        S.marginBottom = std::max(0.0, S.marginBottom - S.accDy);
+        S.accDx = S.accDy = 0;
+        oskPlace(*app);
+    }
 }
 const wl_callback_listener kOskFrame = {oskFrameDone};
 
@@ -336,6 +344,21 @@ int oskKeyAt(double x, double y) {
     return G.closeBtn.contains(x, y) ? -2 : G.resetBtn.contains(x, y) ? -3 : -1;
 }
 
+// The same drag when the pointer is over another surface of the shell: that one does not move, so its moves are the pointer's own. They are
+// added up and applied once per frame, like the moves of the keyboard's own surface.
+void oskDragOther(App& app, double x, double y) {
+    OskState& S = app.osk;
+    S.accDx += x - S.otherX;
+    S.accDy += y - S.otherY;
+    S.otherX = x;
+    S.otherY = y;
+    if (S.movePending || (std::fabs(S.accDx) < 0.5 && std::fabs(S.accDy) < 0.5)) return;
+    S.marginLeft = std::max(0.0, S.marginLeft + S.accDx);
+    S.marginBottom = std::max(0.0, S.marginBottom - S.accDy);
+    S.accDx = S.accDy = 0;
+    oskPlace(app);
+}
+
 void oskMotion(App& app) {
     OskState& S = app.osk;
     if (S.dragging) {  // the pointer is relative to the surface, which moves with it: the new place is the old one plus how far the pointer is from where it took hold
@@ -356,6 +379,13 @@ void oskButton(App& app, uint32_t button, bool pressed) {
     if (button != 0x110) return;
     if (!pressed) {
         const bool wasDrag = S.dragging;
+        if (wasDrag && S.onOther && (S.accDx != 0 || S.accDy != 0)) {  // (what the last frames did not apply yet)
+            S.marginLeft = std::max(0.0, S.marginLeft + S.accDx);
+            S.marginBottom = std::max(0.0, S.marginBottom - S.accDy);
+            S.accDx = S.accDy = 0;
+            oskPlace(app);
+        }
+        S.onOther = false;
         S.dragging = false;
         if (S.pressed >= 0) { S.pressed = -1; drawOsk(app); }
         else if (wasDrag) drawOsk(app);
@@ -366,7 +396,7 @@ void oskButton(App& app, uint32_t button, bool pressed) {
     if (k == -2) { closeOsk(app); return; }
     if (k == -3) { oskHome(app); return; }
     if (k < 0) {
-        if (G.header.contains(app.pointerX, app.pointerY)) { S.dragging = true; S.grabX = app.pointerX; S.grabY = app.pointerY; drawOsk(app); }
+        if (G.header.contains(app.pointerX, app.pointerY)) { S.dragging = true; S.onOther = false; S.accDx = S.accDy = 0; S.grabX = app.pointerX; S.grabY = app.pointerY; drawOsk(app); }
         return;
     }
     const OskKey& key = G.keys[k];

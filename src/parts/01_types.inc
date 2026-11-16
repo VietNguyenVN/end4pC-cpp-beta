@@ -1332,6 +1332,8 @@ struct OskState {  // the on-screen keyboard
     bool configured = false, placed = false, caps = false, shiftLock = false, dragging = false, movePending = false, relayout = false;
     int mods = 0, hover = -1, pressed = -1;
     double marginLeft = 0, marginBottom = 40, grabX = 0, grabY = 0;
+    bool onOther = false;                            // while dragging, the pointer is over another surface of the shell (it moved faster than the keyboard)
+    double otherX = 0, otherY = 0, accDx = 0, accDy = 0;
 };
 struct QrState {  // the card that shows a QR code made from a link or a text
     wl_surface* surface = nullptr;

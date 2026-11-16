@@ -64,6 +64,14 @@ void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, 
     auto* app = static_cast<App*>(d);
     app->enterSerial = serial;
     app->cursorShape = -1;
+    if (app->osk.dragging) {  // the drag goes on over whatever surface of the shell is under the pointer now: it follows by relative moves
+        const bool onKeyboard = app->osk.surface && surface == app->osk.surface;
+        app->osk.onOther = !onKeyboard;
+        app->onOsk = onKeyboard;
+        app->pointerX = app->osk.grabX = app->osk.otherX = wl_fixed_to_double(x);
+        app->pointerY = app->osk.grabY = app->osk.otherY = wl_fixed_to_double(y);
+        return;
+    }
     app->hoverBar = barForSurface(*app, surface);
     app->hotCorner = cornerForSurface(*app, surface);
     app->onCap = app->cap.surface && surface == app->cap.surface;
@@ -119,6 +127,7 @@ void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, 
 
 void onPointerLeave(void* d, wl_pointer*, uint32_t, wl_surface*) {
     auto* app = static_cast<App*>(d);
+    if (app->osk.dragging) return;  // (the drag goes on with whatever surface comes next: see onPointerEnter)
     Bar* bar = app->hoverBar;
     app->hoverBar = nullptr;
     app->hotCorner = -1;
@@ -206,6 +215,7 @@ void onPointerLeave(void* d, wl_pointer*, uint32_t, wl_surface*) {
 
 void onPointerMotion(void* d, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
     auto* app = static_cast<App*>(d);
+    if (app->osk.dragging && app->osk.onOther) { oskDragOther(*app, wl_fixed_to_double(x), wl_fixed_to_double(y)); return; }
     if (app->onCap) {
         app->pointerX = wl_fixed_to_double(x);
         app->pointerY = wl_fixed_to_double(y);
