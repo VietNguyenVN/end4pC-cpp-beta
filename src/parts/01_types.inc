@@ -441,7 +441,7 @@ struct AppEntry {
     bool terminal = false;
     std::vector<AppAction> actions;
 };
-enum ResultKind { ResApp, ResMath, ResCommand, ResWeb, ResAction, ResClip, ResEmoji, ResKeybind, ResFile };
+enum ResultKind { ResApp, ResMath, ResCommand, ResWeb, ResAction, ResClip, ResEmoji, ResKeybind, ResFile, ResQr, ResConv };
 enum PopPhase { kPopOpen = 0, kPopIn = 1, kPopOut = 2, kPopGone = 3 };
 
 struct PopAnim {
@@ -777,7 +777,7 @@ struct CapAnnot {
 };
 
 struct Capture {
-    int autoAct = 0;  // 1: text recognition, 2: Google Lens, as soon as an area is chosen
+    int autoAct = 0;  // 1: text recognition, 2: Google Lens, 3: QR code, as soon as an area is chosen
     wl_surface* surface = nullptr;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -1295,6 +1295,15 @@ struct OskState {  // the on-screen keyboard
     int mods = 0, hover = -1, pressed = -1;
     double marginLeft = 0, marginBottom = 40, grabX = 0, grabY = 0;
 };
+struct QrState {  // the card that shows a QR code made from a link or a text
+    wl_surface* surface = nullptr;
+    zwlr_layer_surface_v1* layer = nullptr;
+    bool configured = false;
+    int hover = -1;
+    std::string text, png;  // png: the module-per-pixel image qrencode wrote
+    cairo_surface_t* image = nullptr;
+    int modules = 0;
+};
 struct DockPanelState {  // the "docktopanel" bar module: the dock's apps in the bar
     std::vector<DockItem> items;
     std::map<std::string, std::shared_ptr<cairo_surface_t>> icons;
@@ -1497,8 +1506,10 @@ struct App {
     bool onAmenu = false;
     BtBar btBar;
     BtMenu btMenu;
+    DrivesBar drives;
+    DrivesMenu drivesMenu;
     bool onBtMenu = false;
-    bool onOsk = false;
+    bool onOsk = false, onQr = false, onDrives = false;
     IslandCard ic;
     bool onIsland = false;
     int screenH = 0;
@@ -1515,6 +1526,7 @@ struct App {
     DockState dock;
     DockPanelState dtp;
     OskState osk;
+    QrState qr;
     bool onDock = false;
     ClockW deskClock;
     UserW userW;

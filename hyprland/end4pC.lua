@@ -74,6 +74,9 @@ hl.bind("SUPER + SHIFT + S", hl.dsp.exec_cmd(E .. " screenshot region"), {descri
 
 -- Same, but the picture opens in swappy (draw, crop, text) before it is saved
 hl.bind("SUPER + ALT + S", hl.dsp.exec_cmd(E .. " screenshot edit"), {description = "Screenshot (Region, Edit in Swappy)"})
+-- Google Lens / QR: pick an area; letting go of it is the action
+hl.bind("SUPER + SHIFT + A", hl.dsp.exec_cmd(E .. " screenshot lens"), {description = "Google Lens (Region)"})
+hl.bind("SUPER + SHIFT + Q", hl.dsp.exec_cmd(E .. " screenshot qr"), {description = "Read a QR code (Region)"})
 
 -- Player card (the media panel): toggle
 hl.bind("SUPER + M", hl.dsp.exec_cmd(E .. " media toggle"), {description = "Media Player"})

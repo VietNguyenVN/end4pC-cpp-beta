@@ -1,5 +1,5 @@
 
-enum CapBtn { bSelect = 0, bArrow, bLine, bRect, bEllipse, bBrush, bText, bNumber, bBlur, bUndo, bRedo, bCopy, bSave, bOcr, bLens, bClose, kCapBtnCount };
+enum CapBtn { bSelect = 0, bArrow, bLine, bRect, bEllipse, bBrush, bText, bNumber, bBlur, bUndo, bRedo, bCopy, bSave, bOcr, bLens, bQr, bClose, kCapBtnCount };
 constexpr double kCapBtn = 36, kCapBtnGap = 2, kCapSep = 14, kCapBarPad = 8, kCapHandle = 5, kCapGrab = 10, kCapMin = 6;
 enum { kCapIdle = 0, kCapCreate = 1, kCapMove = 2, kCapResize = 3, kCapDraw = 4 };
 constexpr int kCapColors = 6, kCapSizes = 3;
@@ -496,7 +496,7 @@ void drawCapture(App& app) {
                 cairo_stroke(cr);
             };
             pill(g.bar);
-            static const char* icons[kCapBtnCount] = {"cursor", "arrow-right-up", nullptr, nullptr, nullptr, "pen", "text", "hashtag-circle", nullptr, "undo-left", "undo-right", "copy", "download-minimalistic", "text-selection", "eye-scan", "close-circle"};
+            static const char* icons[kCapBtnCount] = {"cursor", "arrow-right-up", nullptr, nullptr, nullptr, "pen", "text", "hashtag-circle", nullptr, "undo-left", "undo-right", "copy", "download-minimalistic", "text-selection", "eye-scan", "qr-code", "close-circle"};
             for (int i = 0; i < kCapBtnCount; i++) {
                 const Rect& r = g.btn[i];
                 const bool hot = c.hoverBtn == i, main = i == bCopy, on = i <= bBlur && i == c.tool;
@@ -572,7 +572,7 @@ void drawCapture(App& app) {
     }
 
     {
-        static const char* names[kCapBtnCount] = {"Select the area", "Arrow", "Line", "Rectangle", "Ellipse", "Brush", "Text  (Enter to finish)", "Numbered marker", "Pixelate", "Undo  (Ctrl+Z)", "Redo  (Ctrl+Y)", "Copy  (Enter)", "Save  (Ctrl+S)", "Copy the text in the area (OCR)", "Search the area with Google Lens", "Close  (Esc)"};
+        static const char* names[kCapBtnCount] = {"Select the area", "Arrow", "Line", "Rectangle", "Ellipse", "Brush", "Text  (Enter to finish)", "Numbered marker", "Pixelate", "Undo  (Ctrl+Z)", "Redo  (Ctrl+Y)", "Copy  (Enter)", "Save  (Ctrl+S)", "Copy the text in the area (OCR)", "Search the area with Google Lens", "Read a QR code in the area", "Close  (Esc)"};
         if (c.record && c.hoverBtn >= 0 && c.hoverBtn < kRecBtnCount && capBarsShown(c)) {
             static const char* rec[kRecBtnCount] = {nullptr, nullptr, "Frame rate: automatic", "24 frames per second", "30 frames per second", "60 frames per second", "Start recording  (Enter)", "Close  (Esc)"};
             const Rect r = capRecGeom(c).btn[c.hoverBtn];
@@ -729,7 +729,8 @@ bool capPrepareForOcr(const std::string& file) {
 }
 
 // Text recognition (tesseract, the text goes to the clipboard) or a Google Lens search (the area is uploaded to uguu.se, which keeps it a few hours).
-void captureRecognize(App& app, bool lens) {
+void captureRecognize(App& app, int mode) {
+    const bool lens = mode == 1;
     Capture& c = app.cap;
     if (!c.open()) return;
     capCommitText(c);
@@ -737,10 +738,18 @@ void captureRecognize(App& app, bool lens) {
     std::filesystem::create_directories(capCacheDir());
     const std::string file = capCacheDir() + "/capture-search.png";
     bool ok = capWrite(app, file);
-    if (ok && !lens) capPrepareForOcr(file);
+    if (ok && mode == 0) capPrepareForOcr(file);
     const std::string langs = capOcrLanguages(app);
     closeCapture(app);
     if (!ok) return;
+    if (mode == 2) {
+        static const char* kScript =
+            "f=\"$1\"; text=$(ZXingReader -single -bytes \"$f\" 2>/dev/null || zbarimg -q --raw \"$f\" 2>/dev/null); rm -f \"$f\"; "
+            "if [ -n \"$text\" ]; then printf %s \"$text\" | wl-copy; notify-send -a end4pC 'QR code read, copied' \"$(printf %s \"$text\" | head -c 240)\"; "
+            "else notify-send -a end4pC 'No QR code found' 'Try a selection that holds the whole code'; fi";
+        runDetached({"bash", "-c", kScript, "bash", file.c_str()});
+        return;
+    }
     if (lens) {
         static const char* kScript =
             "f=\"$1\"; notify-send -a end4pC 'Google Lens' 'Uploading the area to uguu.se (kept for about 3 hours)'; "
@@ -887,7 +896,7 @@ void captureButton(App& app, uint32_t button, bool pressed) {
         if (b >= 0) {
             if (b == bCopy) { captureFinish(app, false); return; }
             if (b == bSave) { captureFinish(app, true); return; }
-            if (b == bOcr || b == bLens) { captureRecognize(app, b == bLens); return; }
+            if (b == bOcr || b == bLens || b == bQr) { captureRecognize(app, b == bLens ? 1 : b == bQr ? 2 : 0); return; }
             if (b == bClose) { closeCapture(app); return; }
             if (b == bUndo) capUndo(c);
             else if (b == bRedo) capRedo(c);
@@ -956,7 +965,7 @@ void captureButton(App& app, uint32_t button, bool pressed) {
         const bool created = c.mode == kCapCreate;
         c.mode = kCapIdle;
         if (c.sw < kCapMin || c.sh < kCapMin) { c.has = false; c.items.clear(); c.redo.clear(); }
-        if (created && c.has && c.autoAct) { captureRecognize(app, c.autoAct == 2); return; }  // "screenshot ocr": letting go of the area is the action
+        if (created && c.has && c.autoAct) { captureRecognize(app, c.autoAct == 2 ? 1 : c.autoAct == 3 ? 2 : 0); return; }  // "screenshot ocr": letting go of the area is the action
         c.hoverBtn = capButtonAt(c, x, y);
         captureRedraw(app);
         updateCursor(app);

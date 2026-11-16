@@ -80,7 +80,9 @@ void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, 
     app->onTmenu = app->tmenu.surface && surface == app->tmenu.surface;
     app->onAmenu = app->amenu.surface && surface == app->amenu.surface;
     app->onBtMenu = app->btMenu.surface && surface == app->btMenu.surface;
+    app->onDrives = app->drivesMenu.surface && surface == app->drivesMenu.surface;
     app->onOsk = app->osk.surface && surface == app->osk.surface;
+    app->onQr = app->qr.surface && surface == app->qr.surface;
     app->onIsland = app->ic.surface && surface == app->ic.surface;
     app->onDmenu = app->dmenu.surface && surface == app->dmenu.surface;
     app->onDock = app->dock.surface && surface == app->dock.surface;
@@ -168,12 +170,14 @@ void onPointerLeave(void* d, wl_pointer*, uint32_t, wl_surface*) {
         drawAudioMenu(*app);
     }
     if (app->onIsland) { app->onIsland = false; app->ic.hover = -1; drawIslandCard(*app); }
+    if (app->onQr) { app->onQr = false; app->qr.hover = -1; drawQrCard(*app); }
     if (app->onOsk && !app->osk.dragging) { app->onOsk = false; app->osk.hover = -1; drawOsk(*app); }
     if (app->onBtMenu) {
         app->onBtMenu = false;
         app->btMenu.hover = -1;
         drawBtMenu(*app);
     }
+    if (app->onDrives) { app->onDrives = false; app->drivesMenu.hover = -1; drawDrivesMenu(*app); }
     if (app->onDock) dockLeave(*app);
     app->wallBar = nullptr;
     if (app->onDesk && !app->onDesk->drag) deskLeave(*app, *app->onDesk);
@@ -290,6 +294,12 @@ void onPointerMotion(void* d, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y)
         islandCardMotion(*app);
         return;
     }
+    if (app->onQr) {
+        app->pointerX = wl_fixed_to_double(x);
+        app->pointerY = wl_fixed_to_double(y);
+        qrMotion(*app);
+        return;
+    }
     if (app->onOsk) {
         app->pointerX = wl_fixed_to_double(x);
         app->pointerY = wl_fixed_to_double(y);
@@ -364,7 +374,9 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     if (app->onCap) { captureButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onAmenu) { audioMenuButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onIsland) { islandCardButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
+    if (app->onQr) { qrButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onOsk) { oskButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
+    if (app->onDrives) { drivesMenuButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onBtMenu) { btMenuButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (state != WL_POINTER_BUTTON_STATE_PRESSED) {
         if (button == kBtnLeft && app->launcher.selDrag) app->launcher.selDrag = false;
@@ -595,6 +607,7 @@ void onKbKey(void* d, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t s
     if (app->cc.open() && app->cc.page != CcPageNone && ccRadioKey(*app, key)) return;
     if (key == kKeyEsc && app->sel.open() && !app->sel.confirmPath.empty()) { app->sel.confirmPath.clear(); selectorMotion(*app); drawSelector(*app); return; }
     if (app->ic.open() && g_icPowerMode) { islandPowerKey(*app, key); return; }
+    if (key == kKeyEsc && app->qr.surface) { closeQrCard(*app); return; }
     if (key == kKeyEsc) { retractControlCenter(*app); retractPowerMenu(*app); retractSelector(*app); retractLauncher(*app); retractNotifPanel(*app); retractMediaPanel(*app); retractClockPanel(*app); closeTrayMenu(*app); retractAudioMenu(*app); retractBtMenu(*app); retractDesktopMenu(*app); return; }
     if (app->power.open()) { powerKey(*app, key); return; }
     if (app->launcher.open()) {

@@ -226,6 +226,53 @@ std::string urlEncode(const std::string& s) {
     return out;
 }
 
+// What a QR code is offered for: a link (http(s)://, ftp://, www.) typed or pasted, or anything after "qr ".
+std::string qrSource(const std::string& q) {
+    const std::string t = trimmed(q);
+    if (t.size() > 3 && lowerCopy(t.substr(0, 3)) == "qr " && !trimmed(t.substr(3)).empty()) return trimmed(t.substr(3));
+    const std::string low = lowerCopy(t);
+    if (t.find(' ') != std::string::npos || t.find('\n') != std::string::npos) return "";
+    for (const char* p : {"http://", "https://", "ftp://", "www."})
+        if (low.rfind(p, 0) == 0 && low.size() > std::strlen(p)) return t;
+    return "";
+}
+
+// "1usd to eur", "5 km in miles", "cuanto es 100 dolares a pesos mexicanos": the answer as one row. Currency rates are the ones the Tools page keeps
+// (refreshed here, in the background, when they are missing or old).
+struct LauncherConversion { bool ok = false, waiting = false; std::string text, copy; };
+LauncherConversion launcherConversion(const std::string& q) {
+    using namespace unitconv;
+    static std::map<std::string, double> rates;
+    static long long ratesAt = 0, fileStamp = 0, askedAt = 0;
+    static std::vector<UnCategory> cats = unStaticCategories();
+    LauncherConversion out;
+    if (q.size() < 4 || q.size() > 120) return out;
+    const std::string path = configDir() + "/tools/rates.json";
+    struct stat st {};
+    if (stat(path.c_str(), &st) == 0 && static_cast<long long>(st.st_mtime) != fileStamp) {
+        fileStamp = st.st_mtime;
+        std::ifstream f(path);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        if (unParseRates(ss.str(), rates, ratesAt)) cats[0].units = unCurrencyUnits(rates);
+    }
+    const UnQuery r = unParseQuery(q, cats, !rates.empty());
+    const long long now = static_cast<long long>(std::time(nullptr));
+    if ((r.needsRates || (r.ok && r.fromSym.size() == 3 && now - ratesAt > 6 * 3600)) && now - askedAt > 600) {
+        askedAt = now;
+        std::filesystem::create_directories(configDir() + "/tools");
+        runDetached({"bash", "-c", "curl -sf -m 15 https://open.er-api.com/v6/latest/USD -o \"$1.tmp\" && mv \"$1.tmp\" \"$1\"", "bash", path.c_str()});
+    }
+    if (r.needsRates) { out.waiting = true; return out; }
+    if (!r.ok) return out;
+    out.ok = true;
+    out.text = unFmt(r.value) + " " + r.toSym;
+    std::string plain;
+    for (char c : unFmt(r.value)) if (c != ',') plain += c;
+    out.copy = plain + " " + r.toSym;
+    return out;
+}
+
 bool looksLikeMath(const std::string& q) {
     if (q.empty()) return false;
     if (q[0] == kPfxMath || std::isdigit(static_cast<unsigned char>(q[0]))) return true;
@@ -568,6 +615,16 @@ void updateLauncherResults(App& app, bool keepSelection = false) {
         r.footer = !asPriority;
         if (!r.name.empty()) push(r);
     };
+    auto convRow = [&](const LauncherConversion& c) {
+        LauncherResult r;
+        r.kind = ResConv; r.name = c.waiting ? "Getting the exchange rates…" : c.text; r.type = "Conversion"; r.verb = c.waiting ? "" : "Copy"; r.icon = "transfer-horizontal"; r.payload = c.copy;
+        push(r);
+    };
+    auto qrRow = [&](const std::string& text) {
+        LauncherResult r;
+        r.kind = ResQr; r.name = text; r.type = "QR code"; r.verb = "Create"; r.icon = "qr-code"; r.payload = text;
+        push(r);
+    };
     auto actionRows = [&] {
         std::vector<std::string> names = launcherActions();
         if (app.cfg.launcherFiles) names.push_back("recent");  // (the list of recent files belongs to the files search)
@@ -639,8 +696,12 @@ void updateLauncherResults(App& app, bool keepSelection = false) {
     } else if (first == kPfxAction) {
         actionRows();
     } else {
-        const bool math = looksLikeMath(q);
+        const std::string qrText = qrSource(q);
+        const LauncherConversion conv = qrText.empty() && first != kPfxShell && first != kPfxWeb ? launcherConversion(q) : LauncherConversion{};
+        const bool math = qrText.empty() && !conv.ok && !conv.waiting && looksLikeMath(q);
         const bool shell = first == kPfxShell, web = first == kPfxWeb;
+        if (!qrText.empty()) qrRow(qrText);
+        if (conv.ok || conv.waiting) convRow(conv);
         if (math) requestMath(app, first == kPfxMath ? cleanPrefix(q, kPfxMath) : q);
         if (math) mathRow();
         else if (shell) commandRow(true);
@@ -733,6 +794,8 @@ void launcherActivate(App& app, int index) {
             }
             break;
         }
+        case ResQr: openQrCard(app, r.payload); return;
+        case ResConv: if (!r.payload.empty()) copyToClipboard(r.payload); break;
         case ResWeb: {
             const std::string url = app.cfg.searchEngine + urlEncode(r.payload);
             runDetached({"xdg-open", url.c_str()});
@@ -752,7 +815,7 @@ constexpr double kLaunFooterGap = 8;
 double launcherPy(const App& app) { return app.pointerY - kLaunPadTop; }
 
 struct LaunButton { const char* icon; const char* key; };
-const LaunButton kLaunButtons[] = {{"clipboard-list", "prefixClipboard"}, {"smile-circle", "prefixEmoji"}};
+const LaunButton kLaunButtons[] = {{"clipboard-list", "prefixClipboard"}, {"qr-code", "scanQr"}};
 constexpr int kLaunButtonCount = 2;
 constexpr double kLaunBtn = 34, kLaunBtnGap = 4, kLaunBtnMargin = 8;
 Rect launcherButtonRect(double px, double pw, int i) {
@@ -1470,7 +1533,8 @@ void launcherClick(App& app) {
     if (popIsOut(L.anim)) return;
     if (!Rect{g.px, 0, g.pw, g.ph}.contains(app.pointerX, launcherPy(app))) { retractLauncher(app); return; }
     if (const int btn = launcherButtonAt(app, app.pointerX, launcherPy(app)); btn >= 0) {
-        L.text = std::string(1, std::string(kLaunButtons[btn].key) == "prefixClipboard" ? kPfxClipboard : kPfxEmoji);
+        if (std::string(kLaunButtons[btn].key) == "scanQr") { retractLauncher(app); openCapture(app); if (app.cap.open()) app.cap.autoAct = 3; return; }
+        L.text = std::string(1, kPfxClipboard);
         L.cursor = 1;
         L.btnHover = -1;
         launcherTextChanged(app);

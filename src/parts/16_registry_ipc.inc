@@ -165,7 +165,8 @@ void handleClient(App& app, int listenFd) {
     else if (cmd == "screenshot" || cmd.rfind("screenshot ", 0) == 0) {
         const std::string mode = cmd.size() > 11 ? cmd.substr(11) : "region";
         if (mode == "region") { openCapture(app); reply = "ok"; }
-        else if (mode == "ocr" || mode == "lens") { openCapture(app); if (app.cap.open()) app.cap.autoAct = mode == "ocr" ? 1 : 2; reply = "ok"; }
+        else if (mode == "ocr" || mode == "lens" || mode == "qr") { openCapture(app); if (app.cap.open()) app.cap.autoAct = mode == "ocr" ? 1 : mode == "lens" ? 2 : 3; reply = "ok"; }
+        else if (mode == "qrcode") reply = "usage: qr <text>";
         else if (mode == "screen" || mode == "window" || mode == "edit") { runScreenshot(app, mode.c_str()); reply = "ok"; }
         else reply = "usage: screenshot region|screen|window|edit|ocr|lens";
     }
@@ -386,6 +387,16 @@ void handleClient(App& app, int listenFd) {
         if (a == "open") openOsk(app); else if (a == "close") closeOsk(app); else toggleOsk(app);
         drawAll(app);  // (the quick action lights while it is open)
         reply = app.osk.surface ? "open" : "closed";
+    }
+    else if (cmd.rfind("qr ", 0) == 0) { openQrCard(app, cmd.substr(3)); reply = app.qr.surface ? "open" : "failed"; }
+    else if (cmd == "drives") {  // opens the removable drives popup at its bar button (for a key bind or a test)
+        Bar* bar = mainBar(app);
+        if (bar && !sideBar(app) && hasSlot(*bar, "drives") && drivesVisible(app)) {
+            app.pointerX = slotX(*bar, "drives") + kQuickBox / 2.0 + app.cfg.frame;
+            app.pointerY = bar->height / 2.0;
+            toggleDrivesMenu(app, bar);
+            reply = app.drivesMenu.open() ? "open" : "closed";
+        } else reply = "no drives";
     }
     else if (cmd == "recording") reply = app.recording ? "recording" : "idle";
     else if (cmd == "config") reply = "workspaces=" + std::to_string(app.cfg.workspaces) + " frame=" + std::to_string(app.cfg.frame) + " doNotDisturb=" + std::to_string(app.cfg.doNotDisturb) + " notificationTimeout=" + std::to_string(app.cfg.notificationTimeout) + " networkAlways=" + std::to_string(app.cfg.networkAlways) + " barOpacity=" + std::to_string(app.cfg.barOpacity) + " left=" + joinQuoted(app.cfg.layoutLeft) + " center=" + joinQuoted(app.cfg.layoutCenter) + " right=" + joinQuoted(app.cfg.layoutRight) + " barPosition=" + app.cfg.barPosition + " barStyle=" + app.cfg.barStyle + " workspaceStyle=" + app.cfg.workspaceStyle + " colorScheme=" + app.cfg.colorScheme + " wallpaperTransition=" + app.cfg.wallpaperTransition + " wallpaperTransitionMs=" + std::to_string(app.cfg.wallpaperTransitionMs) + " colorMode=" + app.cfg.colorMode + " selectorShape=" + app.cfg.selectorShape + " notificationShape=" + app.cfg.notificationShape + " preferredPlayer=" + app.cfg.preferredPlayer + " iconStyle=" + app.cfg.iconStyle + " uiBackground=" + app.cfg.uiBackground;
