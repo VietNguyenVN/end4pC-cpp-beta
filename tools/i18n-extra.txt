@@ -36,3 +36,5 @@ italic text
 strikethrough text
 link text
 code
+Zoom the whole screen around the pointer. SUPER + = and SUPER + - do the same, one step at a time. It needs Hyprland.
+Make the mouse pointer bigger. It is the same setting as System > Cursor. Applies when you let go of the slider.
