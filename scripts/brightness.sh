@@ -22,7 +22,8 @@ esac
 if [ "$internal" = 1 ] && has_backlight; then
     case "$verb" in
         get) echo "$(brightnessctl -c backlight g) $(brightnessctl -c backlight m)" ;;
-        set) brightnessctl -c backlight s "${pct}%" -q ;;
+        set) [ "$pct" -lt 5 ] && pct=5   # (a laptop screen at 0% is fully dark)
+             brightnessctl -c backlight s "${pct}%" -q ;;
     esac
     echo done
     exit 0

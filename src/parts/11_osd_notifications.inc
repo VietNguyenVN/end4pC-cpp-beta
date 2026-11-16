@@ -208,6 +208,10 @@ std::string focusedOutputName() {
     return name;
 }
 
+// The screen of a laptop goes fully dark at 0% (nothing left to find the slider by), so it never goes under this.
+constexpr int kMinLaptopBrightness = 5;
+bool isLaptopOutput(const std::string& o) { return o.rfind("eDP", 0) == 0 || o.rfind("LVDS", 0) == 0 || o.rfind("DSI", 0) == 0; }
+
 // Changes the brightness of one monitor: `output` (the one under the pointer when it comes from a bar or a corner), or the focused one.
 void changeBrightness(App& app, int delta, int absolute, std::string output) {
     if (output.empty()) output = focusedOutputName();
@@ -220,7 +224,7 @@ void changeBrightness(App& app, int delta, int absolute, std::string output) {
         if (app.brightFd < 0) startBrightnessJob(app, "get", 0, output);
         return;
     }
-    known->second = std::clamp(absolute >= 0 ? absolute : known->second + delta, 0, 100);
+    known->second = std::clamp(absolute >= 0 ? absolute : known->second + delta, isLaptopOutput(output) ? kMinLaptopBrightness : 0, 100);
     app.brightness = known->second;
     app.brightDirtyOuts.insert(output);
     app.brightDirty = true;
