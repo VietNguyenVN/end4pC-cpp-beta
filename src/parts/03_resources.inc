@@ -260,24 +260,44 @@ void measureMusic(App& app) {
 
 void islandLiveTrack(App& app);
 bool parseMusicLine(App& app, const std::string& line) {
-    std::string f[4];
+    std::string f[5];
     size_t start = 0;
-    for (int i = 0; i < 4; i++) {
-        const size_t tab = i < 3 ? line.find('\t', start) : std::string::npos;
+    for (int i = 0; i < 5; i++) {
+        const size_t tab = i < 4 ? line.find('\t', start) : std::string::npos;
         f[i] = line.substr(start, tab == std::string::npos ? std::string::npos : tab - start);
         if (tab == std::string::npos) break;
         start = tab + 1;
     }
-    std::string status = f[0];
-    if (status != "Playing" && status != "Paused") status.clear();
+    // MPRIS bus-name suffixes cannot contain shell metacharacters. Keep the exact
+    // instance, rather than selecting %any again for each command or progress poll.
+    std::string player = f[0];
+    std::string status = f[1];
+    if (player.empty() || player.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-") != std::string::npos ||
+        (status != "Playing" && status != "Paused" && status != "Stopped")) {
+        player.clear();
+        status.clear();
+        f[2].clear(); f[3].clear(); f[4].clear();
+    }
+    const bool playerChanged = player != app.musicPlayer;
+    const bool trackChanged = !status.empty() && !app.musicTitle.empty() && (f[4] != app.musicTitle || f[3] != app.musicArtist);
+    if (playerChanged || trackChanged || !f[2].empty()) app.musicArtFallback.clear();
+    const std::string cover = f[2].empty() ? app.musicArtFallback : f[2];
     const bool coverBefore = app.musicArt != nullptr;
-    updateCover(app, status.empty() ? "" : f[1]);
-    const bool changed = status != app.musicStatus || f[2] != app.musicArtist || f[3] != app.musicTitle ||
-                         coverBefore != (app.musicArt != nullptr) || f[1] != app.musicArtUrl;
-    const bool trackChanged = !status.empty() && !app.musicTitle.empty() && (f[3] != app.musicTitle || f[2] != app.musicArtist);
+    const bool artChanged = app.musicArtUrl != cover;
+    updateCover(app, cover);
+    const bool changed = playerChanged || artChanged || status != app.musicStatus || f[3] != app.musicArtist || f[4] != app.musicTitle ||
+                         coverBefore != (app.musicArt != nullptr);
+    app.musicPlayer = player;
     app.musicStatus = status;
-    app.musicArtist = f[2];
-    app.musicTitle = f[3];
+    app.musicArtist = f[3];
+    app.musicTitle = f[4];
+    if (playerChanged || trackChanged) {
+        app.musicPlaybackPlayer = player;
+        app.media.position = app.media.length = 0;
+        app.media.status.clear();
+        app.media.drag = 0;
+        app.media.nextPoll = std::chrono::steady_clock::now();
+    }
     if (changed) measureMusic(app);
     if (trackChanged) islandLiveTrack(app);
     return changed;

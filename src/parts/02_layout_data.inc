@@ -615,7 +615,7 @@ int startMusicWatcher(const std::string& preferred, pid_t* pidOut) {
         dup2(p[1], STDOUT_FILENO);
         int nul = open("/dev/null", O_WRONLY);
         dup2(nul, STDERR_FILENO);
-        execlp("playerctl", "playerctl", "-p", sel.c_str(), "-F", "metadata", "--format", "{{status}}\t{{mpris:artUrl}}\t{{artist}}\t{{title}}", nullptr);
+        execlp("playerctl", "playerctl", "-p", sel.c_str(), "-F", "metadata", "--format", "{{playerInstance}}\t{{status}}\t{{mpris:artUrl}}\t{{artist}}\t{{title}}", nullptr);
         _exit(127);
     }
     close(p[1]);
@@ -651,8 +651,6 @@ int g_artFetchFd = -1;
 int g_artFetchWrite = -1;
 
 void fetchCover(const std::string& url, const std::string& path) {
-    const std::string dir = path.substr(0, path.rfind('/'));
-    runDetached({"mkdir", "-p", dir.c_str()});
     if (fork() == 0) {
         childSignalReset();
         dup2(g_artFetchWrite, STDOUT_FILENO);
@@ -666,14 +664,27 @@ void fetchCover(const std::string& url, const std::string& path) {
 }
 
 void updateCover(App& app, const std::string& url) {
-    if (url == app.musicArtUrl) return;
+    const bool same = url == app.musicArtUrl;
+    if (same && (app.musicArt || url.empty())) return;
+    if (!same) {
+        app.musicArtAttempts = 0;
+        app.musicArtRetryAt = {};
+    }
     app.musicArtUrl = url;
     if (url.rfind("file://", 0) == 0) {
         loadCover(app, percentDecode(url.substr(7)));
     } else if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
         const std::string path = artCachePath(url);
         loadCover(app, access(path.c_str(), R_OK) == 0 ? path : "");
-        if (!app.musicArt) fetchCover(url, path);
+        const auto now = std::chrono::steady_clock::now();
+        // A completion event can also mean curl/decoding failed. Do not turn it
+        // into an immediate retry loop. Polls may retry, at most three attempts
+        // per selected URL, and never while the 15-second curl is still running.
+        if (!app.musicArt && app.musicArtAttempts < 3 && now >= app.musicArtRetryAt) {
+            ++app.musicArtAttempts;
+            app.musicArtRetryAt = now + std::chrono::seconds(30);
+            fetchCover(url, path);
+        }
     } else {
         loadCover(app, "");
     }

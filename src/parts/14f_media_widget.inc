@@ -35,8 +35,8 @@ cairo_surface_t* mediaWTinyBlur(cairo_surface_t* cover) {
 
 void mediaWRefreshCover(App& app) {
     MediaW& X = app.mediaW;
-    if (app.media.coverKey != app.musicArtUrl) refreshMediaCover(app);
-    if (X.blurKey != app.musicArtUrl) {
+    refreshMediaCoverIfNeeded(app);
+    if (X.blurKey != app.musicArtUrl || (!X.blur && app.media.cover)) {
         if (X.blur) { cairo_surface_destroy(X.blur); X.blur = nullptr; }
         if (app.media.cover) X.blur = mediaWTinyBlur(app.media.cover);
         X.blurKey = app.musicArtUrl;

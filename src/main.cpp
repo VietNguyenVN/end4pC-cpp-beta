@@ -5,6 +5,8 @@
 #include "deskplace.h"
 #include "textsel_pango.h"
 #include "clipboard.h"
+#include "mediaplayer.h"
+#include "mediacommand.h"
 #include <pango/pangocairo.h>
 #include "shellfont.h"
 #include <poll.h>
@@ -870,9 +872,13 @@ int main(int argc, char** argv) {
             char junk[256];
             while (read(g_artFetchFd, junk, sizeof junk) > 0) {}
             const std::string url = app.musicArtUrl;
-            app.musicArtUrl.clear();
             updateCover(app, url);
-            if (app.musicArt) drawAll(app);
+            if (app.musicArt) {
+                drawAll(app);
+                if (app.media.open()) drawMediaPanel(app);
+                if (app.cc.open()) drawControlCenter(app);
+                deskRedrawAll(app);
+            }
             if (app.ic.open()) drawIslandCard(app);
         }
         if (fds[7].revents & (POLLIN | POLLHUP)) {

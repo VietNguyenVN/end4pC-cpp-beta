@@ -1380,12 +1380,17 @@ struct App {
     int wsCount = 0;
     std::map<int, std::string> wsMainClass;
     std::map<std::string, cairo_surface_t*> wsIcons;
+    std::string musicPlayer;  // exact MPRIS instance reported by the metadata watcher
+    std::string musicPlaybackPlayer;  // native browser timeline paired with richer bridge metadata
     std::string musicStatus;
     std::string musicArtist, musicTitle;
     int musicTextW = 100;
     int musicTitleW = 100;
     int musicM3TextW = 0;
     std::string musicArtUrl;
+    std::string musicArtFallback;  // keep a fallback across metadata signals with no cover URL
+    int musicArtAttempts = 0;
+    std::chrono::steady_clock::time_point musicArtRetryAt{};
     cairo_surface_t* musicArt = nullptr;
     int volume = 0;
     bool micMuted = false;

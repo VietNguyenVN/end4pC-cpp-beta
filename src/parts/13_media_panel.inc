@@ -164,25 +164,103 @@ void refreshMediaCover(App& app) {
     M.coverKey = app.musicArtUrl;
 }
 
+void refreshMediaCoverIfNeeded(App& app) {
+    // A remote image can finish downloading after the popup cached this URL with
+    // no surface. Retry when the bar's artwork is ready, even if the URL is unchanged.
+    if (app.media.coverKey != app.musicArtUrl || (!app.media.cover && app.musicArt)) refreshMediaCover(app);
+}
+
+std::vector<mediaplayer::Snapshot> mediaSnapshots(const std::string& instance) {
+    std::vector<mediaplayer::Snapshot> players;
+    if (instance.empty()) return players;
+    int output[2];
+    if (pipe2(output, O_CLOEXEC) < 0) return players;
+    const pid_t pid = fork();
+    if (pid == 0) {
+        childSignalReset();
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
+        dup2(output[1], STDOUT_FILENO);
+        const int nul = open("/dev/null", O_WRONLY);
+        dup2(nul, STDERR_FILENO);
+        constexpr const char* format = "{{playerInstance}}\t{{position}}\t{{mpris:length}}\t{{volume}}\t{{status}}\t{{kde:pid}}\t{{mpris:artUrl}}\t{{xesam:url}}\t{{title}}";
+        if (instance == "plasma-browser-integration")
+            execlp("playerctl", "playerctl", "-a", "metadata", "--format", format, nullptr);
+        else execlp("playerctl", "playerctl", "-a", "-p", instance.c_str(), "metadata", "--format", format, nullptr);
+        _exit(127);
+    }
+    close(output[1]);
+    if (pid < 0) { close(output[0]); return players; }
+    fcntl(output[0], F_SETFL, O_NONBLOCK);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
+    std::string pending;
+    bool complete = false;
+    while (std::chrono::steady_clock::now() < deadline) {
+        pollfd fd{output[0], POLLIN, 0};
+        const int left = std::max(1, int(std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count()));
+        const int ready = poll(&fd, 1, left);
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready <= 0) break;
+        char buf[4096];
+        ssize_t n;
+        while ((n = read(output[0], buf, sizeof buf)) > 0) {
+            pending.append(buf, n);
+            size_t newline;
+            while ((newline = pending.find('\n')) != std::string::npos) {
+                mediaplayer::Snapshot snapshot;
+                if (mediaplayer::parse(pending.substr(0, newline), snapshot)) players.push_back(std::move(snapshot));
+                pending.erase(0, newline + 1);
+            }
+            if (std::chrono::steady_clock::now() >= deadline) break;
+        }
+        if (n > 0) break;  // output kept arriving until the deadline
+        if (n == 0) { complete = true; break; }
+        if (errno != EAGAIN && errno != EINTR) break;
+    }
+    close(output[0]);
+    if (!complete) kill(pid, SIGKILL);
+    // SIGCHLD is ignored in the shell, but tests/command children reap normally.
+    // Bound cleanup too, in case a helper closes stdout without exiting.
+    pid_t reaped;
+    while ((reaped = waitpid(pid, nullptr, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) poll(nullptr, 0, 1);
+    if (reaped == 0) {
+        kill(pid, SIGKILL);
+        while (waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {}
+    }
+    // A partial list cannot safely establish an unambiguous browser pair.
+    if (!complete) players.clear();
+    return players;
+}
+
 void pollMedia(App& app) {
     MediaPanel& M = app.media;
-    const std::string cmd = "playerctl -p '" + playerSelector(app.cfg.preferredPlayer) + "' metadata --format '{{position}}\t{{mpris:length}}\t{{volume}}\t{{status}}' 2>/dev/null";
-    FILE* f = popen(cmd.c_str(), "r");
-    if (!f) return;
-    char buf[256] = {};
-    const char* got = fgets(buf, sizeof buf, f);
-    pclose(f);
+    // playerctl's -p also matches NAME.*. Read all such matches and select the
+    // exact instance below, so a prefix peer cannot hide the displayed player.
+    const auto players = mediaSnapshots(app.musicPlayer);
     M.polledAt = std::chrono::steady_clock::now();
     M.nextPoll = M.polledAt + std::chrono::milliseconds(kMediaPollMs);
-    if (!got) return;
-    double pos = 0, len = 0, vol = 1;
-    char status[32] = {};
-    if (std::sscanf(buf, "%lf\t%lf\t%lf\t%31s", &pos, &len, &vol, status) >= 3) {
-        if (M.drag != 1) M.position = pos / 1e6;
-        M.length = len / 1e6;
-        if (M.drag != 2) M.volume = std::clamp(vol, 0.0, 1.0);
-        M.status = status;
+    const auto* metadata = mediaplayer::find(players, app.musicPlayer, app.musicTitle);
+    if (!metadata) {
+        M.position = M.length = 0;
+        M.status.clear();
+        app.musicPlaybackPlayer.clear();
+        return;
     }
+    const auto* playback = mediaplayer::playback(players, *metadata);
+    app.musicPlaybackPlayer = playback->instance;
+    if (M.drag != 1) M.position = playback->position;
+    M.length = playback->duration;
+    // Keep the bridge's HTML volume control, even when native MediaSession
+    // provides a more accurate song timeline and transport controls.
+    if (M.drag != 2 && metadata->volume) M.volume = std::clamp(*metadata->volume, 0.0, 1.0);
+    M.status = playback->status;
+    // Bridges may create the file or publish its URL without a metadata signal.
+    // A periodic poll retries a missing cover without requiring pause/play.
+    const bool hadArt = app.musicArt != nullptr;
+    const std::string oldArt = app.musicArtUrl;
+    const std::string cover = mediaplayer::coverUrl(*metadata);
+    app.musicArtFallback = metadata->artwork.empty() ? cover : "";
+    updateCover(app, cover);
+    if (oldArt != app.musicArtUrl || hadArt != (app.musicArt != nullptr)) drawAll(app);
 }
 
 double mediaPositionNow(const MediaPanel& M) {
@@ -430,7 +508,7 @@ void mediaApplyInput(App& app, double cardTop) {
 void drawMediaPanel(App& app) {
     MediaPanel& M = app.media;
     if (!M.open() || !M.configured) return;
-    if (M.coverKey != app.musicArtUrl) refreshMediaCover(app);
+    refreshMediaCoverIfNeeded(app);
     const auto now = std::chrono::steady_clock::now();
     mediaStepLyricSpring(M, now);
     mediaUpdateLyrics(app, now);
@@ -803,18 +881,31 @@ void toggleMediaPanel(App& app, Bar* bar = nullptr) {
     } else retractMediaPanel(app);
 }
 
-void mediaSend(App& app, std::initializer_list<const char*> args) {
-    std::vector<const char*> argv = {"playerctl", "-p"};
-    const std::string sel = playerSelector(app.cfg.preferredPlayer);
-    argv.push_back(sel.c_str());
-    for (const char* a : args) argv.push_back(a);
-    argv.push_back(nullptr);
-    if (fork() == 0) {
+pid_t mediaSend(App& app, std::initializer_list<const char*> args) {
+    if (app.musicPlayer.empty() || args.size() == 0) return 0;
+    const std::string verb = *args.begin();
+    const bool volume = verb == "volume", seek = verb == "position";
+    const bool bridge = app.musicPlayer == "plasma-browser-integration";
+    const std::string previousTimeline = app.musicPlaybackPlayer;
+    if (seek && previousTimeline.empty()) return 0;
+    const pid_t pid = fork();
+    if (pid == 0) {
         childSignalReset();
         setsid();
-        execvp("playerctl", const_cast<char* const*>(argv.data()));
-        _exit(127);
+        std::string sel = app.musicPlayer;
+        if (!volume && bridge) {
+            // Revalidate in the child without drawing or changing artwork. A
+            // slow player must not block the input handler in the shell.
+            const auto players = mediaSnapshots(app.musicPlayer);
+            const auto* metadata = mediaplayer::find(players, app.musicPlayer, app.musicTitle);
+            if (metadata) sel = mediaplayer::playback(players, *metadata)->instance;
+            // Failed progress polls do not disable transport, but a native
+            // offset must never be applied to a different bridge timeline.
+            if (seek && (!metadata || sel != previousTimeline)) _exit(1);
+        }
+        _exit(mediaplayer::command(sel, args) ? 0 : 1);
     }
+    return pid;
 }
 
 void mediaDialAt(App& app, double lx, double ly) {
