@@ -4600,9 +4600,10 @@ void motion() {
 void runDotsUpdate() {
     const std::string term = g.val.count("terminal") && !g.val["terminal"].empty() ? g.val["terminal"] : "kitty";
     static const char* kScript =
-        "bash \"$1\" -y; rc=$?; echo; "
-        "if [ $rc -eq 0 ]; then read -rp 'Restart the shell now? [y/N] ' a; case \"$a\" in y|Y) bash \"$(dirname \"$1\")/restart.sh\" ;; esac; "
-        "else read -rp 'The update failed. Press Enter to close. ' _; fi";
+        "root=\"$(dirname \"$(dirname \"$1\")\")\"; old=$(git -C \"$root\" rev-parse HEAD 2>/dev/null); bash \"$1\" -y; rc=$?; echo; new=$(git -C \"$root\" rev-parse HEAD 2>/dev/null); "
+        "if [ $rc -ne 0 ]; then read -rp 'The update failed. Press Enter to close. ' _; "
+        "elif [ \"$old\" = \"$new\" ]; then read -rp 'Nothing to update. Press Enter to close. ' _; "
+        "else read -rp 'Restart the shell now? [y/N] ' a; case \"$a\" in y|Y) setsid -f bash \"$(dirname \"$1\")/restart.sh\" >/dev/null 2>&1 ;; esac; fi";
     spawn({term, "-e", "bash", "-c", kScript, "bash", scriptPath("update.sh")});
     g.running = false;
 }
