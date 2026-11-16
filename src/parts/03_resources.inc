@@ -192,7 +192,9 @@ std::string volStep(const App& app, bool down) { return std::to_string(app.cfg.v
 double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx, double barH, bool hover);
 
 bool updateClock(App& app) {
-    std::time_t now = std::time(nullptr);
+    timespec nowTs{};  // (time() reads the coarse clock, which can still say 12:59:59 when the minute timer fires: the bar then stayed a minute behind)
+    clock_gettime(CLOCK_REALTIME, &nowTs);
+    std::time_t now = nowTs.tv_sec;
     std::tm tm{};
     localtime_r(&now, &tm);
     char t[16], d[32];
