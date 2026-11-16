@@ -612,7 +612,7 @@ const ModInfo kMods[] = {{"workspaces", "Workspaces", "widget-4"}, {"media", "Pl
                          {"network", "Network", "wi-fi-router"}, {"volume", "Volume", "volume-loud"}, {"bluetooth", "Bluetooth", "bluetooth"}, {"clock", "Clock", "clock-circle"},
                          {"notifications", "Notifications", "bell"}, {"settings", "Settings", "settings"}, {"avatar", "Avatar", "user-circle"}, {"battery", "Battery", "battery-full"}, {"systray", "System tray", "widget-2"}, {"resources", "Resources", "cpu"}, {"launcher", "Launcher", "magnifer"}, {"power", "Power", "power"}, {"tools", "Tools", "ruler-pen/list"}, {"updates", "Updates", "download-square"},
                          {"weather", "Weather", "cloud-sun"}, {"aiusage", "AI usage", "magic-stick-3"}, {"keyboard", "Keyboard layout", "keyboard"}, {"activewindow", "Active window", "window-frame"}, {"divider", "Divider", "menu-dots"},
-                         {"visualizer", "Visualizer", "soundwave"}};
+                         {"visualizer", "Visualizer", "soundwave"}, {"docktopanel", "Dock to panel", "layers-minimalistic"}};
 const ModInfo* modInfo(const std::string& id) {
     for (const auto& m : kMods) if (id == m.id) return &m;
     return nullptr;

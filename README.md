@@ -15,7 +15,7 @@ Tested on Arch Linux with Hyprland 0.57.1 (Lua config); niri and sway (SwayFX) a
 ## What is in it
 
 - **Bar** (top, bottom, left or right) with several styles: Panel, Float, Island, Hug, Notch and Split hug. Workspaces, media, clock (8
-  looks), system resources, quick actions, tray, network, volume, battery, notifications, launcher and power buttons, weather, AI usage (Claude Code and Codex, read from the files they leave on your machine) and dividers (a soft line or a dot).
+  looks), system resources, quick actions, tray, network, volume, battery, notifications, launcher and power buttons, weather, the Dock's apps inside the bar ("Dock to panel": click to launch or cycle windows, middle click for a new window, right click to pin, drag to reorder), AI usage (Claude Code and Codex, read from the files they leave on your machine) and dividers (a soft line or a dot).
 - **Launcher**, **power menu**, **control center**, **notification popups and panel**, **media player card** with lyrics, **Alt+Tab
   window switcher** with live previews.
 - **Wallpaper selector** (local folders, favourites, Wallhaven / Unsplash / Pexels), light/dark and generated palettes (matugen) plus

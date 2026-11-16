@@ -148,7 +148,7 @@ int g_iconScale = 100;  // % of the size every icon is asked for (Settings > App
 const std::vector<std::string> kSchemes = {"scheme-tonal-spot", "scheme-neutral", "scheme-content", "scheme-expressive", "scheme-fidelity",
                                            "scheme-fruit-salad", "scheme-monochrome", "scheme-rainbow", "scheme-vibrant", "scheme-smart"};
 const std::vector<std::string> kCornerActions = {"none", "controlcenter", "media", "wallpapers", "launcher", "notifications", "power", "lock", "settings"};
-const std::vector<std::string> kModules = {"workspaces", "media", "quickactions", "network", "volume", "clock", "notifications", "settings", "avatar", "battery", "systray", "resources", "launcher", "power", "tools", "weather", "aiusage", "keyboard", "activewindow", "divider", "visualizer", "updates", "bluetooth"};
+const std::vector<std::string> kModules = {"workspaces", "media", "quickactions", "network", "volume", "clock", "notifications", "settings", "avatar", "battery", "systray", "resources", "launcher", "power", "tools", "weather", "aiusage", "keyboard", "activewindow", "divider", "visualizer", "updates", "bluetooth", "docktopanel"};
 
 inline bool validNotifPosition(const std::string& p) {
     for (const char* n : {"top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right"})
@@ -1280,6 +1280,15 @@ struct DockItem {
     Rect slot;
     double shift = 0, shiftVel = 0;
 };
+struct DockPanelState {  // the "docktopanel" bar module: the dock's apps in the bar
+    std::vector<DockItem> items;
+    std::map<std::string, std::shared_ptr<cairo_surface_t>> icons;
+    bool dirty = true;
+    int pressIdx = -1;
+    bool dragging = false;
+    int dragFrom = -1, dragTo = -1;
+    double pressX = 0, dragX = 0;
+};
 enum DockMenuKind { DockMenuPin, DockMenuUnpin, DockMenuNew, DockMenuClose, DockMenuPrev, DockMenuNext, DockMenuPlayer };
 struct DockState {
     uint64_t layerGen = 0;
@@ -1488,6 +1497,7 @@ struct App {
     ClockTimer timer;
     bool onClockP = false;
     DockState dock;
+    DockPanelState dtp;
     bool onDock = false;
     ClockW deskClock;
     UserW userW;
@@ -1639,7 +1649,7 @@ constexpr const char* kArtistFont = "Sans 8";
 constexpr const char* kTitleFont = "Sans Bold 10";
 
 using Hit = int;
-constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitIsland = 25, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600;
+constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitIsland = 25, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600, kHitDtp = 800;
 
 std::string widgetStyle(const App& app, const std::string& mod);
 double roundBtnW(const App& app, const char* mod) { return kQuickBox + (!sideBar(app) && widgetStyle(app, mod) == "m3" ? kModuleBox - kQuickBox : 0); }

@@ -370,9 +370,15 @@ double sideWsTotal(const App& app) {
 }
 constexpr double kSideClockM3H = 78;
 double sideBatteryH(const App& app) { return app.cfg.batteryPercent ? 58 : 40; }
+double dtpSideHeight(const App& app);  // (14s_dock_panel.inc)
+std::vector<std::pair<int, Rect>> dtpSideRects(const App& app, double x, double y);
+void dtpDrawItem(cairo_t* cr, App& app, const DockItem& it, double bx, double by, bool hot, double alpha);
+void dtpBarPaint(cairo_t* cr, App& app, const Bar& bar, Hit hot);
+std::vector<DockItem>& dtpItems(const App& app);
 double sideModuleH(const App& app, const std::string& m) {
     if (m == "workspaces") return sideWsTotal(app);
     if (m == "media") return app.musicStatus.empty() ? 0 : 40;
+    if (m == "docktopanel") return dtpSideHeight(app);
     if (m == "quickactions") { const size_t n = quickShown(app).size(); return n ? n * 44 - 4.0 : 0; }
     if (m == "network") return netVisible(app) ? netExtent(app, true) : 0;
     if (m == "volume" || m == "notifications" || m == "settings" || m == "avatar" || m == "launcher" || m == "power" || m == "tools" || m == "bluetooth") return 40;
@@ -455,6 +461,7 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
                 }
             }
             else if (m == "media") v.push_back({HitMedia, {x, y, 40, 40}});
+            else if (m == "docktopanel") for (const auto& p : dtpSideRects(app, x, y)) v.push_back({p.first, p.second});
             else if (m == "quickactions") { const auto q = quickShown(app); for (size_t k = 0; k < q.size(); k++) v.push_back({kHitQuick + q[k], {x, y + k * 44.0, 40, 40}}); }
             else if (m == "network") v.push_back({HitNetwork, {x, y, 40, netExtent(app, true)}});
             else if (m == "volume") v.push_back({HitVolume, {x, y, 40, 40}});
@@ -2005,6 +2012,10 @@ void drawSide(Bar& bar) {
                 cairo_fill(cr);
             }
             drawIcon(cr, (app.trayOpen == trayForward(app, true)) ? "alt-arrow-up" : "alt-arrow-down", r.x + (r.w - 22) / 2.0, r.y + (r.h - 22) / 2.0, 22, app.color("on_surface"), hot);
+        } else if (it.id >= kHitDtp && it.id < kHitDtp + 100) {
+            const auto& dockItems = dtpItems(app);
+            const size_t k = it.id - kHitDtp;
+            if (k < dockItems.size()) dtpDrawItem(cr, app, dockItems[k], r.x + (r.w - 28) / 2.0, r.y, hot, 1);
         } else if (it.id >= kHitTray && it.id < kHitTray + 100) {
             const size_t k = it.id - kHitTray;
             const double p = 1 - std::pow(1 - app.trayT, 3);
@@ -2962,6 +2973,7 @@ void draw(Bar& bar) {
     }
 
     const Hit hotNow = app.hoverBar == &bar ? hitTest(bar, app.pointerX, app.pointerY) : HitNone;
+    dtpBarPaint(cr, app, bar, hotNow);
     if (hasSlot(bar, "weather")) { weatherBarPaint(cr, app, layout, slotX(bar, "weather"), bar.height / 2.0, hotNow == HitWeather); pango_layout_set_font_description(layout, font); }
     if (hasSlot(bar, "updates")) { updatesBarPaint(cr, app, layout, slotX(bar, "updates"), bar.height / 2.0, hotNow == HitUpdates); pango_layout_set_font_description(layout, font); }
     if (hasSlot(bar, "activewindow")) { awinPaint(cr, app, layout, slotX(bar, "activewindow"), (bar.height - kQuickBox) / 2.0, awinBarW(app), kQuickBox, false); pango_layout_set_font_description(layout, font); }

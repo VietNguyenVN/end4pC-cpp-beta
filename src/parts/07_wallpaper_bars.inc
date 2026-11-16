@@ -716,6 +716,7 @@ bool cwpStep(App& app, std::chrono::steady_clock::time_point now) {
 
 void placeNotifSurface(App& app);
 void applyConfig(App& app) {
+    app.dtp.dirty = true;
     applyShellFont(app.cfg.fontFamily);
     measureMusic(app);
     {

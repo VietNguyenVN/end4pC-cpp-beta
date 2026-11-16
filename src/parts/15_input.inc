@@ -117,6 +117,8 @@ void onPointerLeave(void* d, wl_pointer*, uint32_t, wl_surface*) {
     Bar* bar = app->hoverBar;
     app->hoverBar = nullptr;
     app->hotCorner = -1;
+    app->dtp.pressIdx = -1;
+    app->dtp.dragging = false;
     if (bar) draw(*bar);
     if (app->onSw) { app->onSw = false; app->sw.hover = -1; drawSwitcher(*app); }
     if (app->onPk) { app->onPk = false; app->pk.hover = -1; drawPolkit(*app); }
@@ -314,6 +316,7 @@ void onPointerMotion(void* d, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y)
     app->pointerX = wl_fixed_to_double(x);
     app->pointerY = wl_fixed_to_double(y);
     toBarCoords(*app->hoverBar, app->pointerX, app->pointerY);
+    if (app->dtp.pressIdx >= 0) { dtpMotion(*app, *app->hoverBar); drawAll(*app); return; }
     if (before != hitTest(*app->hoverBar, app->pointerX, app->pointerY)) { drawAll(*app); updateCursor(*app); islandHoverCheck(*app); }
 }
 
@@ -361,6 +364,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
         if (button == kBtnLeft && app->cc.drag != 0) ccRelease(*app);
         if (button == kBtnLeft) deskRelease(*app);
         if (button == kBtnLeft) dockRelease(*app);
+        if (button == kBtnLeft && app->dtp.pressIdx >= 0) { dtpRelease(*app); drawAll(*app); }
         return;
     }
     if (app->onCatcher && audioIconPressed(*app)) { toggleAudioMenu(*app, app->amenu.bar); return; }
@@ -377,6 +381,10 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     for (DeskWidget* w : deskList(*app)) if (w->open() && w->typing && w->typing(*w) && w->blur) w->blur(*app, *w);
     if (app->onDmenu) { if (button == kBtnLeft) dmenuClick(*app); return; }
     if (button == kBtnRight && app->wallBar) { openDesktopMenu(*app, app->wallBar); return; }
+    if (app->hoverBar) {  // an app of the bar's dock panel
+        const Hit dockHit = hitTest(*app->hoverBar, app->pointerX, app->pointerY);
+        if (dockHit >= kHitDtp && dockHit < kHitDtp + 100) { dtpPress(*app, dockHit - kHitDtp, button); drawAll(*app); return; }
+    }
     if (button == kBtnRight) {
         const Hit rh = app->hoverBar ? hitTest(*app->hoverBar, app->pointerX, app->pointerY) : HitNone;
         if (rh >= kHitTray && rh < kHitTray + 100) trayClick(*app, rh - kHitTray, true);

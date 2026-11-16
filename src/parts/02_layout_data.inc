@@ -77,6 +77,8 @@ double batteryTextW(int pct) {
     return cache[pct] = w;
 }
 const App::Periph* lowPeripheral(const App& app);
+double dtpWidth(const App& app);  // (14s_dock_panel.inc)
+Hit dtpHit(const App& app, const Bar& bar, double x);
 double iconInkInset(const std::string& name, int size, bool right);
 std::string batteryIconName(const App& app) {
     const App::Periph* dev = app.batPresent ? nullptr : lowPeripheral(app);
@@ -244,6 +246,7 @@ double moduleWidth(const App& app, const std::string& m) {
     if (m == "network") return netVisible(app) ? netExtent(app, false) : 0;
     if (m == "volume") return volumeW(app);
     if (m == "bluetooth") return kQuickBox + softExtra(app, "bluetooth");
+    if (m == "docktopanel") return dtpWidth(app);
     if (m == "clock") return app.clockW;
     if (m == "notifications") return notifW(app);
     if (m == "launcher") return launcherWidth(app);
@@ -373,6 +376,7 @@ Hit hitTest(const Bar& bar, double x, double y) {
             return HitIsland;
         }
     }
+    if (const Hit dock = dtpHit(app, bar, x); dock != HitNone) return dock;
     if (hasSlot(bar, "avatar") && x >= avatarX(bar) && x < avatarX(bar) + kBarAvatar) return HitAvatar;
     if (hasSlot(bar, "systray")) {
         std::vector<int> pin, oth;

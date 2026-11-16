@@ -506,6 +506,11 @@ bool readWmEvents(App& app, int fd, std::string& pending) {
         const int id = wmActiveWorkspace();
         if (id > 0 && id != app.workspace) { app.workspace = id; changed = true; }
     }
+    if (ev.occupied || ev.window || ev.focus) {  // the apps of the bar's dock panel
+        const bool had = !app.dtp.items.empty();
+        dtpMarkDirty(app);
+        if (inBarLayout(app, "docktopanel") || had) changed = true;
+    }
     if (ev.occupied) {
         const std::set<int> before = app.occupied;
         const int countBefore = app.wsCount;

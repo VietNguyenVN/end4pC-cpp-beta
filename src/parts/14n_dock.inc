@@ -259,9 +259,8 @@ double dockMediaExtra(const App& app) {
     return 10 + std::min(app.musicTextW, kDockTrackMax) + 8 + 2 * kDockCtlSize + kDockCtlGap;
 }
 
-std::vector<DockItem> dockBuildItems(App& app, const std::vector<DockWindow>& wins) {
+void dockPinnedAndLoose(App& app, const std::vector<DockWindow>& wins, std::vector<DockItem>& pinned, std::vector<DockItem>& loose) {
     std::vector<bool> used(wins.size(), false);
-    std::vector<DockItem> pinned, loose;
     for (const std::string& key : splitList(app.cfg.dockPinned)) {
         DockItem it;
         it.key = key;
@@ -284,6 +283,11 @@ std::vector<DockItem> dockBuildItems(App& app, const std::vector<DockWindow>& wi
         }
         dockAddWindow(*same, wins[i]);
     }
+}
+
+std::vector<DockItem> dockBuildItems(App& app, const std::vector<DockWindow>& wins) {
+    std::vector<DockItem> pinned, loose;
+    dockPinnedAndLoose(app, wins, pinned, loose);
     std::vector<DockItem> items;
     DockItem music;
     music.key = "special:media";

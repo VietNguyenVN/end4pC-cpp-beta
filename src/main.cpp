@@ -133,6 +133,7 @@ namespace {
 #include "parts/14n_dock_draw.inc"
 #include "parts/14n_dock_grid.inc"
 #include "parts/14n_dock_input.inc"
+#include "parts/14s_dock_panel.inc"
 #include "parts/14o_active_window.inc"
 #include "parts/14p_audio_menu.inc"
 #include "parts/14q_bt_menu.inc"
