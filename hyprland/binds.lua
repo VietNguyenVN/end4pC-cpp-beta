@@ -57,6 +57,25 @@ local function dispatcher(kind, arg)
     end
 end
 
+-- Dots from before the table still bind the same keys in hypr/hyprland/keybinds.lua (the shell's update never touches the dotfiles): then
+-- every key is freed before it is bound here, so nothing runs twice. A key the user binds in hypr/custom/keybinds.lua stays theirs.
+local function readAll(path)
+    local f = io.open(path, "r")
+    if not f then return "" end
+    local s = f:read("*a")
+    f:close()
+    return s
+end
+local oldDots = readAll(home .. "/.config/hypr/hyprland/keybinds.lua"):find("hl.bind(", 1, true) ~= nil
+local customText = oldDots and readAll(home .. "/.config/hypr/custom/keybinds.lua"):lower() or ""
+local function bindKey(keys, disp, opts)
+    if oldDots then
+        if customText:find('"' .. keys:lower() .. '"', 1, true) then return end  -- (theirs)
+        pcall(hl.unbind, keys)
+    end
+    hl.bind(keys, disp, opts)
+end
+
 local function register(row)
     local cat, keys, kind, arg, desc, flags, rng = row[1], row[2], row[3], row[4] or "", row[5] or "", row[6] or "", row[7] or ""
     if not keys or keys == "" or not kind or kind == "" or flags:find("d", 1, true) then return end
@@ -70,10 +89,10 @@ local function register(row)
     if rng == "num" or rng == "pad" then
         for i = 1, 10 do
             local code = (rng == "num" and numberKeys or keypadKeys)[i]
-            hl.bind((keys:gsub("#", "code:" .. code)), dispatcher(kind, (arg:gsub("#", tostring(i)))), opts)
+            bindKey((keys:gsub("#", "code:" .. code)), dispatcher(kind, (arg:gsub("#", tostring(i)))), opts)
         end
     else
-        hl.bind(keys, dispatcher(kind, arg), opts)
+        bindKey(keys, dispatcher(kind, arg), opts)
     end
 end
 
