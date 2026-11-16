@@ -727,7 +727,7 @@ void unlockAndExit() {
 int main() {
     if (pipe(g_wake) != 0) return 1;
     loadColors();
-    applyShellFont(fontFamilyFromConfig(configFile()));
+    applyShellFont(fontFamilyFromConfig(configFile()), fontWeightFromConfig(configFile(), "fontWeightText", 450), fontWeightFromConfig(configFile(), "fontWeightTitle", 550));
     {
         std::string lang;
         jsonValue(readFile(configFile()), "language", lang);

@@ -370,6 +370,9 @@ std::vector<Page> makePages() {
         {Choice, "uiBackground", "UI background", "Themed follows the wallpaper colors. OLED turns the surfaces black.", {{"themed", "Themed"}, {"oled", "OLED"}}},
         {Slider, "barOpacity", "Transparency", "How see-through the bar and the panels are. The blur behind them shows through.", {}, 0, 100, 5, "%"},
         {Text, "fontFamily", "Font", "The font of the whole shell, like Google Sans Flex. Type the family name and press Enter; type - for the system default.", {}},
+        {Slider, "fontWeightText", "Text weight", "How heavy the normal text is, with a variable font like Google Sans Flex. 450 is the default.", {}, 300, 700, 10, ""},
+        {Slider, "fontWeightTitle", "Title weight", "How heavy bold text and titles are. 550 is the default.", {}, 400, 900, 10, ""},
+        {Action, "fontWeightReset", "Default weights", "Back to 450 for the text and 550 for the titles.", {}, 0, 100, 1, "Reset"},
         {Toggle, "materialIcons", "Material Symbols", "Use Google's Material Symbols for every icon instead of the built-in set.", {}},
         {Slider, "iconScale", "Icon size", "How big the icons of the shell are, in either icon set. 100% is the original size.", {}, 60, 150, 10, "%"},
         {IconStyle, "iconStyle", "Icon style", "The look of the Solar icons.", {{"broken", "Broken"}, {"outline", "Outline"}, {"line-duotone", "Line duotone"}, {"bold-duotone", "Bold duotone"}}},
@@ -766,7 +769,7 @@ bool loadWidgetStates() {
 
 void loadConfig() {
     const std::string t = readFile(configPath());
-    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"launcherFiles", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
+    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"fontWeightText", "450"}, {"fontWeightTitle", "550"}, {"launcherFiles", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
         g.val.insert(d);
     if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
     g.val.insert({"lyricsProvider", "auto"});
@@ -1459,7 +1462,10 @@ void sendSet(const std::string& key, const std::string& value) {
     g.val[key] = value;
     ipc("set " + key + " " + (value.empty() ? "-" : value));
     if ((key == "dynamicIsland" || key == "barStyle") && edCenterLocked()) g.lay[1].clear();
-    if (key == "fontFamily") applyShellFont(value == "-" ? "" : value);
+    if (key == "fontFamily" || key == "fontWeightText" || key == "fontWeightTitle") {  // live: this window changes at once, the shell gets the same setting
+        const std::string fam = key == "fontFamily" ? (value == "-" ? "" : value) : (g.val["fontFamily"] == "-" ? "" : g.val["fontFamily"]);
+        applyShellFont(fam, std::atoi(g.val["fontWeightText"].c_str()), std::atoi(g.val["fontWeightTitle"].c_str()));
+    }
     if (key == "materialIcons") matsym::enabled() = value == "1";
     g.configStamp = 0;
 }
@@ -4764,6 +4770,7 @@ void click() {
     else if (h.kind == Slider) { g.dragHit = g.hoverHit; setSliderFrom(g.dragHit, false); }
     else if (h.kind == Action) {
         if (r.key == "avatarReset") sendSet("avatarPicture", "");
+        if (r.key == "fontWeightReset") { sendSet("fontWeightText", "450"); sendSet("fontWeightTitle", "550"); }
         else if (r.key == "langTemplate") openTranslation();
         else if (r.key == "collageReset") resetCollage();
         else if (r.key == "hyprReset" && g_armed != r.key) { g_armed = r.key; g.dirty = true; }
@@ -5072,7 +5079,7 @@ int main() {
         std::fclose(f);
     }
     matsym::assetsDir() = assetsDir();
-    applyShellFont(fontFamilyFromConfig(configDir() + "/config.json"));
+    applyShellFont(fontFamilyFromConfig(configDir() + "/config.json"), fontWeightFromConfig(configDir() + "/config.json", "fontWeightText", 450), fontWeightFromConfig(configDir() + "/config.json", "fontWeightTitle", 550));
     g.display = wl_display_connect(nullptr);
     if (!g.display) { std::fprintf(stderr, "end4pC-settings: no Wayland display\n"); return 1; }
     g.registry = wl_display_get_registry(g.display);

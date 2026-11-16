@@ -827,7 +827,7 @@ int main() {
         const int lock = open((runtimeDir() + "/end4pC-tools.lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
         if (lock >= 0 && flock(lock, LOCK_EX | LOCK_NB) != 0) return 0;
     }
-    applyShellFont(fontFamilyFromConfig(configDir() + "/config.json"));
+    applyShellFont(fontFamilyFromConfig(configDir() + "/config.json"), fontWeightFromConfig(configDir() + "/config.json", "fontWeightText", 450), fontWeightFromConfig(configDir() + "/config.json", "fontWeightTitle", 550));
     if (!connectWayland()) return 1;
     cairo_surface_t* dummy = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
     cairo_t* dcr = mkcr(dummy);

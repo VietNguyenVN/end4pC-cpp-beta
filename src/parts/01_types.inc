@@ -384,6 +384,7 @@ struct Config {
     std::string iconStyle = "broken";
     int materialIcons = 0;
     int iconScale = 100;
+    int fontWeightText = 450, fontWeightTitle = 550;  // wght of a variable font: normal text and bold/titles (Settings > Appearance > Font & Icons)
     int launcherFiles = 0;  // the launcher also searches files (off by default)
     std::string avatarPath;
     std::string themePrimary, themeSecondary, themeTertiary;

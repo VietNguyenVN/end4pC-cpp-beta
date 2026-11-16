@@ -313,7 +313,7 @@ int main(int argc, char** argv) {
     loadConfig(app);
     matsym::assetsDir() = assetsDir();
     matsym::enabled() = app.cfg.materialIcons != 0;
-    applyShellFont(app.cfg.fontFamily);
+    applyShellFont(app.cfg.fontFamily, app.cfg.fontWeightText, app.cfg.fontWeightTitle);
     app.collageShown = collageNow(app);
     i18n::load(app.cfg.language, assetsDir(), configDir() + "/i18n");
     updateClock(app);
