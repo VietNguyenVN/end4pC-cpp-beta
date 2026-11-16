@@ -464,6 +464,9 @@ std::vector<Page> makePages() {
         {Text, "dockPinned", "Pinned apps", "Desktop ids or window classes, separated by commas. You can also pin from the right click menu of an icon. Type - for none."},
         {Choice, "osdPosition", "OSD position", "Where the volume and brightness bar appears.", {{"right", "Right"}, {"left", "Left"}, {"top", "Top"}, {"bottom", "Bottom"}}},
         {Slider, "osdTimeout", "OSD time", "How long the volume and brightness bar stays on screen.", {}, 500, 6000, 250, "ms"},
+        {Choice, "magnifier", "Screen magnifier", "Zoom the whole screen around the pointer. SUPER + = and SUPER + - do the same, one step at a time. It needs Hyprland.", {{"1.0", "Off"}, {"1.3", "1.3x"}, {"1.6", "1.6x"}, {"1.9", "1.9x"}, {"2.2", "2.2x"}, {"2.5", "2.5x"}, {"3.0", "3x"}}},
+        {Slider, "sys:cursorSize", "Cursor size", "Make the mouse pointer bigger. It is the same setting as System > Cursor. Applies when you let go of the slider.", {}, 16, 64, 4, "px"},
+        {Action, "oskToggle", "On-screen keyboard", "A keyboard on the screen that does not take the focus from the app you type into. Drag it by its top bar. It needs wtype.", {}, 0, 100, 1, "Show or hide"},
     }});
     p.push_back({"Services", "cloud-sun", {
         {Choice, "weatherUnit", "Temperature unit", "Used by the weather on the lock screen.", {{"celsius", "Celsius"}, {"fahrenheit", "Fahrenheit"}}},
@@ -593,7 +596,7 @@ std::vector<Page> makePages() {
         else if (pg.name == "Niri") sections(pg, {{"niri:gaps", "Layout"}, {"niri:radius", "Windows"}, {"niri:follow", "Behavior"}, {"niri:repeatDelay", "Input"}, {"niriReset", "Reset"}});
         else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}});
         else if (pg.name == "System") sections(pg, {{"sys:cursor", "Cursor"}, {"sys:icons", "Icons"}, {"sys:font", "Fonts"}, {"sys:app:browser", "Default Apps"}, {"screenshotDir", "Capture"}, {"doNotDisturb", "Notifications"}, {"periphSummary", "Devices"}});
-        else if (pg.name == "Interface") sections(pg, {{"animEnabled", "Animations"}, {"hotCorners", "Hot Corners"}, {"lockOnStart", "Lock screen"}, {"dock", "Dock"}, {"osdPosition", "OSD"}});
+        else if (pg.name == "Interface") sections(pg, {{"animEnabled", "Animations"}, {"hotCorners", "Hot Corners"}, {"lockOnStart", "Lock screen"}, {"dock", "Dock"}, {"osdPosition", "OSD"}, {"magnifier", "Accessibility"}});
         else if (pg.name == "Services") sections(pg, {{"weatherUnit", "Weather"}, {"updatesEnable", "Updates"}, {"lyricsProvider", "Lyrics"}, {"webappAdd", "Webapps"}, {"searchEngine", "Search"}});
         if (pg.name == "System")
             for (auto& r : pg.rows) if (r.key.compare(0, 8, "sys:app:") == 0) r.splitW = 280;
@@ -2297,6 +2300,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "niri:ringWidth") return g.val["niri:ring"] == "1";
     if (r.key == "niri:shadowSoftness") return g.val["niri:shadow"] == "1";
     if (r.key == "mon:enabled") return g_mons.size() > 1;
+    if (r.key == "magnifier") return compositorName() == "Hyprland";
     if (r.key == "dockAutoHide" || r.key == "dockPin" || r.key == "dockMedia" || r.key == "dockLauncher" || r.key == "dockMagnify" || r.key == "dockIconSize" || r.key == "dockPinned") return g.val["dock"] == "1";
     if (r.key == "barSpacing") return g.val["layoutFor"] != "v";
     if (r.key == "sideBarSpacing") return g.val["layoutFor"] == "v";
@@ -4347,7 +4351,7 @@ void switchPage(int to) {
     g.secAnim.snap(chipIndex(to));
     if (g.pages[to].name == "Hyprland") loadHypr();
     if (g.pages[to].name == "Niri") loadNiri();
-    if (g.pages[to].name == "System" || g.pages[to].name == "General") loadSystem();
+    if (g.pages[to].name == "System" || g.pages[to].name == "General" || g.pages[to].name == "Interface") loadSystem();
     if (g.pages[to].name == "Appearance") { loadThemes(); loadPresets(); }
     savePage();
     g.scroll = 0;
@@ -4754,6 +4758,7 @@ void click() {
         }
         else if (r.key == "layoutEditor" && g_armed != "layoutClear") { g_armed = "layoutClear"; g.dirty = true; }
         else if (r.key == "layoutEditor") { g_armed.clear(); clearLayout(); }
+        else if (r.key == "oskToggle") ipc("osk toggle");
         else if (r.key == "updCheck") { ipc("updates check"); g.updChecking = true; g.updCheckStart = Clock::now(); }
     } else if (h.kind == Webapp) {
         const WebappItem* w = nullptr;
