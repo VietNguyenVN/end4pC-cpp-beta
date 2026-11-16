@@ -382,6 +382,7 @@ struct Config {
     std::string iconStyle = "broken";
     int materialIcons = 0;
     int iconScale = 100;
+    int launcherFiles = 0;  // the launcher also searches files (off by default)
     std::string avatarPath;
     std::string themePrimary, themeSecondary, themeTertiary;
     std::string quickActions = "picker,record,screenshot,wallpaper";
@@ -440,7 +441,7 @@ struct AppEntry {
     bool terminal = false;
     std::vector<AppAction> actions;
 };
-enum ResultKind { ResApp, ResMath, ResCommand, ResWeb, ResAction, ResClip, ResEmoji, ResKeybind };
+enum ResultKind { ResApp, ResMath, ResCommand, ResWeb, ResAction, ResClip, ResEmoji, ResKeybind, ResFile };
 enum PopPhase { kPopOpen = 0, kPopIn = 1, kPopOut = 2, kPopGone = 3 };
 
 struct PopAnim {
@@ -486,6 +487,12 @@ struct Launcher {
     std::string mathResult;
     pid_t mathPid = 0;
     int mathFd = -1;
+    pid_t filePid = 0;  // `fd` looking for files by name (the results of a search come when it ends)
+    int fileFd = -1;
+    std::string fileBuf, fileFor;
+    std::vector<std::string> fileHits;
+    bool recentLoaded = false;
+    std::vector<std::string> recent;  // files the desktop's apps opened lately (recently-used.xbel), newest first
     std::string mathBuf;
     bool mathIsTr = false;
     std::string trFor, trOut, trSrc, trTgt;

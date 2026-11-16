@@ -402,8 +402,9 @@ int main(int argc, char** argv) {
     refreshActiveWorkspace(app);
     refreshOccupied(app);
     refreshWsApps(app);
+    timersLoad();
 
-    pollfd fds[25] = {
+    pollfd fds[26] = {
         {wl_display_get_fd(app.display), POLLIN, 0},
         {timerFd, POLLIN, 0},
         {sigFd, POLLIN, 0},
@@ -671,6 +672,7 @@ int main(int argc, char** argv) {
         }
         fds[10].fd = app.recFd;
         fds[12].fd = app.launcher.mathFd;
+        fds[25].fd = app.launcher.fileFd;
         if (app.pkBus) {
             int pr;
             while ((pr = sd_bus_process(app.pkBus, nullptr)) > 0) {}
@@ -685,7 +687,7 @@ int main(int argc, char** argv) {
         }
         fds[21].fd = app.pk.fd;
         fds[22].fd = app.amenu.job.fd;
-        if (poll(fds, 25, timeoutMs) < 0 && errno != EINTR) {
+        if (poll(fds, 26, timeoutMs) < 0 && errno != EINTR) {
             wl_display_cancel_read(app.display);
             break;
         }
@@ -745,6 +747,29 @@ int main(int argc, char** argv) {
             char junk[256];
             while (read(g_clipFd, junk, sizeof junk) > 0) {}
             drawLauncher(app);
+        }
+        if (fds[25].revents & (POLLIN | POLLHUP)) {  // `fd` has files for the launcher
+            Launcher& L = app.launcher;
+            char buf[4096];
+            ssize_t n;
+            while ((n = read(L.fileFd, buf, sizeof buf)) > 0) L.fileBuf.append(buf, n);
+            if (n == 0) {
+                close(L.fileFd);
+                L.fileFd = -1;
+                L.filePid = 0;
+                std::istringstream lines(L.fileBuf);
+                std::vector<std::string> hits;
+                for (std::string line; std::getline(lines, line);) if (!line.empty()) hits.push_back(line);
+                const std::string needle = lowerCopy(L.fileFor);
+                std::stable_sort(hits.begin(), hits.end(), [&](const std::string& a, const std::string& b) {  // a name that has the word before one that only has it in its folders
+                    const bool ia = lowerCopy(a.substr(a.rfind('/') + 1)).find(needle) != std::string::npos, ib = lowerCopy(b.substr(b.rfind('/') + 1)).find(needle) != std::string::npos;
+                    return ia != ib ? ia : a.size() < b.size();
+                });
+                L.fileHits = std::move(hits);
+                L.fileBuf.clear();
+                updateLauncherResults(app, true);
+                drawLauncher(app);
+            }
         }
         if (fds[12].revents & (POLLIN | POLLHUP)) {
             Launcher& L = app.launcher;

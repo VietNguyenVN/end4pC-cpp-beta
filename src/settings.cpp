@@ -478,6 +478,7 @@ std::vector<Page> makePages() {
         {Choice, "lyricsProvider", "Lyrics source", "Where synced lyrics come from. Auto tries every free source in turn and keeps the first answer.", {{"auto", "Auto"}, {"lrclib", "LRCLIB"}, {"betterlyrics", "BetterLyrics"}, {"netease", "NetEase"}, {"kugou", "KuGou"}}},
         {Text, "webappAdd", "Add a webapp", "Type a site address and press Enter. It becomes an app in the launcher (needs Chromium)."},
         {Text, "searchEngine", "Web search address", "Where the launcher sends a web search. The text you type goes at the end."},
+        {Toggle, "launcherFiles", "Search files", "The launcher also looks for files: the ones you used lately and, from three letters on, those whose name matches under your home folder. Type /recent for the latest ones.", {}},
         {Text, "prefixAction", "Actions", "Type this first to run shell actions like lock or settings."},
         {Text, "prefixApp", "Apps", "Type this first to search only applications."},
         {Text, "prefixClipboard", "Clipboard", "Type this first to search the clipboard history."},
@@ -761,8 +762,9 @@ bool loadWidgetStates() {
 
 void loadConfig() {
     const std::string t = readFile(configPath());
-    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
+    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"launcherFiles", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
         g.val.insert(d);
+    if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
     g.val.insert({"lyricsProvider", "auto"});
     g.val.insert({"updatesEnable", "1"});
     g.val.insert({"cornerTL", "none"});

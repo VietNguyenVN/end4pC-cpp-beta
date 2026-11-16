@@ -11,6 +11,7 @@ constexpr const char* kLaunNameFont = "Sans 11";
 constexpr const char* kLaunSmallFont = "Sans 9";
 
 void closeLauncher(App& app);
+void drawLauncher(App& app);
 void retractLauncher(App& app);
 
 std::string stripFieldCodes(const std::string& exec) {
@@ -253,6 +254,70 @@ void requestMath(App& app, const std::string& expr) {
     if (pid < 0) { close(p[0]); return; }
     L.mathPid = pid;
     L.mathFd = p[0];
+}
+
+// ---- Files: the recently used ones (GTK's recently-used.xbel) and, from three letters on, those `fd` finds under the home folder.
+void loadRecentFiles(Launcher& L) {
+    L.recentLoaded = true;
+    L.recent.clear();
+    const char* data = std::getenv("XDG_DATA_HOME");
+    std::ifstream in((data && *data ? std::string(data) : homeDir() + "/.local/share") + "/recently-used.xbel");
+    if (!in) return;
+    std::stringstream ss;
+    ss << in.rdbuf();
+    const std::string xml = ss.str();
+    std::vector<std::pair<std::string, std::string>> found;  // modified, path
+    for (size_t at = xml.find("<bookmark href=\""); at != std::string::npos; at = xml.find("<bookmark href=\"", at + 1)) {
+        const size_t end = xml.find('>', at);
+        if (end == std::string::npos) break;
+        const std::string tag = xml.substr(at, end - at);
+        const size_t h0 = tag.find("href=\"") + 6, h1 = tag.find('"', h0);
+        if (h1 == std::string::npos || tag.compare(h0, 7, "file://") != 0) continue;
+        std::string path = percentDecode(tag.substr(h0 + 7, h1 - h0 - 7));
+        const size_t m0 = tag.find("modified=\"");
+        found.emplace_back(m0 == std::string::npos ? "" : tag.substr(m0 + 10, tag.find('"', m0 + 10) - m0 - 10), std::move(path));
+    }
+    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    for (const auto& f : found) {
+        if (L.recent.size() >= 300) break;
+        if (access(f.second.c_str(), F_OK) == 0) L.recent.push_back(f.second);
+    }
+}
+
+void requestFiles(App& app, const std::string& needle) {
+    Launcher& L = app.launcher;
+    if (L.filePid > 0) { kill(L.filePid, SIGKILL); L.filePid = 0; }
+    if (L.fileFd >= 0) { close(L.fileFd); L.fileFd = -1; }
+    L.fileBuf.clear();
+    L.fileHits.clear();
+    L.fileFor = needle;
+    int p[2];
+    if (pipe2(p, O_CLOEXEC | O_NONBLOCK) < 0) return;
+    const pid_t pid = fork();
+    if (pid == 0) {
+        childSignalReset();
+        dup2(p[1], STDOUT_FILENO);
+        const int nul = open("/dev/null", O_RDWR);
+        dup2(nul, STDERR_FILENO);
+        const std::string home = homeDir();
+        execlp("timeout", "timeout", "2", "fd", "--type", "f", "--type", "d", "--max-results", "40", "--max-depth", "8", "--ignore-case", "--absolute-path",
+               "--fixed-strings", "--exclude", "node_modules", "--exclude", ".cache", "--", needle.c_str(), home.c_str(), nullptr);
+        _exit(127);
+    }
+    close(p[1]);
+    if (pid < 0) { close(p[0]); return; }
+    L.filePid = pid;
+    L.fileFd = p[0];
+}
+
+LauncherResult fileResult(const std::string& path) {
+    LauncherResult r;
+    const bool dir = std::filesystem::is_directory(path);
+    std::string parent = path.substr(0, path.rfind('/'));
+    const std::string home = homeDir();
+    if (parent.compare(0, home.size(), home) == 0) parent = "~" + parent.substr(home.size());
+    r.kind = ResFile; r.name = path.substr(path.rfind('/') + 1); r.type = parent.empty() ? "/" : parent; r.verb = dir ? "Open folder" : "Open"; r.icon = dir ? "folder" : "description"; r.payload = path;
+    return r;
 }
 
 bool translateMode(const Launcher& L) { return !L.text.empty() && L.text[0] == kPfxTranslate; }
@@ -504,7 +569,9 @@ void updateLauncherResults(App& app, bool keepSelection = false) {
         if (!r.name.empty()) push(r);
     };
     auto actionRows = [&] {
-        for (const auto& name : launcherActions()) {
+        std::vector<std::string> names = launcherActions();
+        if (app.cfg.launcherFiles) names.push_back("recent");  // (the list of recent files belongs to the files search)
+        for (const auto& name : names) {
             const std::string s = std::string(1, kPfxAction) + name;
             if (s.rfind(q, 0) == 0 || q.rfind(s, 0) == 0) {
                 LauncherResult r;
@@ -561,6 +628,14 @@ void updateLauncherResults(App& app, bool keepSelection = false) {
             r.kind = ResKeybind; r.name = desc; r.type = "Keybind"; r.verb = keys; r.icon = "keyboard"; r.payload = keys;
             push(r);
         }
+    } else if (first == kPfxAction && app.cfg.launcherFiles && q.rfind("/recent", 0) == 0) {  // "/recent [words]": the files used lately
+        if (!L.recentLoaded) loadRecentFiles(L);
+        const std::string needle = lowerCopy(trimmed(q.substr(7)));
+        for (const std::string& path : L.recent) {
+            if (L.results.size() >= 60) break;
+            if (!needle.empty() && fuzzyScore(needle, path.substr(path.rfind('/') + 1)) <= 0) continue;
+            push(fileResult(path));
+        }
     } else if (first == kPfxAction) {
         actionRows();
     } else {
@@ -570,12 +645,36 @@ void updateLauncherResults(App& app, bool keepSelection = false) {
         if (math) mathRow();
         else if (shell) commandRow(true);
         else if (web) webRow(true);
+        std::vector<LauncherResult> appRows;
         for (const AppEntry* e : searchApps(app, cleanPrefix(q, kPfxApp))) {
             LauncherResult r;
             r.kind = ResApp; r.name = e->name; r.type = "App"; r.verb = "Open"; r.icon = e->icon; r.payload = e->id; r.comment = e->comment;
             r.terminal = e->terminal;
-            push(r);
+            appRows.push_back(std::move(r));
         }
+        constexpr size_t kAppsBeforeFiles = 4;  // the best apps first, then the files, then the other apps
+        size_t appAt = 0;
+        for (; appAt < appRows.size() && appAt < kAppsBeforeFiles; appAt++) push(appRows[appAt]);
+        if (!math && !shell && !web && app.cfg.launcherFiles) {  // files: the ones used lately that match, then what `fd` has found
+            const std::string needle = trimmed(cleanPrefix(q, kPfxApp));
+            if (!L.recentLoaded) loadRecentFiles(L);
+            std::set<std::string> seen;
+            int recentShown = 0;
+            for (const std::string& path : L.recent) {
+                if (recentShown >= 3) break;
+                if (needle.empty() || fuzzyScore(lowerCopy(needle), path.substr(path.rfind('/') + 1)) <= 0) continue;
+                if (seen.insert(path).second) { push(fileResult(path)); recentShown++; }
+            }
+            if (needle.size() >= 3) {
+                if (needle != L.fileFor) requestFiles(app, needle);
+                int found = 0;
+                for (const std::string& path : L.fileHits) {
+                    if (found >= 6) break;
+                    if (seen.insert(path).second) { push(fileResult(path)); found++; }
+                }
+            }
+        }
+        for (; appAt < appRows.size(); appAt++) push(appRows[appAt]);
         actionRows();
         if (!shell) commandRow();
         if (!math) mathRow();
@@ -599,7 +698,15 @@ void launcherActivate(App& app, int index) {
     }
     if (index < 0 || index >= static_cast<int>(L.results.size())) return;
     const LauncherResult r = L.results[index];
+    if (r.kind == ResAction && r.payload == "recent") {  // not an action: it opens the list of recent files in the same box
+        L.text = "/recent ";
+        L.cursor = L.anchor = L.text.size();
+        updateLauncherResults(app);
+        drawLauncher(app);
+        return;
+    }
     switch (r.kind) {
+        case ResFile: runDetached({"xdg-open", r.payload.c_str()}); break;
         case ResApp:
             if (const AppEntry* e = findApp(app, r.payload)) {
                 if (e->terminal) {
@@ -1131,6 +1238,8 @@ void closeLauncher(App& app) {
     if (!L.open()) return;
     if (L.mathPid > 0) kill(L.mathPid, SIGKILL);
     if (L.mathFd >= 0) close(L.mathFd);
+    if (L.filePid > 0) kill(L.filePid, SIGKILL);
+    if (L.fileFd >= 0) close(L.fileFd);
     if (L.layer) zwlr_layer_surface_v1_destroy(L.layer);
     releaseBlurSurface(L.blur);
     wl_surface_destroy(L.surface);
