@@ -95,6 +95,8 @@ hl.bind("SUPER + V", hl.dsp.exec_cmd(E .. " 'launcher clipboard'"), {description
 
 -- Screen magnifier: SUPER + = / SUPER + - (and the keypad's + / -) zoom the screen between 1x and 3x
 -- On-screen keyboard: SUPER + K shows or hides it
+-- Game overlay: SUPER + G dims the screen and shows a taskbar with resources, volume, recorder and a crosshair
+hl.bind("SUPER + G", hl.dsp.exec_cmd(E .. " 'game toggle'"), {description = "Game overlay"})
 hl.bind("SUPER + K", hl.dsp.exec_cmd(E .. " 'osk toggle'"), {description = "On-screen keyboard"})
 
 hl.bind("SUPER + Equal", hl.dsp.exec_cmd(E .. " 'magnifier in'"), {repeating = true, description = "Zoom in"})
@@ -216,6 +218,10 @@ hl.layer_rule({match = {namespace = "end4pC-bt-menu"}, no_anim = true})
 -- Removable drives popup (the bar's drives icon): the same card, blur under it only, and it animates itself.
 hl.layer_rule({match = {namespace = "end4pC-drives-menu"}, blur = true, xray = false, ignore_alpha = 0.35})
 hl.layer_rule({match = {namespace = "end4pC-drives-menu"}, no_anim = true})
+
+-- Game overlay and crosshair: they animate themselves; no blur (the game stays sharp under the dimming)
+hl.layer_rule({match = {namespace = "end4pC-game-overlay"}, no_anim = true})
+hl.layer_rule({match = {namespace = "end4pC-crosshair"}, no_anim = true})
 
 -- The dynamic island's expansion: the island's own body grows into a card (an overlay that takes the island's place), so it blurs like the bar
 -- and animates itself.

@@ -145,6 +145,7 @@ namespace {
 #include "parts/14v_osk.inc"
 #include "parts/14w_qr_card.inc"
 #include "parts/14x_drives.inc"
+#include "parts/14y_game_overlay.inc"
 #include "parts/15_input.inc"
 #include "parts/16_registry_ipc.inc"
 }
@@ -667,6 +668,7 @@ int main(int argc, char** argv) {
         timersCheck(app);
         if (const auto tw = timersWake(app); tw != std::chrono::steady_clock::time_point::max()) wakeIn(tw);
         if (const auto iw = islandCardWake(app); iw != std::chrono::steady_clock::time_point::max()) wakeIn(iw);
+        if (const auto gw = gameWake(app); gw != std::chrono::steady_clock::time_point::max()) wakeIn(gw);
         if (const auto vw = drivesWake(app); vw != std::chrono::steady_clock::time_point::max()) wakeIn(vw);
         if (const auto bw = btWake(app); bw != std::chrono::steady_clock::time_point::max()) wakeIn(bw);
         if (const auto dw = desktopMenuWake(app); dw != std::chrono::steady_clock::time_point::max()) wakeIn(dw);
@@ -868,6 +870,7 @@ int main(int argc, char** argv) {
             tickDesktopMenu(app, now);
             btTick(app, now);
             drivesTick(app, now);
+            tickGame(app, now);
             if (app.launcher.sliding) { if (app.launcher.open()) drawLauncher(app); else app.launcher.sliding = false; }
             if (app.repeatKey && now >= app.repeatAt) {
                 DeskWidget* typer = nullptr;

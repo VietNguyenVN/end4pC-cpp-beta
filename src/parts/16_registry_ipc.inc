@@ -398,6 +398,11 @@ void handleClient(App& app, int listenFd) {
             reply = app.drivesMenu.open() ? "open" : "closed";
         } else reply = "no drives";
     }
+    else if (cmd == "game" || cmd.rfind("game ", 0) == 0) {
+        const std::string a = cmd.size() > 5 ? cmd.substr(5) : "toggle";
+        if (a == "open") openGame(app); else if (a == "close") retractGame(app); else toggleGame(app);
+        reply = app.game.surface && !app.game.closing ? "open" : "closed";
+    }
     else if (cmd == "recording") reply = app.recording ? "recording" : "idle";
     else if (cmd == "config") reply = "workspaces=" + std::to_string(app.cfg.workspaces) + " frame=" + std::to_string(app.cfg.frame) + " doNotDisturb=" + std::to_string(app.cfg.doNotDisturb) + " notificationTimeout=" + std::to_string(app.cfg.notificationTimeout) + " networkAlways=" + std::to_string(app.cfg.networkAlways) + " barOpacity=" + std::to_string(app.cfg.barOpacity) + " left=" + joinQuoted(app.cfg.layoutLeft) + " center=" + joinQuoted(app.cfg.layoutCenter) + " right=" + joinQuoted(app.cfg.layoutRight) + " barPosition=" + app.cfg.barPosition + " barStyle=" + app.cfg.barStyle + " workspaceStyle=" + app.cfg.workspaceStyle + " colorScheme=" + app.cfg.colorScheme + " wallpaperTransition=" + app.cfg.wallpaperTransition + " wallpaperTransitionMs=" + std::to_string(app.cfg.wallpaperTransitionMs) + " colorMode=" + app.cfg.colorMode + " selectorShape=" + app.cfg.selectorShape + " notificationShape=" + app.cfg.notificationShape + " preferredPlayer=" + app.cfg.preferredPlayer + " iconStyle=" + app.cfg.iconStyle + " uiBackground=" + app.cfg.uiBackground;
     else if (cmd == "collage" || cmd.rfind("collage ", 0) == 0) reply = collageCommand(app, cmd.size() > 8 ? cmd.substr(8) : "");

@@ -15,7 +15,7 @@ std::string findCpuTempPath() {
 bool updateResources(App& app) {
     App::Resources& R = app.res;
     const App::Resources before = R;
-    const bool wide = app.resW.open() || (app.clockP.open() && app.clockP.kind == 3);
+    const bool wide = app.resW.open() || app.game.surface || (app.clockP.open() && app.clockP.kind == 3);
     if (app.cfg.resCpu || wide) {
         std::ifstream f("/proc/stat");
         std::string cpu;

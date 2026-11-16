@@ -1344,6 +1344,30 @@ struct QrState {  // the card that shows a QR code made from a link or a text
     cairo_surface_t* image = nullptr;
     int modules = 0;
 };
+enum GameWidget { GwResources, GwVolume, GwRecorder, GwCrosshair, kGwCount };
+struct GameHit;
+struct GameOverlay {  // the game overlay (SUPER + G)
+    wl_surface* surface = nullptr;
+    zwlr_layer_surface_v1* layer = nullptr;
+    bool configured = false, closing = false, animating = false, placed = false, volDrag = false;
+    int W = 0, H = 0, hover = 0, dragW = -1;
+    std::chrono::steady_clock::time_point t0{}, nextRes{}, lastVolSet{};
+    bool open[kGwCount] = {true, false, false, false};
+    double wx[kGwCount] = {}, wy[kGwCount] = {}, grabX = 0, grabY = 0;
+    std::vector<struct GameHit> hits;
+    wl_surface* crossSurface = nullptr;
+    zwlr_layer_surface_v1* crossLayer = nullptr;
+    bool crossConfigured = false, crossOn = false;
+    // two buffers kept and reused (a new 8 MB one on every move made dragging crawl), one redraw per frame, and only the moved part damaged
+    wl_buffer* buf[2] = {nullptr, nullptr};
+    void* mem[2] = {nullptr, nullptr};
+    cairo_surface_t* cs[2] = {nullptr, nullptr};
+    bool busy[2] = {false, false};
+    size_t memSize = 0;
+    int bufW = 0, bufH = 0, lastBuf = 1;
+    bool framePending = false, dirty = false, needFull = false, partialRequest = false, pendValid = false;
+    double pendX0 = 0, pendY0 = 0, pendX1 = 0, pendY1 = 0;
+};
 struct DockPanelState {  // the "docktopanel" bar module: the dock's apps in the bar
     std::vector<DockItem> items;
     std::map<std::string, std::shared_ptr<cairo_surface_t>> icons;
@@ -1549,7 +1573,7 @@ struct App {
     DrivesBar drives;
     DrivesMenu drivesMenu;
     bool onBtMenu = false;
-    bool onOsk = false, onQr = false, onDrives = false;
+    bool onOsk = false, onQr = false, onDrives = false, onGame = false;
     IslandCard ic;
     bool onIsland = false;
     int screenH = 0;
@@ -1567,6 +1591,7 @@ struct App {
     DockPanelState dtp;
     OskState osk;
     QrState qr;
+    GameOverlay game;
     bool onDock = false;
     ClockW deskClock;
     UserW userW;
@@ -1669,6 +1694,17 @@ void closeDrivesMenu(App& app);
 void drivesMenuMotion(App& app);
 void drivesMenuButton(App& app, uint32_t button, bool pressed);
 bool drivesIconPressed(const App& app);
+void oskDragOther(App& app, double x, double y);
+void toggleGame(App& app);
+void openGame(App& app);
+void retractGame(App& app);
+void closeGameNow(App& app);
+void gameMotion(App& app);
+void gameButton(App& app, uint32_t button, bool pressed);
+void drawGame(App& app);
+void tickGame(App& app, std::chrono::steady_clock::time_point now);
+std::chrono::steady_clock::time_point gameWake(const App& app);
+void oskButton(App& app, uint32_t button, bool pressed);
 void tickDrivesMenu(App& app, std::chrono::steady_clock::time_point now);
 void drawDrivesMenu(App& app);
 bool btShown(const App& app);
