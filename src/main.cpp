@@ -666,6 +666,7 @@ int main(int argc, char** argv) {
         timersCheck(app);
         if (const auto tw = timersWake(app); tw != std::chrono::steady_clock::time_point::max()) wakeIn(tw);
         if (const auto iw = islandCardWake(app); iw != std::chrono::steady_clock::time_point::max()) wakeIn(iw);
+        if (const auto vw = drivesWake(app); vw != std::chrono::steady_clock::time_point::max()) wakeIn(vw);
         if (const auto bw = btWake(app); bw != std::chrono::steady_clock::time_point::max()) wakeIn(bw);
         if (const auto dw = desktopMenuWake(app); dw != std::chrono::steady_clock::time_point::max()) wakeIn(dw);
         fds[14].fd = app.brightFd;
@@ -861,9 +862,11 @@ int main(int argc, char** argv) {
             notifPopupTick(app, now);
             tickAudioMenu(app, now);
             tickBtMenu(app, now);
+            tickDrivesMenu(app, now);
             tickIslandCard(app, now);
             tickDesktopMenu(app, now);
             btTick(app, now);
+            drivesTick(app, now);
             if (app.launcher.sliding) { if (app.launcher.open()) drawLauncher(app); else app.launcher.sliding = false; }
             if (app.repeatKey && now >= app.repeatAt) {
                 DeskWidget* typer = nullptr;

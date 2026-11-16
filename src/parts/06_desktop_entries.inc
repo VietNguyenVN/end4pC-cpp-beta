@@ -382,6 +382,7 @@ double sideModuleH(const App& app, const std::string& m) {
     if (m == "quickactions") { const size_t n = quickShown(app).size(); return n ? n * 44 - 4.0 : 0; }
     if (m == "network") return netVisible(app) ? netExtent(app, true) : 0;
     if (m == "volume" || m == "notifications" || m == "settings" || m == "avatar" || m == "launcher" || m == "power" || m == "tools" || m == "bluetooth") return 40;
+    if (m == "drives") return drivesVisible(app) ? 40 : 0;
     if (m == "clock") return widgetStyle(app, "clock") == "m3" ? kSideClockM3H : 54;
     if (m == "systray") {
         std::vector<int> pin, oth;
@@ -466,6 +467,7 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
             else if (m == "network") v.push_back({HitNetwork, {x, y, 40, netExtent(app, true)}});
             else if (m == "volume") v.push_back({HitVolume, {x, y, 40, 40}});
             else if (m == "bluetooth") v.push_back({HitBluetooth, {x, y, 40, 40}});
+            else if (m == "drives") { if (drivesVisible(app)) v.push_back({HitDrives, {x, y, 40, 40}}); }
             else if (m == "clock") v.push_back({HitClock, {x, y, 40, widgetStyle(app, "clock") == "m3" ? kSideClockM3H : 54}});
             else if (m == "notifications") v.push_back({HitNotif, {x, y, 40, 40}});
             else if (m == "settings") v.push_back({HitSettings, {x, y, 40, 40}});
@@ -1757,6 +1759,7 @@ void drawSide(Bar& bar) {
         if (it.id == HitWeather) { weatherSidePaint(cr, app, layout, r, hot); continue; }
         if (it.id == HitUpdates) { updatesSidePaint(cr, app, layout, r, hot); continue; }
         if (it.id == HitBluetooth) { btSidePaint(cr, app, r, hot); continue; }
+        if (it.id == HitDrives) { drivesSidePaint(cr, app, r, hot); continue; }
         if (it.id == HitActiveWindow) { awinPaint(cr, app, layout, r.x, r.y, r.w, r.h, true, hot); continue; }
         if (it.id == HitMedia && musicM3(app)) { sideMusicM3(cr, app, r.x, r.y, r.w, r.h, hot); continue; }
         if (it.id == HitKeyboard) { kbdPaint(cr, app, layout, r.x, r.y, r.w, r.h, true, hot); continue; }
@@ -2911,6 +2914,7 @@ void draw(Bar& bar) {
     }
 
     if (hasSlot(bar, "bluetooth")) btBarPaint(cr, app, bar);
+    if (hasSlot(bar, "drives")) drivesBarPaint(cr, app, bar);
     if (hasSlot(bar, "volume") && paintStyle(app, "volume") == "m3") {
         drawVolumeM3(cr, app, volumeX(bar), bar.height);
     } else if (hasSlot(bar, "volume")) {

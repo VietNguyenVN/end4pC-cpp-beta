@@ -247,6 +247,7 @@ double moduleWidth(const App& app, const std::string& m) {
     if (m == "network") return netVisible(app) ? netExtent(app, false) : 0;
     if (m == "volume") return volumeW(app);
     if (m == "bluetooth") return kQuickBox + softExtra(app, "bluetooth");
+    if (m == "drives") return drivesVisible(app) ? kQuickBox + softExtra(app, "drives") : 0;
     if (m == "docktopanel") return dtpWidth(app);
     if (m == "clock") return app.clockW;
     if (m == "notifications") return notifW(app);
@@ -413,6 +414,7 @@ Hit hitTest(const Bar& bar, double x, double y) {
     if (hasSlot(bar, "weather") && app.barWeather.ok && x >= slotX(bar, "weather") && x < slotX(bar, "weather") + app.weatherBarW) return HitWeather;
     if (hasSlot(bar, "updates") && x >= slotX(bar, "updates") && x < slotX(bar, "updates") + updatesBarW(app)) return HitUpdates;
     if (hasSlot(bar, "volume") && x >= volumeX(bar) && x < volumeX(bar) + volumeW(app)) return HitVolume;
+    if (hasSlot(bar, "drives") && drivesVisible(app) && x >= slotX(bar, "drives") && x < slotX(bar, "drives") + kQuickBox + softExtra(app, "drives")) return HitDrives;
     if (hasSlot(bar, "bluetooth") && x >= slotX(bar, "bluetooth") && x < slotX(bar, "bluetooth") + kQuickBox + softExtra(app, "bluetooth")) return HitBluetooth;
     if (hasSlot(bar, "network") && x >= networkX(bar) && x < networkX(bar) + netExtent(app, false)) return HitNetwork;
     if (hasSlot(bar, "settings") && x >= settingsX(bar) && x < settingsX(bar) + roundBtnWide(app, "settings")) return HitSettings;
@@ -533,8 +535,7 @@ void childSignalReset() {
 }
 
 // Fire and forget; SIGCHLD is ignored so nothing is left as a zombie.
-void runDetached(std::initializer_list<const char*> args) {
-    std::vector<const char*> argv(args);
+void runDetachedArgs(std::vector<const char*> argv) {
     argv.push_back(nullptr);
     if (fork() == 0) {
         childSignalReset();
@@ -544,6 +545,7 @@ void runDetached(std::initializer_list<const char*> args) {
         _exit(127);
     }
 }
+void runDetached(std::initializer_list<const char*> args) { runDetachedArgs(std::vector<const char*>(args)); }
 
 int startAudioWatcher() {
     int p[2];

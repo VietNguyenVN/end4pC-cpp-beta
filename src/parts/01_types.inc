@@ -148,7 +148,7 @@ int g_iconScale = 100;  // % of the size every icon is asked for (Settings > App
 const std::vector<std::string> kSchemes = {"scheme-tonal-spot", "scheme-neutral", "scheme-content", "scheme-expressive", "scheme-fidelity",
                                            "scheme-fruit-salad", "scheme-monochrome", "scheme-rainbow", "scheme-vibrant", "scheme-smart"};
 const std::vector<std::string> kCornerActions = {"none", "controlcenter", "media", "wallpapers", "launcher", "notifications", "power", "lock", "settings"};
-const std::vector<std::string> kModules = {"workspaces", "media", "quickactions", "network", "volume", "clock", "notifications", "settings", "avatar", "battery", "systray", "resources", "launcher", "power", "tools", "weather", "aiusage", "keyboard", "activewindow", "divider", "visualizer", "updates", "bluetooth", "docktopanel"};
+const std::vector<std::string> kModules = {"workspaces", "media", "quickactions", "network", "volume", "clock", "notifications", "settings", "avatar", "battery", "systray", "resources", "launcher", "power", "tools", "weather", "aiusage", "keyboard", "activewindow", "divider", "visualizer", "updates", "bluetooth", "docktopanel", "drives"};
 
 inline bool validNotifPosition(const std::string& p) {
     for (const char* n : {"top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right"})
@@ -192,6 +192,7 @@ inline const std::vector<WidgetStyleSet>& widgetStyleSets() {
         {"tools", "Tools button", "", withBtn(roundFrames)},
         {"updates", "Updates", "", withBtn(withFrames({}))},
         {"bluetooth", "Bluetooth", "", withBtn(withFrames({}))},
+        {"drives", "Removable drives", "", withBtn(withFrames({}))},
         {"avatar", "Avatar", "", {{"plain", "Plain"}, {"ring", "Ring"}, {"squircle", "Squircle"}}},
         {"quickactions", "Quick actions", "", withBtn(roundFrames)},
         {"media", "Media", "", withFrames({{"compact", "Compact"}, {"cover", "Cover"}})},
@@ -225,6 +226,7 @@ inline const std::vector<std::pair<std::string, std::vector<std::string>>>& side
         {"power", {"plain", "pill", "outline", "badge", "square", "m3soft", "m3filled", "m3"}}, {"tools", {"plain", "pill", "outline", "badge", "square", "m3soft", "m3filled", "m3"}},
         {"updates", btnFrames},
         {"bluetooth", btnFrames},
+        {"drives", btnFrames},
         {"quickactions", {"plain", "pill", "outline", "badge", "square", "m3soft", "m3filled", "m3"}},
     };
     return ids;
@@ -913,6 +915,41 @@ struct BtMenu {
     Bubble bubble;
     bool bubbleMoving = false;
     std::chrono::steady_clock::time_point nextList{};
+    bool open() const { return surface != nullptr; }
+};
+
+struct DriveInfo {
+    std::string dev, parent, name, fstype, mount, icon;  // one entry per physical disk: dev is the disk, mount the first mount point of its partitions
+    std::vector<std::string> parts, unmounted;     // the partitions with a file system, and the ones not mounted
+    unsigned long long size = 0, biggest = 0;
+};
+struct DrivesBar {
+    std::vector<DriveInfo> list;
+    std::set<std::string> ejecting;
+    bool primed = false;
+    long long stamp = 0;
+    std::chrono::steady_clock::time_point nextPoll{}, nextRead{};
+};
+struct DrivesMenu {
+    struct Item {
+        enum Kind { Row, Eject, Copy, Note } kind = Row;
+        int dev = -1;
+        Rect r;
+    };
+    wl_surface* surface = nullptr;
+    BlurSurface blur;
+    zwlr_layer_surface_v1* layer = nullptr;
+    bool configured = false;
+    Bar* bar = nullptr;
+    double ax = 0, ay = 0, ix = 0, iy = 0, ox = 0, oy = 0;
+    PopAnim anim;
+    std::string pending, note;
+    std::chrono::steady_clock::time_point pendingAt{}, hoverAt{};
+    Bubble bubble;
+    bool bubbleMoving = false, marquee = false;
+    int copied = -1;  // the drive whose mount point was just copied (its button shows a tick until the pointer moves on)
+    std::vector<Item> items;
+    int cardW = 0, cardH = 0, hover = -1, pressed = -1;
     bool open() const { return surface != nullptr; }
 };
 
@@ -1618,6 +1655,19 @@ void closeMediaPanel(App& app);
 void closeClockPanel(App& app);
 void btBarPaint(cairo_t* cr, App& app, const Bar& bar);
 void btSidePaint(cairo_t* cr, App& app, Rect r, bool hot);
+void drivesBarPaint(cairo_t* cr, App& app, const Bar& bar);
+void drivesSidePaint(cairo_t* cr, App& app, Rect r, bool hot);
+bool drivesVisible(const App& app);
+void drivesTick(App& app, std::chrono::steady_clock::time_point now);
+std::chrono::steady_clock::time_point drivesWake(const App& app);
+void toggleDrivesMenu(App& app, Bar* bar);
+void retractDrivesMenu(App& app);
+void closeDrivesMenu(App& app);
+void drivesMenuMotion(App& app);
+void drivesMenuButton(App& app, uint32_t button, bool pressed);
+bool drivesIconPressed(const App& app);
+void tickDrivesMenu(App& app, std::chrono::steady_clock::time_point now);
+void drawDrivesMenu(App& app);
 bool btShown(const App& app);
 void btTick(App& app, std::chrono::steady_clock::time_point now);
 std::chrono::steady_clock::time_point btWake(const App& app);
@@ -1678,7 +1728,7 @@ constexpr const char* kArtistFont = "Sans 8";
 constexpr const char* kTitleFont = "Sans Bold 10";
 
 using Hit = int;
-constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitIsland = 25, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600, kHitDtp = 800;
+constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitDrives = 26, HitIsland = 25, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600, kHitDtp = 800;
 
 std::string widgetStyle(const App& app, const std::string& mod);
 double roundBtnW(const App& app, const char* mod) { return kQuickBox + (!sideBar(app) && widgetStyle(app, mod) == "m3" ? kModuleBox - kQuickBox : 0); }

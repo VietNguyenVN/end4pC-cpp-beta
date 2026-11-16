@@ -213,6 +213,10 @@ hl.layer_rule({match = {namespace = "end4pC-audio-menu"}, no_anim = true})
 hl.layer_rule({match = {namespace = "end4pC-bt-menu"}, blur = true, xray = false, ignore_alpha = 0.35})
 hl.layer_rule({match = {namespace = "end4pC-bt-menu"}, no_anim = true})
 
+-- Removable drives popup (the bar's drives icon): the same card, blur under it only, and it animates itself.
+hl.layer_rule({match = {namespace = "end4pC-drives-menu"}, blur = true, xray = false, ignore_alpha = 0.35})
+hl.layer_rule({match = {namespace = "end4pC-drives-menu"}, no_anim = true})
+
 -- The dynamic island's expansion: the island's own body grows into a card (an overlay that takes the island's place), so it blurs like the bar
 -- and animates itself.
 hl.layer_rule({match = {namespace = "end4pC-island-card"}, blur = true, xray = false, ignore_alpha = 0.35})

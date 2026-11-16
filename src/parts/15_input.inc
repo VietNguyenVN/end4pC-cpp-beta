@@ -20,7 +20,7 @@ void catcherClosed(void*, zwlr_layer_surface_v1*) {}
 const zwlr_layer_surface_v1_listener kCatcherListener = {catcherConfigure, catcherClosed};
 
 bool anyPopupOpen(const App& app) {
-    return app.sel.open() || app.launcher.open() || app.power.open() || app.cc.open() || app.panel.open() || app.media.open() || app.clockP.open() || app.tmenu.open() || app.amenu.open() || app.btMenu.open() || app.dmenu.open() || (app.ic.open() && g_icPowerMode);
+    return app.sel.open() || app.launcher.open() || app.power.open() || app.cc.open() || app.panel.open() || app.media.open() || app.clockP.open() || app.tmenu.open() || app.amenu.open() || app.btMenu.open() || app.drivesMenu.open() || app.dmenu.open() || (app.ic.open() && g_icPowerMode);
 }
 
 void syncCatcher(App& app) {
@@ -55,6 +55,7 @@ void closeAllPopups(App& app) {
     if (app.tmenu.open()) closeTrayMenu(app);
     if (app.amenu.open()) retractAudioMenu(app);
     if (app.btMenu.open()) retractBtMenu(app);
+    if (app.drivesMenu.open()) retractDrivesMenu(app);
     if (app.dmenu.open()) retractDesktopMenu(app);
     if (app.ic.open()) retractIslandCard(app);
 }
@@ -107,6 +108,7 @@ void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, 
     if (app->onTmenu) trayMenuMotion(*app);
     if (app->onAmenu) audioMenuMotion(*app);
     if (app->onBtMenu) btMenuMotion(*app);
+    if (app->onDrives) drivesMenuMotion(*app);
     if (app->onIsland) islandCardMotion(*app);
     islandHoverCheck(*app);
     if (app->onDmenu) dmenuMotion(*app);
@@ -312,6 +314,12 @@ void onPointerMotion(void* d, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y)
         btMenuMotion(*app);
         return;
     }
+    if (app->onDrives) {
+        app->pointerX = wl_fixed_to_double(x);
+        app->pointerY = wl_fixed_to_double(y);
+        drivesMenuMotion(*app);
+        return;
+    }
     if (app->onDmenu) {
         app->pointerX = wl_fixed_to_double(x);
         app->pointerY = wl_fixed_to_double(y);
@@ -352,6 +360,7 @@ const char* hitModule(Hit h) {
     case HitWeather: return "weather";
     case HitUpdates: return "updates";
     case HitBluetooth: return "bluetooth";
+    case HitDrives: return "drives";
     case HitTools: return "tools";
     case HitKeyboard: return "keyboard";
     case HitActiveWindow: return "activewindow";
@@ -389,6 +398,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
         return;
     }
     if (app->onCatcher && audioIconPressed(*app)) { toggleAudioMenu(*app, app->amenu.bar); return; }
+    if (app->onCatcher && drivesIconPressed(*app)) { toggleDrivesMenu(*app, app->drivesMenu.bar); return; }
     if (app->onCatcher && btIconPressed(*app)) { toggleBtMenu(*app, app->btMenu.bar); return; }
     if (app->onCatcher) { closeAllPopups(*app); syncCatcher(*app); drawAll(*app); return; }
     if (app->onDock) { dockButton(*app, button); return; }
@@ -499,6 +509,8 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
         toggleAudioMenu(*app, app->hoverBar);
     } else if (hit == HitBluetooth) {
         toggleBtMenu(*app, app->hoverBar);
+    } else if (hit == HitDrives) {
+        toggleDrivesMenu(*app, app->hoverBar);
     }
 }
 

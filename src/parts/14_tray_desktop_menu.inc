@@ -1028,7 +1028,7 @@ void dmenuScroll(App& app, int dir) {
     drawDesktopMenu(app);
 }
 
-bool clickable(Hit h) { return (h >= kHitDtp && h < kHitDtp + 100) || h == HitClock || h == HitKeyboard || h == HitWeather || (h >= kHitAi && h < kHitAi + 2) || (h >= kHitRes && h < kHitRes + 5) || h == HitNotif || h == HitVolume || h == HitBluetooth || h == HitPrev || h == HitPlay || h == HitNext || h == HitMedia || h == HitSettings || h == HitLauncher || h == HitPower || h == HitTools || h == HitUpdates || h == HitAvatar || h == HitTray || (h >= kHitStatus && h < kHitStatus + 2) || h == kHitStatus + 3 || h >= kHitWs; }
+bool clickable(Hit h) { return (h >= kHitDtp && h < kHitDtp + 100) || h == HitClock || h == HitKeyboard || h == HitWeather || (h >= kHitAi && h < kHitAi + 2) || (h >= kHitRes && h < kHitRes + 5) || h == HitNotif || h == HitVolume || h == HitBluetooth || h == HitDrives || h == HitPrev || h == HitPlay || h == HitNext || h == HitMedia || h == HitSettings || h == HitLauncher || h == HitPower || h == HitTools || h == HitUpdates || h == HitAvatar || h == HitTray || (h >= kHitStatus && h < kHitStatus + 2) || h == kHitStatus + 3 || h >= kHitWs; }
 
 void updateCursor(App& app) {
     if (!app.cursorMgr || !app.pointer) return;
