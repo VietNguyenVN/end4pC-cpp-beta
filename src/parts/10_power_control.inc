@@ -445,6 +445,7 @@ void drawControlCenter(App& app) {
             cairo_restore(cr);
         } else {
             circle(kCcPad + 22, hy + 22, 22, app.color("primary_container"));
+            drawIcon(cr, "user-circle", kCcPad + 22 - 13, hy + 22 - 13, 26, app.color("on_primary_container"));  // (no picture chosen: a person, like the bar module and the lock screen)
         }
         const int th0 = label(name, "Sans Bold 13", kCcPad + 56, hy + 3, onSurf);
         label("Control center", "Sans 10", kCcPad + 56, hy + 3 + th0 + 1, variant);
