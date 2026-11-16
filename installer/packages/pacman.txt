@@ -84,3 +84,10 @@ otf-font-awesome
 noto-fonts
 noto-fonts-emoji
 inter-font
+
+# --- accessibility and search: the on-screen keyboard (wtype), text recognition (tesseract), file search in the launcher (fd), alarm sounds
+wtype
+tesseract
+tesseract-data-eng
+fd
+libcanberra
