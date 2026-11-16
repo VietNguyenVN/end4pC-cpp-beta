@@ -433,6 +433,7 @@ int main(int argc, char** argv) {
         {-1, POLLIN, 0},
         {powerFd, POLLIN, 0},
         {-1, POLLIN, 0},           // UPower's signals on the system bus (set every loop turn)
+        {-1, POLLIN, 0},           // the launcher's file search (fd)
     };
     auto lastTick = std::chrono::steady_clock::now();
 
