@@ -1681,7 +1681,7 @@ double softExtra(const App& app, const char* mod) { return !sideBar(app) && widg
 double notifW(const App& app) {
     const std::string style = widgetStyle(app, "notifications");
     if (style == "dot") return kNotifW;
-    if (style == "m3") return roundBtnW(app, "notifications");
+    if (style == "m3" || style == "m3filled") return roundBtnW(app, "notifications");
     return kNotifW + (app.notifCount <= 0 ? 0 : app.notifCount < 10 ? 10 : 18) + softExtra(app, "notifications");
 }
 

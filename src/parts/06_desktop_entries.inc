@@ -3084,8 +3084,8 @@ void draw(Bar& bar) {
         const bool dnd = app.cfg.doNotDisturb != 0;
         const char* bell = dnd ? "notifications_off" : any ? "notifications_active" : "notifications";
         const std::string style = widgetStyle(app, "notifications");
-        if (style == "m3") {
-            const Color ink = m3Circle(cr, app, nx, ny, nhgt, nh, "primary", "on_primary", "on_primary");
+        if (style == "m3" || style == "m3filled") {  // the count is a small pill on the top corner, not beside the bell
+            const Color ink = style == "m3" ? m3Circle(cr, app, nx, ny, nhgt, nh, "primary", "on_primary", "on_primary") : roundButtonFrame(cr, app, style, nx, ny, nw, nhgt, nh);
             drawIcon(cr, bell, nx + (nw - 18) / 2.0, ny + (nhgt - 18) / 2.0, 18, ink, nh);
             if (any) {
                 char cnt[8];
