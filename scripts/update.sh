@@ -69,11 +69,23 @@ git log --max-count=20 --format='  %h %s' "HEAD..$TARGET"  # (not piped into hea
 [ "$BEHIND" -le 20 ] || echo "  ... and $((BEHIND - 20)) more"
 [ "$CHECK" = 0 ] || exit 0
 
-[ -z "$(git status --porcelain --untracked-files=no)" ] || die "files of the shell were changed here (git status): a fast-forward would overwrite them; undo or commit them first"
+# Files of the shell edited here (for example binds uncommented in hyprland/end4pC.lua) would be overwritten: they are set aside with
+# `git stash` once the update is confirmed, and can be brought back afterwards.
+CHANGED="$(git status --porcelain --untracked-files=no)"
+if [ -n "$CHANGED" ]; then
+    echo "${R}These files of the shell were changed here:${N}"
+    echo "$CHANGED" | sed 's/^/  /'
+    echo "The update would overwrite them, so it sets them aside first (git stash) and keeps going."
+fi
 if [ "$YES" = 0 ]; then
     [ -t 0 ] || die "it asks before updating: run it in a terminal, or add -y"
     read -r -p "Update now? Only the shell's code and assets change; your settings and dotfiles stay. [y/N] " ans
     case "$ans" in y|Y|yes|s|S|si) ;; *) echo "nothing changed"; exit 0 ;; esac
+fi
+STASHED=0
+if [ -n "$CHANGED" ]; then
+    git stash push --quiet -m "end4pC update $(date +%F-%H%M)" || die "could not set the changed files aside (git stash)"
+    STASHED=1
 fi
 
 say "keeping the current version and build for --rollback"
@@ -83,15 +95,20 @@ echo "$PREV" > "$ROLLBACK/commit"
 for b in "${BINS[@]}"; do [ -f "$BUILD/$b" ] && cp -p "$BUILD/$b" "$ROLLBACK/$b"; done
 
 say "pulling"
-git merge --ff-only --quiet "$TARGET" || die "the fast-forward was refused"
+git merge --ff-only --quiet "$TARGET" || { [ "$STASHED" = 1 ] && git stash pop --quiet; die "the fast-forward was refused"; }
 
 say "building"
 cd "$PROJECT"
 if ! { [ -d "$BUILD" ] || meson setup "$BUILD"; } || ! ninja -C "$BUILD"; then
     echo "${R}the build failed:${N} going back to the previous version" >&2
     git reset --hard "$PREV" >/dev/null
+    [ "$STASHED" = 1 ] && git stash pop --quiet
     restore_bins
     exit 1
 fi
 say "${G}updated to $(version)${N}"
+if [ "$STASHED" = 1 ]; then
+    echo "Your changes to the shell's files were set aside, not lost. To see them:  git -C \"$PROJECT\" stash show -p"
+    echo "To bring them back (it may need a hand where the same lines changed):  git -C \"$PROJECT\" stash pop"
+fi
 restart_hint
