@@ -144,6 +144,7 @@ struct ToolPage {
     virtual bool key(const KeyEvent&) { return false; }
     virtual bool tick() { return false; }
     virtual bool animating() const { return false; }
+    virtual bool mouseButton(uint32_t) { return false; }  // a press of any button (Linux code), before the click is handled; true: taken
     virtual bool grabsKeys() const { return false; }  // true: every key, shortcuts of the window included, goes to key()
     virtual void blur() {}
     virtual bool roundClip() const { return true; }  // false: the page may use the corners of its area (the clip is a plain rectangle)                            // the keyboard left the window
@@ -710,6 +711,7 @@ void onPMotion(void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
     motion();
 }
 void onPButton(void*, wl_pointer*, uint32_t, uint32_t, uint32_t button, uint32_t state) {
+    if (state == WL_POINTER_BUTTON_STATE_PRESSED && g.switchT >= 1 && cur().grabsKeys() && cur().mouseButton(button)) { g.dirty = true; return; }
     if (button == 0x110) click(state == WL_POINTER_BUTTON_STATE_PRESSED);
 }
 void onPAxis(void*, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t value) {

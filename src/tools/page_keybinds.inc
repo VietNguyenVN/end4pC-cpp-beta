@@ -26,6 +26,7 @@ struct KeybindsPage final : ToolPage {
     // the editor
     bool dlg = false, capturing = false;
     int dlgIdx = -1, focus = 0;  // focus: 1 the argument, 2 the name
+    size_t curSearch = 0, curArg = 0, curDesc = 0;  // the caret of each text box: a byte offset
     Kb d;
     Elastic dlgScroll;
     double dlgContentH = 0;
@@ -199,7 +200,14 @@ struct KeybindsPage final : ToolPage {
         }
         return cy + 34 - y;
     }
+    double fieldOffset(const std::string& value, size_t cur, double inner) {  // how far the text is pushed left so that the caret stays in view
+        double cw = 0, ch = 0;
+        measure(value.substr(0, std::min(cur, value.size())), 15, false, 0, cw, ch);
+        return cw > inner - 4 ? inner - 4 - cw : 0;
+    }
     void field(cairo_t* cr, Rect r, const std::string& value, const std::string& hint, bool focused, int id, int arg) {
+        size_t& cur = arg == 1 ? curArg : curDesc;
+        cur = std::min(cur, value.size());
         const bool hv = hot(r, id, arg);
         src(cr, hv ? mix(g.color("on_surface"), g.color("surface_container"), 0.05) : g.color("surface_container"));
         rrect(cr, r.x, r.y, r.w, r.h, 16);
@@ -208,15 +216,16 @@ struct KeybindsPage final : ToolPage {
         const double pad = 16, inner = r.w - 2 * pad;
         if (value.empty()) { trLine(cr, hint, r.x + pad, r.y + (r.h - 18) / 2, inner, 15, false, g.color("on_surface_variant"), 0.6); }
         else {
-            double tw = 0, th = 0;
+            double tw = 0, th = 0, cw = 0, ch = 0;
             measure(value, 15, false, 0, tw, th);
+            measure(value.substr(0, cur), 15, false, 0, cw, ch);
             cairo_save(cr);
             cairo_rectangle(cr, r.x + pad, r.y, inner, r.h);
             cairo_clip(cr);
-            const double off = focused && tw > inner - 4 ? inner - 4 - tw : 0;
+            const double off = focused ? fieldOffset(value, cur, inner) : 0;
             text(cr, value, r.x + pad + off, r.y + (r.h - th) / 2, 15, false, g.color("on_surface"));
             cairo_restore(cr);
-            if (focused && lastCaret) { src(cr, g.color("primary")); cairo_rectangle(cr, r.x + pad + std::min(tw, inner - 4) + off + 1, r.y + (r.h - 22) / 2, 2, 22); cairo_fill(cr); }
+            if (focused && lastCaret) { src(cr, g.color("primary")); cairo_rectangle(cr, r.x + pad + cw + off + 1, r.y + (r.h - 22) / 2, 2, 22); cairo_fill(cr); }
         }
         if (value.empty() && focused && lastCaret) { src(cr, g.color("primary")); cairo_rectangle(cr, r.x + pad, r.y + (r.h - 22) / 2, 2, 22); cairo_fill(cr); }
     }
@@ -357,12 +366,14 @@ struct KeybindsPage final : ToolPage {
         cairo_fill(cr);
         hits.push_back({s, Search, 0});
         ::icon(cr, "magnifer", 18, (h - 22) / 2, 22, g.color("on_surface_variant"));
+        curSearch = std::min(curSearch, search.size());
         if (search.empty()) text(cr, kbT("Search by name, keys or command"), 52, (h - 20) / 2, 16, false, g.color("on_surface_variant"), 0, 0.65);
         else {
-            double tw = 0, th = 0;
+            double tw = 0, th = 0, cw = 0, ch = 0;
             measure(search, 16, false, 0, tw, th);
+            measure(search.substr(0, curSearch), 16, false, 0, cw, ch);
             trLine(cr, search, 52, (h - th) / 2, s.w - 52 - 52, 16, false, g.color("on_surface"));
-            if (lastCaret && focus) { src(cr, g.color("primary")); cairo_rectangle(cr, 52 + std::min(tw, s.w - 104) + 1, (h - 22) / 2, 2, 22); cairo_fill(cr); }
+            if (lastCaret && focus) { src(cr, g.color("primary")); cairo_rectangle(cr, 52 + std::min(cw, s.w - 104) + 1, (h - 22) / 2, 2, 22); cairo_fill(cr); }
             const Rect x{s.w - 44, 4, 40, 40};
             iconBtn(cr, x, "close-circle", g.color("on_surface_variant"), hot(x, SearchClear));
         }
@@ -384,7 +395,7 @@ struct KeybindsPage final : ToolPage {
             x += chip(cr, x, y, l, catSel == static_cast<int>(i), Cat, static_cast<int>(i)) + 8;
         }
         const std::string al = kbT("Alternates");
-        const double aw = pillW(al, true) - 2;
+        const double aw = pillW(al, showAlt) - 2;  // (the check icon is there only when it is on)
         chip(cr, W - aw, y, al, showAlt, Alt, 0, showAlt ? "check-circle" : nullptr);
     }
 
@@ -638,6 +649,8 @@ struct KeybindsPage final : ToolPage {
         d = idx < 0 ? Kb{"Custom", "", "exec", "", "", "", ""} : rows[static_cast<size_t>(idx)];
         dlgScroll.reset();
         focus = 0;
+        curArg = d.arg.size();
+        curDesc = d.desc.size();
         capturing = false;
         if (idx < 0) startCapture();
     }
@@ -680,7 +693,7 @@ struct KeybindsPage final : ToolPage {
     bool act(const Hover& h) {
         switch (h.id) {
             case Search: return false;
-            case SearchClear: search.clear(); listScroll.reset(); break;
+            case SearchClear: search.clear(); curSearch = 0; listScroll.reset(); break;
             case Add: openEditor(-1); break;
             case Restore: restoreDefaults(); break;
             case Cat: catSel = h.arg; listScroll.reset(); break;
@@ -735,32 +748,94 @@ struct KeybindsPage final : ToolPage {
     bool click(double x, double y, bool press) override {
         if (!press) return false;
         const Hover h = hitAt(x, y);
-        if (h.id == Search) { if (dlg) closeEditor(); return true; }
+        if (h.id == Search) { if (dlg) closeEditor(); for (const Hit& t : hits) if (t.id == Search) { curSearch = caretAt(search, 16, x - (t.r.x + 52)); break; }
+            return true;
+        }
         if (h.id == None) return false;
-        return act(h);
+        const bool wasField = h.id == DlgField;
+        const bool done = act(h);
+        if (wasField) {  // the caret goes where the click was
+            const std::string& v = h.arg == 1 ? d.arg : d.desc;
+            for (const Hit& t : hits) if (t.id == DlgField && t.arg == h.arg) {
+                const double inner = t.r.w - 32;
+                const size_t cur = h.arg == 1 ? curArg : curDesc;
+                (h.arg == 1 ? curArg : curDesc) = caretAt(v, 15, x - (t.r.x + 16) - fieldOffset(v, cur, inner));
+                break;
+            }
+        }
+        return done;
     }
     bool scroll(double x, double y, double dy) override {
+        if (capturing) return captureScroll(dy);
         if (dlg) { if (dlgInner.contains(x, y)) { dlgScroll.by(dy * 3); return true; } return false; }
         if (listArea.contains(x, y)) { listScroll.by(dy * 3); return true; }
         return false;
     }
 
-    bool typeInto(std::string& s, const KeyEvent& k, size_t max) {
+    static size_t nextChar(const std::string& v, size_t i) {
+        if (i >= v.size()) return v.size();
+        i++;
+        while (i < v.size() && (static_cast<unsigned char>(v[i]) & 0xC0) == 0x80) i++;
+        return i;
+    }
+    // The byte offset of the character boundary nearest to x (measured from the start of the text).
+    size_t caretAt(const std::string& v, double px, double x) {
+        size_t best = 0;
+        double bestD = 1e9;
+        for (size_t i = 0;; i = nextChar(v, i)) {
+            double w = 0, h = 0;
+            measure(v.substr(0, i), px, false, 0, w, h);
+            if (std::fabs(w - x) < bestD) { bestD = std::fabs(w - x); best = i; }
+            if (i >= v.size()) break;
+        }
+        return best;
+    }
+
+    // Typing into a box: the text goes in at the caret, and the arrows, Home, End, Delete and Backspace work around it.
+    bool typeInto(std::string& s, size_t& cur, const KeyEvent& k, size_t max) {
+        cur = std::min(cur, s.size());
         if (k.ctrl && k.sym == XKB_KEY_v) {
             std::string t;
             if (trRunSync({"wl-paste", "-n", "-t", "text"}, "", &t, 1500)) {
                 for (char& c : t) if (c == '\n' || c == '\t') c = ' ';
-                if (s.size() + t.size() <= max) s += t;
+                if (s.size() + t.size() <= max) { s.insert(cur, t); cur += t.size(); }
             }
             return true;
         }
-        if (k.sym == XKB_KEY_BackSpace) { if (!s.empty()) s.erase(trPrevChar(s, s.size())); return true; }
-        if (k.ctrl || k.alt || k.text.empty()) return false;
+        if (k.ctrl || k.alt) return false;
+        switch (k.sym) {
+            case XKB_KEY_Left: cur = cur > 0 ? trPrevChar(s, cur) : 0; return true;
+            case XKB_KEY_Right: cur = nextChar(s, cur); return true;
+            case XKB_KEY_Home: cur = 0; return true;
+            case XKB_KEY_End: cur = s.size(); return true;
+            case XKB_KEY_BackSpace: if (cur > 0) { const size_t p = trPrevChar(s, cur); s.erase(p, cur - p); cur = p; } return true;
+            case XKB_KEY_Delete: if (cur < s.size()) s.erase(cur, nextChar(s, cur) - cur); return true;
+            default: break;
+        }
+        if (k.text.empty()) return false;
         if (s.size() + k.text.size() > max) return true;
-        s += k.text;
+        s.insert(cur, k.text);
+        cur += k.text.size();
         return true;
     }
 
+    // While a shortcut is being captured, a click joins it (a bare left click is still the click on the box): Super + right click, a side button...
+    bool mouseButton(uint32_t button) override {
+        if (!capturing) return false;
+        bool logo, ctrl, shift, alt;
+        liveMods(logo, ctrl, shift, alt);
+        if (button == 0x110 && !logo && !ctrl && !shift && !alt) return false;
+        d.keys = kbModsText(logo, ctrl, shift, alt) + "mouse:" + std::to_string(button);
+        stopCapture();
+        return true;
+    }
+    bool captureScroll(double dy) {
+        bool logo, ctrl, shift, alt;
+        liveMods(logo, ctrl, shift, alt);
+        d.keys = kbModsText(logo, ctrl, shift, alt) + (dy > 0 ? "mouse_down" : "mouse_up");
+        stopCapture();
+        return true;
+    }
     bool captureKey(const KeyEvent& k) {
         if (kbIsModifierSym(k.sym)) return true;
         const bool bare = !k.ctrl && !k.alt && !k.shift && !k.logo;
@@ -775,18 +850,18 @@ struct KeybindsPage final : ToolPage {
         if (k.sym == XKB_KEY_Escape) { closeEditor(); return true; }
         if (k.sym == XKB_KEY_Tab || k.sym == XKB_KEY_ISO_Left_Tab) { focus = focus == 1 ? 2 : 1; const KbKind* kd = kbKind(d.kind); if (focus == 1 && !(kd && kd->textArg)) focus = 2; return true; }
         if (k.sym == XKB_KEY_Return || k.sym == XKB_KEY_KP_Enter) { if (valid()) saveEditor(); return true; }
-        if (focus == 1) return typeInto(d.arg, k, 600);
-        if (focus == 2) { const bool used = typeInto(d.desc, k, 80); if (used) lastAutoName.clear(); return used; }
+        if (focus == 1) return typeInto(d.arg, curArg, k, 600);
+        if (focus == 2) { const bool used = typeInto(d.desc, curDesc, k, 80); if (used) lastAutoName.clear(); return used; }
         return false;
     }
     bool key(const KeyEvent& k) override {
         lastKey = Clock::now();
         if (capturing) return captureKey(k);
         if (dlg) return dialogKey(k);
-        if (k.sym == XKB_KEY_Escape) { if (!search.empty()) { search.clear(); listScroll.reset(); return true; } return false; }
+        if (k.sym == XKB_KEY_Escape) { if (!search.empty()) { search.clear(); curSearch = 0; listScroll.reset(); return true; } return false; }
         if (k.sym == XKB_KEY_Page_Down) { listScroll.by(listArea.h * 0.8); return true; }
         if (k.sym == XKB_KEY_Page_Up) { listScroll.by(-listArea.h * 0.8); return true; }
-        const bool used = typeInto(search, k, 80);
+        const bool used = typeInto(search, curSearch, k, 80);
         if (used) listScroll.reset();
         return used;
     }

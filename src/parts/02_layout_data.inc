@@ -36,11 +36,11 @@ const char* quickIcon(const App& app, int id, bool& live, bool& alert) {
 constexpr double kQuickGrowX = 28;
 double quickItemW(const App& app, int id) {
     const bool grows = id >= 0 && id < 8 && !sideBar(app) && widgetStyle(app, "quickactions") == "m3";
-    return kQuickBox + (grows ? app.quickGrow[id] * kQuickGrowX : 0) + softExtra(app, "quickactions") + (!sideBar(app) && widgetStyle(app, "quickactions") == "split" ? kQuickSplitExtra : 0);
+    return quickBase(app) + (grows ? app.quickGrow[id] * kQuickGrowX : 0) + softExtra(app, "quickactions") + (!sideBar(app) && widgetStyle(app, "quickactions") == "split" ? kQuickSplitExtra : 0);
 }
 double quickItemX(const App& app, size_t i) {
     const std::vector<int> shown = quickShown(app);
-    const double gap = quickPitch(app) - kQuickBox;
+    const double gap = quickPitch(app) - quickBase(app);
     double x = 0;
     for (size_t j = 0; j < i && j < shown.size(); j++) x += quickItemW(app, shown[j]) + gap;
     return x;
@@ -187,10 +187,12 @@ void drawTrayGlyph(cairo_t* cr, const App& app, cairo_surface_t* surf, double x,
 }
 
 const App::Periph* lowPeripheral(const App& app);
-double resOneW(const App& app) { const std::string s = widgetStyle(app, "resources"); return s == "text" ? 30 : s == "bars" ? 26 : 22; }
+double resOneW(const App& app) { const std::string s = widgetStyle(app, "resources"); return s == "text" ? 30 : s == "bars" ? 26 : kQuickBox; }  // (circles and pills are as big as the quick action buttons)
 double resValW(const App& app) { return widgetStyle(app, "resources") == "bars" ? 0 : app.cfg.resValue ? 18 : 0; }
 double launcherM3W(const App& app);
 double updatesBarW(const App& app);
+double btBarW(const App& app);
+bool updatesShown(const App& app) { return app.cfg.updatesEnable && (app.cfg.updatesMinShow <= 0 || app.updatesTotal >= app.cfg.updatesMinShow); }
 double launcherWidth(const App& app) { return !sideBar(app) && widgetStyle(app, "launcher") == "m3" ? launcherM3W(app) : roundBtnWide(app, "launcher"); }
 constexpr double kVizM3Pad = 5;
 
@@ -246,7 +248,7 @@ double moduleWidth(const App& app, const std::string& m) {
     if (m == "quickactions") return quickW(app);
     if (m == "network") return netVisible(app) ? netExtent(app, false) : 0;
     if (m == "volume") return volumeW(app);
-    if (m == "bluetooth") return kQuickBox + softExtra(app, "bluetooth");
+    if (m == "bluetooth") return btBarW(app);
     if (m == "drives") return drivesVisible(app) ? kQuickBox + softExtra(app, "drives") : 0;
     if (m == "docktopanel") return dtpWidth(app);
     if (m == "clock") return app.clockW;
@@ -266,7 +268,7 @@ double moduleWidth(const App& app, const std::string& m) {
     }
     if (m == "weather") return app.barWeather.ok ? app.weatherBarW : 0;
     if (m == "aiusage") return app.aiBarW;
-    if (m == "updates") return app.cfg.updatesEnable ? updatesBarW(app) : 0;
+    if (m == "updates") return updatesShown(app) ? updatesBarW(app) : 0;
     if (m == "activewindow") return awinBarW(app);
     if (m == "keyboard") return app.kbd.list.empty() ? 0 : kbdBarW(app);
     if (isDivider(m)) return app.cfg.dividerStyle == "dot" ? 6 : 2;
@@ -284,7 +286,7 @@ double edgePad(const App& app, const std::string& m) {
     double h = kModuleBox;
     if (m == "avatar") h = kBarAvatar;
     else if (m == "settings" || m == "power" || m == "tools" || m == "notifications") h = roundBtnW(app, m.c_str());
-    else if (m == "launcher") h = widgetStyle(app, "launcher") == "m3" ? kModuleBox : kQuickBox;
+    else if (m == "launcher") h = kQuickBox;
     return std::max(0.0, (kBarHeight - h) / 2.0);
 }
 
@@ -415,7 +417,7 @@ Hit hitTest(const Bar& bar, double x, double y) {
     if (hasSlot(bar, "updates") && x >= slotX(bar, "updates") && x < slotX(bar, "updates") + updatesBarW(app)) return HitUpdates;
     if (hasSlot(bar, "volume") && x >= volumeX(bar) && x < volumeX(bar) + volumeW(app)) return HitVolume;
     if (hasSlot(bar, "drives") && drivesVisible(app) && x >= slotX(bar, "drives") && x < slotX(bar, "drives") + kQuickBox + softExtra(app, "drives")) return HitDrives;
-    if (hasSlot(bar, "bluetooth") && x >= slotX(bar, "bluetooth") && x < slotX(bar, "bluetooth") + kQuickBox + softExtra(app, "bluetooth")) return HitBluetooth;
+    if (hasSlot(bar, "bluetooth") && x >= slotX(bar, "bluetooth") && x < slotX(bar, "bluetooth") + btBarW(app)) return HitBluetooth;
     if (hasSlot(bar, "network") && x >= networkX(bar) && x < networkX(bar) + netExtent(app, false)) return HitNetwork;
     if (hasSlot(bar, "settings") && x >= settingsX(bar) && x < settingsX(bar) + roundBtnWide(app, "settings")) return HitSettings;
     if (hasSlot(bar, "launcher") && x >= launcherX(bar) && x < launcherX(bar) + launcherWidth(app)) return HitLauncher;
@@ -424,14 +426,14 @@ Hit hitTest(const Bar& bar, double x, double y) {
     if (hasSlot(bar, "notifications") && x >= notifX(bar) && x < notifX(bar) + notifW(app)) return HitNotif;
     if (hasSlot(bar, "quickactions"))
         for (size_t i = 0, n = quickShown(app).size(); i < n; i++) {
-            const double pitch = quickPitch(app), slack = (pitch - kQuickBox) / 2;
+            const double pitch = quickPitch(app), slack = (pitch - quickBase(app)) / 2;
             const double ix = quickX(bar) + quickPadX(app) + quickItemX(app, i);
             if (x >= ix - slack && x < ix + quickItemW(app, quickShown(app)[i]) + slack) return kHitQuick + quickShown(app)[i];
         }
     if (hasSlot(bar, "media") && musicM3(app)) {
         const double px = musicX(bar) + musicCtrlX(app);
         if (x >= px - 2 && x < px + kMediaPillW + 1) return HitPlay;
-        if (x >= px + kMediaNextX - 1 && x < px + kMediaNextX + kQuickBox + 2) return HitNext;
+        if (x >= px + kMediaNextX - 1 && x < px + kMediaNextX + kM3Disc + 2) return HitNext;
         if (x >= musicX(bar) && x < px - kMusicGap / 2) return HitMedia;
     }
     if (hasSlot(bar, "media") && !musicM3(app)) {

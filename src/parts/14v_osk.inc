@@ -247,6 +247,27 @@ void drawOsk(App& app) {
     wl_surface_commit(S.surface);
 }
 
+// The width and height of the monitor the keyboard is on, as its margins count them (a layer surface cannot leave its monitor).
+double oskScreenW(const App& app, const Bar* bar) {
+    return bar ? bar->width + 2.0 * (app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0)) : 1920;
+}
+Bar* oskBar(App& app) {  // the bar of the monitor in focus (the one a keybind was pressed on)
+    const std::string info = wmFocusedOutputInfo();
+    const std::string name = info.substr(0, info.find_first_of(" \n"));
+    for (auto& b : app.bars) if (b->surface && b->connector == name) return b.get();
+    return mainBar(app);
+}
+double oskScreenH(const App& app) { return app.screenH > 0 ? app.screenH : 1080; }
+
+// A move of the drag: the keyboard stays inside its monitor (a layer surface cannot leave it, and past the edge it would be out of reach).
+void oskMove(App& app, double dx, double dy) {
+    OskState& S = app.osk;
+    const OskGeom G = oskGeom();
+    const double maxLeft = std::max(0.0, oskScreenW(app, S.bar) - G.w), maxBottom = std::max(0.0, oskScreenH(app) - G.h);
+    S.marginLeft = std::clamp(S.marginLeft + dx, 0.0, maxLeft);
+    S.marginBottom = std::clamp(S.marginBottom - dy, 0.0, maxBottom);
+}
+
 // One move per frame: the pointer's position is relative to the surface, so a second move before the compositor has shown the first
 // would be measured from the old place and applied twice (that was the flicker). The next one waits for the frame callback.
 void oskPlace(App& app);
@@ -256,9 +277,9 @@ void oskFrameDone(void* d, wl_callback* cb, uint32_t) {
     app->osk.movePending = false;
     OskState& S = app->osk;
     if (S.dragging && S.onOther && (S.accDx != 0 || S.accDy != 0)) {  // moves that came in while the last one was still on its way
-        S.marginLeft = std::max(0.0, S.marginLeft + S.accDx);
-        S.marginBottom = std::max(0.0, S.marginBottom - S.accDy);
+        const double dx = S.accDx, dy = S.accDy;
         S.accDx = S.accDy = 0;
+        oskMove(*app, dx, dy);
         oskPlace(*app);
     }
 }
@@ -304,7 +325,7 @@ const zwlr_layer_surface_v1_listener kOskListener = {onOskConfigure, onOskClosed
 void oskHome(App& app) {
     OskState& S = app.osk;
     const OskGeom G = oskGeom();
-    const Bar* bar = mainBar(app);
+    const Bar* bar = S.bar ? S.bar : oskBar(app);
     const double screenW = bar ? bar->width + 2.0 * (app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0)) : 1920;
     S.marginLeft = std::max(0.0, (screenW - G.w) / 2);
     S.marginBottom = 40;
@@ -319,9 +340,12 @@ void openOsk(App& app) {
     kbdRead(app);  // (the layout in use now)
     oskSync(app);
     const OskGeom G = oskGeom();
-    const Bar* bar = mainBar(app);
+    Bar* bar = oskBar(app);
+    S.bar = bar;
     const double screenW = bar ? bar->width + 2.0 * (app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0)) : 1920;
     if (!S.placed) { S.marginLeft = std::max(0.0, (screenW - G.w) / 2); S.marginBottom = 40; S.placed = true; }
+    S.marginLeft = std::clamp(S.marginLeft, 0.0, std::max(0.0, screenW - G.w));  // (this monitor may be smaller than the one it was left on)
+    S.marginBottom = std::clamp(S.marginBottom, 0.0, std::max(0.0, oskScreenH(app) - G.h));
     S.mods = 0;
     S.caps = S.shiftLock = false;
     S.hover = S.pressed = -1;
@@ -353,9 +377,9 @@ void oskDragOther(App& app, double x, double y) {
     S.otherX = x;
     S.otherY = y;
     if (S.movePending || (std::fabs(S.accDx) < 0.5 && std::fabs(S.accDy) < 0.5)) return;
-    S.marginLeft = std::max(0.0, S.marginLeft + S.accDx);
-    S.marginBottom = std::max(0.0, S.marginBottom - S.accDy);
+    const double dx = S.accDx, dy = S.accDy;
     S.accDx = S.accDy = 0;
+    oskMove(app, dx, dy);
     oskPlace(app);
 }
 
@@ -365,8 +389,7 @@ void oskMotion(App& app) {
         if (S.movePending) return;
         const double dx = app.pointerX - S.grabX, dy = app.pointerY - S.grabY;
         if (std::fabs(dx) < 0.5 && std::fabs(dy) < 0.5) return;
-        S.marginLeft = std::max(0.0, S.marginLeft + dx);
-        S.marginBottom = std::max(0.0, S.marginBottom - dy);
+        oskMove(app, dx, dy);
         oskPlace(app);
         return;
     }
@@ -380,9 +403,9 @@ void oskButton(App& app, uint32_t button, bool pressed) {
     if (!pressed) {
         const bool wasDrag = S.dragging;
         if (wasDrag && S.onOther && (S.accDx != 0 || S.accDy != 0)) {  // (what the last frames did not apply yet)
-            S.marginLeft = std::max(0.0, S.marginLeft + S.accDx);
-            S.marginBottom = std::max(0.0, S.marginBottom - S.accDy);
+            const double dx = S.accDx, dy = S.accDy;
             S.accDx = S.accDy = 0;
+            oskMove(app, dx, dy);
             oskPlace(app);
         }
         S.onOther = false;

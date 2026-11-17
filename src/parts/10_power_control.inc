@@ -636,6 +636,7 @@ void brightnessFollowFocus(App& app);
 std::string wmFocusedOutputInfo();
 void pollMedia(App& app);
 void changeBrightness(App& app, int delta, int absolute = -1, std::string output = "");
+void showOsd(App& app, int kind);
 void toggleSettings();
 void toggleTools();
 pid_t mediaSend(App& app, std::initializer_list<const char*> args);
@@ -756,6 +757,24 @@ void ccMotion(App& app) {
     C.hover = h;
     drawControlCenter(app);
     updateCursor(app);
+}
+// The wheel over the brightness or the volume slider of the control center: one step per notch (down for dir > 0).
+bool ccWheel(App& app, int dir) {
+    ControlCenter& C = app.cc;
+    if (popIsOut(C.anim) || C.page != CcPageNone) return false;
+    const int id = ccAt(app.pointerX - kCcRoom, app.pointerY - kCcRoom);
+    if (id == CcBright) {
+        changeBrightness(app, dir > 0 ? -3 : 3, -1);
+    } else if (id == CcVol) {
+        const int v = std::clamp(app.volume + (dir > 0 ? -app.cfg.volumeStep : app.cfg.volumeStep), 0, app.cfg.volumeMax);
+        app.volume = v;
+        runDetached({"wpctl", "set-volume", "-l", volLimit(app).c_str(), "@DEFAULT_AUDIO_SINK@", volStep(app, dir > 0).c_str()});
+        showOsd(app, OsdVolume);  // (app.volume is already the new one, so the audio event would find no change and show nothing)
+    } else {
+        return false;
+    }
+    drawControlCenter(app);
+    return true;
 }
 void ccRelease(App& app) {
     ControlCenter& C = app.cc;

@@ -175,7 +175,7 @@ inline const std::vector<WidgetStyleSet>& widgetStyleSets() {
     static const std::vector<WidgetStyleOption> btnLooks = {{"m3soft", "Filled tonal"}, {"m3filled", "Filled"}};
     auto withBtn = [](std::vector<WidgetStyleOption> v) { v.insert(v.end(), btnLooks.begin(), btnLooks.end()); return v; };
     static const std::vector<WidgetStyleSet> sets = [&] { std::vector<WidgetStyleSet> v = {
-        {"clock", "Clock", "barClock", {{"pill", "Pill"}, {"minimal", "Minimal"}, {"outline", "Outline"}, {"tiles", "Tiles"}, {"badge", "Badge"}, {"stacked", "Stacked"}, {"analog", "Analog"}, {"split", "Split"}, {"compact", "Compact"}, {"dot", "Dot"}, {"bold", "Bold"}}},
+        {"clock", "Clock", "barClock", {{"pill", "Pill"}, {"minimal", "Minimal"}, {"outline", "Outline"}, {"tiles", "Tiles"}, {"badge", "Badge"}, {"stacked", "Stacked"}, {"analog", "Analog"}, {"split", "Split"}, {"compact", "Compact"}, {"dot", "Dot"}, {"bold", "Pixel"}}},
         {"workspaces", "Workspaces", "workspaceStyle", {{"icons", "Icons"}, {"default", "Squares"}, {"gnome", "Dots"}, {"pill", "Pill"}, {"bar", "Bars"}, {"ring", "Rings"}}},
         {"resources", "Resources", "resStyle", {{"filled", "Filled"}, {"outline", "Outline"}, {"text", "Text"}, {"bars", "Bars"}, {"pill", "Pill"}}},
         {"weather", "Weather", "", {{"plain", "Plain"}, {"pill", "Pill"}, {"outline", "Outline"}, {"badge", "Badge"}, {"tonal", "Tonal"}, {"square", "Square"}, {"icon", "Icon"}, {"temp", "Temp"}, {"stacked", "Stacked"}}},
@@ -302,11 +302,13 @@ struct Config {
     int updatesAur = 0;
     int updatesFlatpak = 0;
     int updatesInterval = 60;
+    int updatesMinShow = 0;  // the bar shows the updates widget from this many pending updates (0: always)
     std::string cornerTL = "none", cornerTR = "controlcenter", cornerBL = "media", cornerBR = "wallpapers";
     int dividerSpacing = 0;
     int barShadow = 0;
     std::string islandView = "media";
     int dynamicIsland = 0;
+    int islandClick = 0;  // 1: the island opens on a click instead of on hover
     int barSpacing = 4;
     int sideBarSpacing = 4;
     int animEnabled = 1;
@@ -1344,6 +1346,7 @@ struct OskState {  // the on-screen keyboard
     bool configured = false, placed = false, caps = false, shiftLock = false, dragging = false, movePending = false, relayout = false;
     int mods = 0, hover = -1, pressed = -1;
     double marginLeft = 0, marginBottom = 40, grabX = 0, grabY = 0;
+    Bar* bar = nullptr;                              // the bar of the monitor it is on
     bool onOther = false;                            // while dragging, the pointer is over another surface of the shell (it moved faster than the keyboard)
     double otherX = 0, otherY = 0, accDx = 0, accDy = 0;
 };
@@ -1708,7 +1711,7 @@ constexpr int kQuickBox = 26;
 constexpr int kQuickItem = 30;
 constexpr double kModuleBox = kQuickItem, kModulePad = 10;
 static_assert(kNotchPad == (kBarHeight - kModuleBox) / 2.0 && kIslandPad == kNotchPad, "the side padding of the bar bodies must equal the top padding");
-constexpr double kM3Inset = (kModuleBox - kQuickBox) / 2;
+constexpr double kM3Box = kQuickBox, kM3Inset = 2, kM3Disc = kM3Box - 2 * kM3Inset;  // (the M3 pills are as tall as the other designs; the disc inside keeps a 2 px margin, as the workspaces do)
 enum QuickAct { kQaPicker = 0, kQaRecord, kQaScreenshot, kQaWallpaper, kQaMic, kQaDark, kQaPerf, kQaOsk, kQaCount };
 const char* const kQuickNames[kQaCount] = {"picker", "record", "screenshot", "wallpaper", "mic", "darkmode", "perfprofile", "osk"};
 constexpr int kNetW = 26;
@@ -1828,7 +1831,8 @@ constexpr int kMusicTextMax = 200;
 constexpr int kMusicTextMin = 40;
 constexpr int kMusicBtn = kQuickItem;
 constexpr int kMusicGap = 8;
-constexpr int kM3TextGap = 5;
+constexpr int kM3TextGap = 7;
+constexpr double kM3SidePad = kM3Inset;  // (the media pill: the same air at the ends as above and below the discs)
 constexpr int kMusicLineSpacing = -4;
 constexpr const char* kArtistFont = "Sans 8";
 constexpr const char* kTitleFont = "Sans Bold 10";
@@ -1837,7 +1841,7 @@ using Hit = int;
 constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitDrives = 26, HitIsland = 25, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600, kHitDtp = 800;
 
 std::string widgetStyle(const App& app, const std::string& mod);
-double roundBtnW(const App& app, const char* mod) { return kQuickBox + (!sideBar(app) && widgetStyle(app, mod) == "m3" ? kModuleBox - kQuickBox : 0); }
+double roundBtnW(const App& app, const char* mod) { return kQuickBox + (!sideBar(app) && widgetStyle(app, mod) == "m3" ? kM3Box - kQuickBox : 0); }
 double roundBtnWide(const App& app, const char* mod) {
     const double h = roundBtnW(app, mod);
     if (sideBar(app)) return h;
@@ -1889,14 +1893,14 @@ std::string widgetStyle(const Config& cfg, const std::string& mod) {
 std::string widgetStyle(const App& app, const std::string& mod) { return widgetStyle(app.cfg, mod); }
 
 constexpr double kFrameGutter = 6;
-constexpr double kMediaFrameH = kMusicArt + 6;
+constexpr double kMediaFrameH = kQuickBox;  // (as tall as the other widgets)
 inline bool m3ButtonLook(const std::string& s) { return s == "m3soft" || s == "m3filled"; }
 inline bool genericFrame(const std::string& style) { return m3ButtonLook(style) || style == "pill" || style == "outline" || style == "badge" || style == "tonal" || style == "square"; }
 constexpr double kAwinMaxW = 280;
 constexpr double kMediaTextMax = 120;
 double kbdBarW(const App& app) {
     const std::string style = widgetStyle(app, "keyboard");
-    if (style == "m3") return app.kbd.m3W + 8;
+    if (style == "m3") return kM3Inset + kM3Disc + 6 + app.kbd.m3W + kModulePad;
     if (style == "icon") return kQuickBox;
     if (style == "code") return std::max<double>(kQuickBox, app.kbd.codeW + 16);
     return app.kbd.barW + (genericFrame(style) ? 2 * kFrameGutter : 0);
@@ -1908,25 +1912,25 @@ double awinBarW(const App& app) {
     if (style == "chip") return std::min(app.awin.clsW + 4 + 18 + 4 + 8.0, kAwinMaxW);
     return app.awin.barW + (genericFrame(style) ? 2 * kFrameGutter : 0);
 }
-double musicCoverPx(const App& app) { return widgetStyle(app, "media") == "compact" ? 23 : kMusicArt; }
+double musicCoverPx(const App& app) { const std::string s = widgetStyle(app, "media"); return genericFrame(s) ? kM3Disc : s == "compact" ? 23 : kMusicArt; }
 std::string musicArtistShown(const App& app) { return app.musicStatus.empty() ? std::string(i18n::tr("Play")) : app.musicArtist; }
 std::string musicTitleShown(const App& app) {
     if (!app.musicStatus.empty()) return app.musicTitle;
     return widgetStyle(app, "media") == "compact" ? std::string(i18n::tr("Play something")) : std::string(i18n::tr("Something"));
 }
 bool musicHasText(const App& app) { return widgetStyle(app, "media") != "cover"; }
-double musicPad(const App& app) { return genericFrame(widgetStyle(app, "media")) ? kFrameGutter : 0; }
+double musicPad(const App& app) { return genericFrame(widgetStyle(app, "media")) ? kM3Inset : 0; }  // (the cover sits as far from the left edge as from the top and bottom)
 double musicTextColW(const App& app) { return widgetStyle(app, "media") == "compact" ? app.musicTitleW : app.musicTextW; }
 constexpr double kMediaPillW = 40, kMediaNextX = kMediaPillW + 2;
 constexpr int kMediaIcon = 18;
 constexpr int kMediaM3Icon = 16;
 bool musicM3(const App& app) { return widgetStyle(app, "media") == "m3"; }
 double musicCtrlX(const App& app) {
-    if (musicM3(app)) return kM3Inset + kMusicArt + kM3TextGap + app.musicM3TextW + kMusicGap;
+    if (musicM3(app)) return kM3SidePad + kM3Disc + kM3TextGap + app.musicM3TextW + kMusicGap;
     return musicCoverPx(app) + kMusicGap + (musicHasText(app) ? musicTextColW(app) + kMusicGap : 0);
 }
 double musicW(const App& app) {
-    if (musicM3(app)) return musicCtrlX(app) + kMediaNextX + kQuickBox + kM3Inset;
+    if (musicM3(app)) return musicCtrlX(app) + kMediaNextX + kM3Disc + kM3SidePad;
     return 2 * musicPad(app) + musicCtrlX(app) + kMusicBtn * 3 - (kQuickItem - kQuickBox);
 }
 double volumeW(const App& app) {
@@ -1934,8 +1938,10 @@ double volumeW(const App& app) {
     return (s == "level" ? kVolLevelW : s == "percent" ? kVolPctW : kVolIconW) + softExtra(app, "volume");
 }
 constexpr double kQuickGapSplit = 2, kQuickSplitExtra = 6;
+bool quickM3(const App& app) { return !sideBar(app) && widgetStyle(app, "quickactions") == "m3"; }
+double quickBase(const App& app) { return quickM3(app) ? kM3Disc : kQuickBox; }  // (the discs of the M3 group sit inside its pill)
 double quickPitch(const App& app) {
-    return widgetStyle(app, "quickactions") == "split" ? kQuickBox + kQuickGapSplit : kQuickItem;
+    return widgetStyle(app, "quickactions") == "split" ? kQuickBox + kQuickGapSplit : quickM3(app) ? kM3Disc + 4 : kQuickItem;
 }
 double quickPadX(const App& app) { return !sideBar(app) && widgetStyle(app, "quickactions") == "m3" ? kM3Inset : 0; }
 constexpr double kM3Cell = kNumH, kM3WsPill = kNumH - 4;

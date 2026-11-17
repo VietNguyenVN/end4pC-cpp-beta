@@ -58,6 +58,78 @@ std::chrono::steady_clock::time_point btWake(const App& app) {
     return when;
 }
 
+// The M3 look: a pill with the Bluetooth icon on a disc and, with a device connected, its name beside it (as the updates and the keyboard widgets).
+constexpr double kBtM3NameMax = 110, kBtM3Gap = 6;
+double btM3NameW(const App& app) {
+    const BtBar& B = app.btBar;
+    if (B.bt != "on" || B.name.empty()) return 0;
+    cairo_surface_t* surf = cairo_image_surface_create(CAIRO_FORMAT_A8, 1, 1);
+    cairo_t* cr = mkcr(surf);
+    PangoLayout* layout = pango_cairo_create_layout(cr);
+    PangoFontDescription* f = pango_font_description_from_string("Sans");
+    pango_font_description_set_absolute_size(f, 15 * PANGO_SCALE);
+    pango_layout_set_font_description(layout, f);
+    pango_layout_set_text(layout, B.name.c_str(), -1);
+    int tw = 0, th = 0;
+    pango_layout_get_pixel_size(layout, &tw, &th);
+    pango_font_description_free(f);
+    g_object_unref(layout);
+    cairo_destroy(cr);
+    cairo_surface_destroy(surf);
+    return std::min<double>(tw, kBtM3NameMax);
+}
+double btBarW(const App& app) {
+    if (widgetStyle(app, "bluetooth") != "m3" || sideBar(app)) return kQuickBox + softExtra(app, "bluetooth");
+    const double name = btM3NameW(app);
+    return name > 0 ? kM3Inset + kM3Disc + kBtM3Gap + name + kModulePad : kQuickBox;
+}
+void btM3Paint(cairo_t* cr, App& app, double x, double cy, bool hot) {
+    const BtBar& B = app.btBar;
+    const bool connected = B.bt == "on" && !B.name.empty(), off = B.bt == "off", absent = B.bt == "absent";
+    const double w = btBarW(app), name = btM3NameW(app);
+    roundedRect(cr, x, cy - kM3Box / 2.0, w, kM3Box, kM3Box / 2.0);
+    setSource(cr, app.color(off || absent ? "surface_container_low" : "primary_container"));
+    cairo_fill(cr);
+    if (hot) {
+        roundedRect(cr, x, cy - kM3Box / 2.0, w, kM3Box, kM3Box / 2.0);
+        setSource(cr, app.color("on_primary_container"), 0.08);
+        cairo_fill(cr);
+    }
+    const double dx = x + (connected ? kM3Inset : (w - kM3Disc) / 2.0);
+    constexpr double kDiscIcon = 16;
+    if (connected) {
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, dx + kM3Disc / 2.0, cy, kM3Disc / 2.0, 0, 2 * M_PI);
+        setSource(cr, app.color("primary"));
+        cairo_fill(cr);
+    }
+    const Color ink = connected ? app.color("on_primary") : off || absent ? app.color("outline") : app.color("on_primary_container");
+    drawIcon(cr, "bluetooth", dx + (kM3Disc - kDiscIcon) / 2.0, cy - kDiscIcon / 2.0, kDiscIcon, ink, hot);
+    if (off) {
+        cairo_move_to(cr, dx + kM3Disc / 2.0 - 6, cy + 6);
+        cairo_line_to(cr, dx + kM3Disc / 2.0 + 6, cy - 6);
+        setSource(cr, app.color("outline"));
+        cairo_set_line_width(cr, 1.6);
+        cairo_stroke(cr);
+    }
+    if (connected) {
+        PangoLayout* layout = pango_cairo_create_layout(cr);
+        PangoFontDescription* f = pango_font_description_from_string("Sans");
+        pango_font_description_set_absolute_size(f, 15 * PANGO_SCALE);
+        pango_layout_set_font_description(layout, f);
+        pango_layout_set_width(layout, static_cast<int>(name * PANGO_SCALE));
+        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+        pango_layout_set_text(layout, B.name.c_str(), -1);
+        int tw = 0, th = 0;
+        pango_layout_get_pixel_size(layout, &tw, &th);
+        setSource(cr, app.color("on_primary_container"));
+        cairo_move_to(cr, x + kM3Inset + kM3Disc + kBtM3Gap, cy - th / 2.0);
+        pango_cairo_show_layout(cr, layout);
+        pango_font_description_free(f);
+        g_object_unref(layout);
+    }
+}
+
 void btIconPaint(cairo_t* cr, App& app, double x, double y, double w, double h, bool hot) {
     const BtBar& B = app.btBar;
     const std::string style = widgetStyle(app, "bluetooth");
@@ -81,6 +153,7 @@ void btIconPaint(cairo_t* cr, App& app, double x, double y, double w, double h, 
 void btBarPaint(cairo_t* cr, App& app, const Bar& bar) {
     const double x = slotX(bar, "bluetooth"), y = (bar.height - kQuickBox) / 2.0;
     const bool hot = app.hoverBar == &bar && hitTest(bar, app.pointerX, app.pointerY) == HitBluetooth;
+    if (widgetStyle(app, "bluetooth") == "m3" && !sideBar(app)) { btM3Paint(cr, app, x, bar.height / 2.0, hot); return; }
     btIconPaint(cr, app, x, y, kQuickBox + softExtra(app, "bluetooth"), kQuickBox, hot);
 }
 void btSidePaint(cairo_t* cr, App& app, Rect r, bool hot) {

@@ -233,11 +233,11 @@ void drawNetSpeed(cairo_t* cr, const App& app, double x, double y, double w, dou
 bool m3IconOnly(double w, double h) { return w < h * 1.5; }
 void m3GroupPill(cairo_t* cr, const App& app, double x, double y, double w, double h) {
     if (m3IconOnly(w, h)) {
-        constexpr double kShape = kModuleBox;
+        constexpr double kShape = kM3Box;
         shapePath(cr, kM3IconShape, x + (w - kShape) / 2, y + (h - kShape) / 2, kShape);
         setSource(cr, app.color("secondary_container"));
     } else {
-        roundedRect(cr, x, y + (h - kModuleBox) / 2, w, kModuleBox, kModuleBox / 2);
+        roundedRect(cr, x, y + (h - kM3Box) / 2, w, kM3Box, kM3Box / 2);
         setSource(cr, app.color("surface_container_low"));
     }
     cairo_fill(cr);
@@ -286,7 +286,9 @@ void drawNetworkM3(cairo_t* cr, const App& app, double x, double barH) {
 void drawBatteryM3(cairo_t* cr, const App& app, double x, double barH, int pct, bool charging, const Color& ink) {
     constexpr double kBarW = 30, kBarH = 18, kTipW = 2, kTipH = 10, kBoltW = 12, kBarRadius = 6;
     const double y = (barH - kQuickBox) / 2.0, cx = x + kBatW / 2.0, cy = barH / 2.0;
-    m3GroupPill(cr, app, x, y, kBatW, kQuickBox);
+    roundedRect(cr, x, y + (kQuickBox - kM3Box) / 2, kBatW, kM3Box, kM3Box / 2);
+    setSource(cr, app.color("primary_container"));
+    cairo_fill(cr);
     const double bx = cx - (kBarW + 1 + kTipW) / 2.0, by = cy - kBarH / 2.0, frac = std::clamp(pct / 100.0, 0.0, 1.0);
     roundedRect(cr, bx, by, kBarW, kBarH, kBarRadius);
     setSource(cr, ink, 0.5);
@@ -316,7 +318,7 @@ void drawBatteryM3(cairo_t* cr, const App& app, double x, double barH, int pct, 
     pango_layout_get_pixel_size(layout, &tw, &th);
     const bool bolt = charging && pct < 100;
     const double tx = bx + kBarW / 2.0 - ((bolt ? kBoltW : 0) + tw) / 2.0;
-    const Color hole = app.color("surface_container_low");
+    const Color hole = app.color("primary_container");
     if (bolt) drawIcon(cr, "bolt", tx, cy - kBoltW / 2.0, 12, hole, true);
     setSource(cr, hole);
     cairo_move_to(cr, tx + (bolt ? kBoltW : 0), cy - th / 2.0);
@@ -395,7 +397,7 @@ double sideModuleH(const App& app, const std::string& m) {
         return n ? n * one + (n - 1) * 8.0 : 0;
     }
     if (m == "weather") return app.barWeather.ok ? 54 : 0;
-    if (m == "updates") return app.cfg.updatesEnable ? 54 : 0;
+    if (m == "updates") return updatesShown(app) ? 54 : 0;
     if (m == "aiusage") { const size_t n = aiShown(app).size(); return n ? n * 44 - 4.0 : 0; }
     if (m == "keyboard") return app.kbd.list.empty() ? 0 : 40;
     if (m == "activewindow") return 40;
@@ -526,7 +528,7 @@ void drawResource(cairo_t* cr, const App& app, const ResItem& it, double cx, dou
     const Color use = warn ? err : Color{tert.r * (1 - blend) + prim.r * blend, tert.g * (1 - blend) + prim.g * blend, tert.b * (1 - blend) + prim.b * blend};
     const std::string look = resLookFor(app, side);
     if (look == "pill") {
-        const double w = app.cfg.resValue ? 40 : 22, h = 22, x = cx - 11, y = cy - h / 2;
+        const double h = kQuickBox, w = app.cfg.resValue ? h + 18 : h, x = cx - h / 2, y = cy - h / 2;
         cairo_save(cr);
         roundedRect(cr, x, y, w, h, h / 2);
         cairo_clip(cr);
@@ -534,7 +536,7 @@ void drawResource(cairo_t* cr, const App& app, const ResItem& it, double cx, dou
         cairo_paint(cr);
         if (u > 0.005) { cairo_rectangle(cr, x, y, w * u, h); setSource(cr, use, 0.45); cairo_fill(cr); }
         cairo_restore(cr);
-        drawIcon(cr, it.icon, cx - 6, cy - 6, 12, app.color("on_secondary_container"));
+        drawIcon(cr, it.icon, cx - 7, cy - 7, 14, app.color("on_secondary_container"));
         return;
     }
     if (look == "bars") {
@@ -581,7 +583,7 @@ void drawResource(cairo_t* cr, const App& app, const ResItem& it, double cx, dou
         if (u > 0.01) { roundedRect(cr, cx - 14, top + th + kGap, std::max(4.0, 28 * u), 4, 2); setSource(cr, use); cairo_fill(cr); }
         return;
     }
-    const double r = 10;
+    const double r = kQuickBox / 2.0;
     if (look == "outline") {
         cairo_new_sub_path(cr);
         cairo_arc(cr, cx, cy, r - 1.2, 0, 2 * M_PI);
@@ -596,11 +598,11 @@ void drawResource(cairo_t* cr, const App& app, const ResItem& it, double cx, dou
             cairo_stroke(cr);
             cairo_set_line_cap(cr, CAIRO_LINE_CAP_BUTT);
         }
-        drawIcon(cr, it.icon, cx - 6, cy - 6, 12, app.color("on_secondary_container"));
+        drawIcon(cr, it.icon, cx - 7, cy - 7, 14, app.color("on_secondary_container"));
         return;
     }
     if (look == "m3") {
-        constexpr double kDisc = 10;
+        constexpr double kDisc = kQuickBox / 2.0;
         const Color ink = warn ? err : app.color("on_secondary_container");
         cairo_push_group(cr);
         cairo_new_sub_path(cr);
@@ -632,14 +634,14 @@ void drawResource(cairo_t* cr, const App& app, const ResItem& it, double cx, dou
         setSource(cr, use);
         cairo_fill(cr);
     }
-    drawIcon(cr, it.icon, cx - 6, cy - 6, 12, app.color("on_secondary_container"));
+    drawIcon(cr, it.icon, cx - 7, cy - 7, 14, app.color("on_secondary_container"));
     if (u > 0.005) {
         cairo_save(cr);
         cairo_move_to(cr, cx, cy);
         cairo_arc(cr, cx, cy, r, -M_PI / 2, -M_PI / 2 + 2 * M_PI * std::min(u, 0.9999));
         cairo_close_path(cr);
         cairo_clip(cr);
-        drawIcon(cr, it.icon, cx - 6, cy - 6, 12, warn ? app.color("on_error") : app.color("on_primary"));
+        drawIcon(cr, it.icon, cx - 7, cy - 7, 14, warn ? app.color("on_error") : app.color("on_primary"));
         cairo_restore(cr);
     }
 }
@@ -1080,7 +1082,7 @@ bool framedStyle(const std::string& style) { return m3ButtonLook(style) || style
 std::string weatherBarLabel(const App& app) { std::string label, ic; weatherDescribe(app.barWeather.code, app.barWeather.day, label, ic); return label; }
 
 double weatherM3Paint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double cy) {
-    constexpr double textPad = kModulePad / 2, gap = 6, kM3Disc = kQuickBox;
+    constexpr double textPad = kModulePad / 2, gap = 6;
     constexpr int iconSize = 16;
     PangoFontDescription* f = pango_font_description_from_string("Sans");
     pango_font_description_set_absolute_size(f, 15 * PANGO_SCALE);
@@ -1088,10 +1090,10 @@ double weatherM3Paint(cairo_t* cr, const App& app, PangoLayout* layout, double x
     pango_layout_set_text(layout, weatherBarText(app).c_str(), -1);
     int tw = 0, th = 0;
     pango_layout_get_pixel_size(layout, &tw, &th);
-    const double inset = (kModuleBox - kM3Disc) / 2;
+    const double inset = (kM3Box - kM3Disc) / 2;
     const double w = kModulePad + textPad + tw + gap + kM3Disc + inset;
     if (cr) {
-        roundedRect(cr, x, cy - kModuleBox / 2, w, kModuleBox, kModuleBox / 2);
+        roundedRect(cr, x, cy - kM3Box / 2, w, kM3Box, kM3Box / 2);
         setSource(cr, app.color("primary_container"));
         cairo_fill(cr);
         const double textX = x + kModulePad + textPad, discX = textX + tw + gap;
@@ -1109,7 +1111,7 @@ double weatherM3Paint(cairo_t* cr, const App& app, PangoLayout* layout, double x
 }
 
 double launcherM3Paint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double cy, bool hot) {
-    constexpr double gap = 6, disc = kQuickBox;
+    constexpr double gap = 6, disc = kM3Disc;
     constexpr int iconSize = 16;
     const std::string label = i18n::tr("Apps");
     PangoFontDescription* f = pango_font_description_from_string("Sans");
@@ -1120,11 +1122,11 @@ double launcherM3Paint(cairo_t* cr, const App& app, PangoLayout* layout, double 
     pango_layout_get_pixel_size(layout, &tw, &th);
     const double w = kM3Inset + disc + gap + tw + kModulePad;
     if (cr) {
-        roundedRect(cr, x, cy - kModuleBox / 2, w, kModuleBox, kModuleBox / 2);
+        roundedRect(cr, x, cy - kM3Box / 2, w, kM3Box, kM3Box / 2);
         setSource(cr, app.color("primary_container"));
         cairo_fill(cr);
         if (hot) {
-            roundedRect(cr, x, cy - kModuleBox / 2, w, kModuleBox, kModuleBox / 2);
+            roundedRect(cr, x, cy - kM3Box / 2, w, kM3Box, kM3Box / 2);
             setSource(cr, app.color("on_primary_container"), 0.08);
             cairo_fill(cr);
         }
@@ -1183,7 +1185,7 @@ double weatherBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double 
         Color ink = app.color("on_surface");
         double left = x;
         if (framed) {
-            ink = styleFrame(cr, app, style, x, cy - kModuleBox / 2, w, kModuleBox, hot);
+            ink = styleFrame(cr, app, style, x, cy - kQuickBox / 2, w, kQuickBox, hot);
             left += kModulePad;
         }
         if (showIcon) drawIcon(cr, weatherBarIcon(app), left, cy - ic / 2, 20, ink);
@@ -1308,7 +1310,7 @@ double aiBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, do
     const double outer = m3 ? kModulePad : 0;
     if (m3 && cr) {
         const double total = aiBarPaint(nullptr, app, layout, 0, cy);
-        roundedRect(cr, x, cy - kModuleBox / 2, total, kModuleBox, kModuleBox / 2);
+        roundedRect(cr, x, cy - kM3Box / 2, total, kM3Box, kM3Box / 2);
         setSource(cr, app.color("primary_container"));
         cairo_fill(cr);
     }
@@ -1323,7 +1325,7 @@ double aiBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, do
         if (cr) {
             Color ink = m3 ? aiM3Color(app, kind) : aiBarColor(app, kind);
             if (framed) {
-                ink = styleFrame(cr, app, style, x + w, cy - kModuleBox / 2, pillW, kModuleBox, hotKind == kind);
+                ink = styleFrame(cr, app, style, x + w, cy - kQuickBox / 2, pillW, kQuickBox, hotKind == kind);
                 if (app.barAi[kind].pct >= 0.9 && style != "badge" && style != "tonal") ink = app.color("error");
             }
             aiPillContent(cr, app, layout, x + w + pad, cy, kind, style, ink);
@@ -1364,7 +1366,7 @@ void vizPaint(cairo_t* cr, const App& app, double cx, double cy, bool vertical, 
         return;
     }
     const bool m3 = look == "m3";
-    const double maxLen = m3 ? kModuleBox - 2 * kVizM3Pad : 40 * 0.7;
+    const double maxLen = m3 ? kM3Box - 2 * kVizM3Pad : 40 * 0.7;
     const bool playing = app.musicStatus == "Playing" && !app.vizShown.empty();
     const double step = kVizDot + kVizGap, width = kVizBars * step - kVizGap, start = -width / 2;
     auto level = [&](int i, int n) {
@@ -1433,7 +1435,7 @@ void vizPaint(cairo_t* cr, const App& app, double cx, double cy, bool vertical, 
     }
     if (m3) {
         const double boxW = width + 2 * kVizM3Pad;
-        roundedRect(cr, cx - boxW / 2, cy - kModuleBox / 2, boxW, kModuleBox, kModuleBox / 2);
+        roundedRect(cr, cx - boxW / 2, cy - kM3Box / 2, boxW, kM3Box, kM3Box / 2);
         setSource(cr, app.color("secondary_container"));
         cairo_fill(cr);
     }
@@ -1457,7 +1459,7 @@ void updatesTone(const App& app, const char*& role, const char*& on) {
     else { role = nullptr; on = "on_primary"; }
 }
 double updatesBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double cy, bool hot) {
-    constexpr double ic = 20, gap = 5, disc = kQuickBox;
+    constexpr double ic = 20, gap = 5, disc = kM3Disc;
     constexpr int discIconSize = 16;
     const std::string style = widgetStyle(app, "updates");
     const bool m3 = style == "m3", framed = framedStyle(style);
@@ -1472,11 +1474,11 @@ double updatesBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double 
     const double w = m3 ? kM3Inset + disc + gap + tw + kModulePad : ic + gap + tw + (framed ? 2 * kModulePad : 0);
     if (cr) {
         if (m3) {
-            roundedRect(cr, x, cy - kModuleBox / 2.0, w, kModuleBox, kModuleBox / 2.0);
+            roundedRect(cr, x, cy - kM3Box / 2.0, w, kM3Box, kM3Box / 2.0);
             setSource(cr, app.color("primary_container"));
             cairo_fill(cr);
             if (hot) {
-                roundedRect(cr, x, cy - kModuleBox / 2.0, w, kModuleBox, kModuleBox / 2.0);
+                roundedRect(cr, x, cy - kM3Box / 2.0, w, kM3Box, kM3Box / 2.0);
                 setSource(cr, app.color("on_primary_container"), 0.08);
                 cairo_fill(cr);
             }
@@ -1492,7 +1494,7 @@ double updatesBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double 
             Color ink = app.color("on_surface");
             double left = x;
             if (framed) {
-                ink = styleFrame(cr, app, style, x, cy - kModuleBox / 2.0, w, kModuleBox, hot);
+                ink = styleFrame(cr, app, style, x, cy - kQuickBox / 2.0, w, kQuickBox, hot);
                 left += kModulePad;
             }
             drawIcon(cr, "download-square", left, cy - ic / 2.0, ic, role ? app.color(role) : ink);
@@ -2310,7 +2312,7 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
     double tw = 0, th = 0, dw = 0, dh = 0;
     size(time, tf, tw, th);
     if (hasDate) size(app.clockDate, df, dw, dh);
-    const double cy = barH / 2, bh = kNumH, by = cy - bh / 2;
+    const double cy = barH / 2, bh = kQuickBox, by = cy - bh / 2;  // (every look of the clock is as tall as the other widgets)
     const Color primary = app.color("primary"), onPrimary = app.color("on_primary"), cont = app.color("primary_container"), onCont = app.color("on_primary_container");
     const Color onSurf = app.color("on_surface");
     double w = 0;
@@ -2324,11 +2326,11 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
         if (hasDate) size(app.clockDate, mdf, mdw, mdh);
         if (!app.clockAmPm.empty()) size(app.clockAmPm, mdf, maw, mah);
         const double dateW = hasDate ? mdw + kClockGap : 0, timeW = kClockPadL + mtw + kClockPadL, ampmW = maw > 0 ? kClockPadL + maw + kClockPadL : 0;
-        const double inset = (kModuleBox - bh) / 2;
+        const double bh = kM3Disc, inset = (kM3Box - bh) / 2;
         const double lead = hasDate ? kClockGap : inset;
         const double px = bx + lead + dateW, py = cy - bh / 2, ampmX = px + timeW - kM3Overlap;
         w = lead + dateW + timeW + (ampmW > 0 ? ampmW - kM3Overlap : 0) + inset;
-        fillRR(bx, cy - kModuleBox / 2, w, kModuleBox, kModuleBox / 2, kModuleBox / 2, kModuleBox / 2, kModuleBox / 2, cont);
+        fillRR(bx, cy - kM3Box / 2, w, kM3Box, kM3Box / 2, kM3Box / 2, kM3Box / 2, kM3Box / 2, cont);
         if (hasDate) text(app.clockDate, mdf, bx + lead, cy, onCont);
         fillRR(px, py, timeW, bh, bh / 2, bh / 2, bh / 2, bh / 2, primary);
         text(app.clockTime, mf, px + kClockPadL, cy, onPrimary);
@@ -2387,7 +2389,7 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
         text(time, tf, bx + 12, cy, hover ? onCont : onPrimary);
         if (hasDate) text(app.clockDate, df, bx + pw + 8, cy, onSurf, 0.8);
     } else if (style == "stacked") {
-        const double inner = std::max(tw, dw), ph = hasDate ? 34 : bh;
+        const double inner = std::max(tw, dw), ph = bh;
         w = 28 + inner;
         fillRR(bx, cy - ph / 2, w, ph, ph / 2.4, ph / 2.4, ph / 2.4, ph / 2.4, hover ? primary : cont);
         const Color ink = hover ? onPrimary : onCont;
@@ -2444,16 +2446,82 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
             if (cr) { cairo_new_sub_path(cr); cairo_arc(cr, bx + 8 + tw + 8 + 2.5, cy, 2.5, 0, 2 * M_PI); setSource(cr, app.color("tertiary")); cairo_fill(cr); }
             text(app.clockDate, df, bx + 8 + tw + 21, cy, onSurf, 0.6);
         }
-    } else if (style == "bold") {
-        PangoFontDescription* bf = pango_font_description_from_string("Sans Bold 16");
-        double btw = 0, bth = 0;
-        size(time, bf, btw, bth);
-        const double ph = 34, pw = 22 + btw;
-        w = pw + (hasDate ? 8 + dw : 0);
-        fillRR(bx, cy - ph / 2, pw, ph, ph / 2, ph / 2, ph / 2, ph / 2, hover ? primary : cont);
-        text(time, bf, bx + 11, cy, hover ? onPrimary : onCont);
-        if (hasDate) text(app.clockDate, df, bx + pw + 8, cy, onSurf, 0.8);
-        pango_font_description_free(bf);
+    } else if (style == "bold") {  // "Pixel": the chunky digits of the desktop clock, in a row, and the date on a chip beside them
+        constexpr double nh = kQuickBox, nw = nh * 2.8;
+        w = nw;
+        std::string dateUp;
+        double chipW = 0;
+        constexpr double kChipH = 20, kChipGap = 2, kChipPad = 9;  // (the digits have some air of their own at the right)
+        PangoFontDescription* cf = pango_font_description_new();
+        pango_font_description_set_family(cf, kDisplayFamily);
+        pango_font_description_set_weight(cf, PANGO_WEIGHT_BOLD);
+        pango_font_description_set_absolute_size(cf, 11 * PANGO_SCALE);
+        if (hasDate) {
+            char* up = g_utf8_strup(app.clockDate.c_str(), -1);
+            dateUp = up;
+            g_free(up);
+            double cw = 0, ch = 0;
+            size(dateUp, cf, cw, ch);
+            chipW = cw + 2 * kChipPad;
+            w += kChipGap + chipW;
+        }
+        if (cr) {
+            const size_t colon = app.clockTime.find(':');
+            std::string hh = colon == std::string::npos ? app.clockTime : app.clockTime.substr(0, colon), mm = colon == std::string::npos ? "" : app.clockTime.substr(colon + 1);
+            if (hh.size() < 2) hh = std::string(2 - hh.size(), '0') + hh;
+            const std::string hm = hh.substr(0, 2) + mm.substr(0, 2);
+            const double tileW = nw * 0.327, tileH = nh * 0.9, glyph = nh * 0.85, fringe = nh * 0.03;
+            const double gx[4] = {0, nw * 0.163, nw * 0.50, nw * 0.653}, gy = nh * 0.05;
+            cairo_save(cr);
+            cairo_translate(cr, bx, cy - nh / 2);
+            PangoFontDescription* fd = pango_font_description_new();
+            pango_font_description_set_family(fd, kDisplayFamily);
+            pango_font_description_set_weight(fd, static_cast<PangoWeight>(1000));
+            pango_font_description_set_variations(fd, "wght=1000");
+            pango_font_description_set_absolute_size(fd, glyph * PANGO_SCALE);
+            pango_layout_set_font_description(layout, fd);
+            pango_font_description_free(fd);
+            auto digitPath = [&](int i) {
+                char one[2] = {hm[static_cast<size_t>(i)], 0};
+                pango_layout_set_text(layout, one, -1);
+                int lw = 0, lh = 0;
+                pango_layout_get_pixel_size(layout, &lw, &lh);
+                cairo_move_to(cr, gx[i] + (tileW - lw) / 2.0, gy + (tileH - lh) / 2.0);
+                pango_cairo_layout_path(cr, layout);
+            };
+            const Color soft = app.color("primary_container"), strong = app.color("primary");
+            cairo_push_group(cr);
+            for (int i = 0; i < 4; i++) {
+                if (i % 2 == 1) {  // (the second digit of each pair cuts a thin gap out of the first)
+                    digitPath(i);
+                    cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+                    cairo_set_line_width(cr, fringe * 2);
+                    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+                    cairo_stroke_preserve(cr);
+                    cairo_fill(cr);
+                    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+                }
+                digitPath(i);
+                setSource(cr, i == 0 || i == 3 ? soft : strong);
+                cairo_fill(cr);
+            }
+            const double dot = nh * 0.14, gap = nh * 0.08, colonX = gx[1] + tileW + (gx[2] - (gx[1] + tileW)) / 2 - dot / 2, top = gy + tileH / 2 - (2 * dot + gap) / 2;
+            setSource(cr, strong);
+            for (int k = 0; k < 2; k++) {
+                cairo_new_path(cr);
+                cairo_arc(cr, colonX + dot / 2, top + dot / 2 + k * (dot + gap), dot / 2, 0, 2 * M_PI);
+                cairo_fill(cr);
+            }
+            cairo_pop_group_to_source(cr);
+            cairo_paint(cr);
+            cairo_restore(cr);
+            if (hasDate) {
+                const double cx0 = bx + nw + kChipGap;
+                fillRR(cx0, cy - kChipH / 2, chipW, kChipH, kChipH / 2, kChipH / 2, kChipH / 2, kChipH / 2, hover ? primary : app.color("secondary_container"));
+                text(dateUp, cf, cx0 + kChipPad, cy, hover ? onPrimary : app.color("on_secondary_container"));
+            }
+        }
+        pango_font_description_free(cf);
     } else {
         w = kClockPadL + kClockIcon + kClockGap + tw + (hasDate ? kClockGap + dw : 0) + kClockPadR;
         fillRR(bx, by, w, bh, bh / 2, bh / 2, bh / 2, bh / 2, hover ? primary : cont);
@@ -2788,7 +2856,7 @@ void draw(Bar& bar) {
         const std::string qStyle = widgetStyle(app, "quickactions");
         const bool m3Group = qStyle == "m3" || qStyle == "split";
         if (qStyle == "m3" && !shown.empty()) {
-            roundedRect(cr, quickX(bar), (bar.height - kModuleBox) / 2.0, quickW(app), kModuleBox, kModuleBox / 2);
+            roundedRect(cr, quickX(bar), (bar.height - kM3Box) / 2.0, quickW(app), kM3Box, kM3Box / 2);
             setSource(cr, app.color("primary_container"));
             cairo_fill(cr);
         }
@@ -2798,7 +2866,7 @@ void draw(Bar& bar) {
             bool live = false, alert = false;
             const char* qIcon = quickIcon(app, shown[i], live, alert);
             Color ink = app.color("on_surface");
-            if (m3Group) ink = quickM3Frame(cr, app, qStyle, ix, by, kQuickBox, i, shown.size(), hot || live, iw);
+            if (m3Group) ink = quickM3Frame(cr, app, qStyle, ix, qStyle == "m3" ? by + kM3Inset : by, quickBase(app), i, shown.size(), hot || live, iw);
             else if (qStyle != "plain") ink = roundButtonFrame(cr, app, qStyle, ix, by, iw, kQuickBox, hot || live);
             else if (hot || live) {
                 cairo_arc(cr, ix + kQuickBox / 2.0, by + kQuickBox / 2.0, kQuickBox / 2.0, 0, 2 * M_PI);
@@ -2866,7 +2934,7 @@ void draw(Bar& bar) {
             if (genericFrame(bs) && !low) ink = framed;
         }
         if (bs == "m3") {
-            drawBatteryM3(cr, app, bx, bar.height, pct, app.batCharging, app.color(low && !app.batCharging ? "error" : "on_secondary_container"));
+            drawBatteryM3(cr, app, bx, bar.height, pct, app.batCharging, app.color(low && !app.batCharging ? "error" : "on_primary_container"));
         } else if (bs == "ring") {
             const double cx = bx + bw / 2.0, cy = by + bhgt / 2.0, rad = 11.0;
             cairo_save(cr);
@@ -2966,7 +3034,7 @@ void draw(Bar& bar) {
                 int vw = 0, vh = 0;
                 pango_layout_get_pixel_size(layout, &vw, &vh);
                 setSource(cr, app.color("on_surface_variant"));
-                const double vx = resLook == "pill" ? x + 5 + 12 + 4 + (one + val - 5 - 12 - 4 - 5 - vw) / 2.0 : x + one + 3;
+                const double vx = resLook == "pill" ? x + 7 + 14 + 3 + (one + val - 7 - 14 - 3 - 6 - vw) / 2.0 : x + one + 3;
                 cairo_move_to(cr, vx, (bar.height - vh) / 2.0);
                 pango_cairo_show_layout(cr, layout);
                 pango_layout_set_font_description(layout, font);

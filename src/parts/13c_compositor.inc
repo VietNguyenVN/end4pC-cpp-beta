@@ -320,6 +320,13 @@ void wmClassifyEvent(const std::string& line, WmEvents& e) {
         const int id = std::atoi(line.c_str() + 11);
         if (id > 0) e.workspace = id;
     }
+    // Focusing a workspace already shown on another monitor only moves the focus there: "focusedmon>>MONITOR,WORKSPACE" with no "workspace>>".
+    if (starts("focusedmon>>")) {
+        const size_t comma = line.find(',');
+        const int id = comma == std::string::npos ? 0 : std::atoi(line.c_str() + comma + 1);
+        if (id > 0) e.workspace = id;
+        e.window = e.focus = e.covered = true;
+    }
 }
 
 // ---- A tray icon's window: a left click on the tray goes to the app's window when it has one

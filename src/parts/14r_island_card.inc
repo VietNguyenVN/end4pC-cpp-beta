@@ -835,7 +835,7 @@ bool pointerOnIsland(const App& app) {
 }
 
 void islandHoverCheck(App& app) {
-    if (!app.hoverBar || app.ic.open() || !islandActive(app)) return;
+    if (!app.hoverBar || app.ic.open() || !islandActive(app) || app.cfg.islandClick) return;
     if (hitTest(*app.hoverBar, app.pointerX, app.pointerY) != HitIsland) return;
     if (anyPopupOpen(app)) return;
     openIslandCard(app, app.hoverBar);

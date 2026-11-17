@@ -394,6 +394,7 @@ std::vector<Page> makePages() {
         {Slider, "notchWidth", "Notch width", "How wide the Notch bar is, as a share of the screen. 0 makes it only as wide as its widgets need.", {}, 0, 100, 5, "%"},
         {Slider, "islandRounding", "Island rounding", "How round the corners of each island are, as a share of its height. 50 makes them fully round.", {}, 0, 50, 1, "%"},
         {Toggle, "dynamicIsland", "Dynamic island", "A small island in the middle of the bar that replaces the avatar, the clock and the media widget: the avatar and the time, or the cover and a visualizer while music plays. Island and Split hug bars only.", {}},
+        {Toggle, "islandClick", "Expand island on click", "The island opens when you click it instead of when the pointer rests on it.", {}},
         {Choice, "barScreens", "Bar on screens", "Which screens get the bar. The other ones keep their wallpaper but have no bar.", {}},
         {Toggle, "barShadow", "Bar shadow", "A soft shadow under the bar, in every style. With the bar background off, the widgets keep their own shadow.", {}},
         {Toggle, "barBackground", "Bar background", "Turn it off to hide the bar's background: only the widgets stay, floating over the desktop.", {}},
@@ -486,6 +487,7 @@ std::vector<Page> makePages() {
         {Toggle, "updatesAur", "Include the AUR", "Also check and install AUR updates (needs yay or paru)."},
         {Toggle, "updatesFlatpak", "Include Flatpak", "Also check and install Flatpak updates."},
         {Slider, "updatesInterval", "Check every", "How long to wait between two checks.", {}, 15, 1440, 15, "min"},
+        {Slider, "updatesMinShow", "Show in the bar from", "The bar shows the updates widget only when at least this many updates are pending. 0 keeps it always visible.", {}, 0, 200, 5, ""},
         {Info, "updSummary", "Pending updates", ""},
         {Action, "updCheck", "Check now", "Look for updates right away.", {}, 0, 100, 1, "Check"},
         {Choice, "lyricsProvider", "Lyrics source", "Where synced lyrics come from. Auto tries every free source in turn and keeps the first answer.", {{"auto", "Auto"}, {"lrclib", "LRCLIB"}, {"betterlyrics", "BetterLyrics"}, {"netease", "NetEase"}, {"kugou", "KuGou"}}},
@@ -812,6 +814,7 @@ void loadConfig() {
     g.val.insert({"barSpacing", "4"});
     g.val.insert({"barShadow", "0"});
     g.val.insert({"dynamicIsland", "0"});
+    g.val.insert({"islandClick", "0"});
     g.val.insert({"dividerSpacing", "0"});
     g.val.insert({"workspaceNumbers", "normal"});
     g.val.insert({"sideBarSpacing", "4"});
@@ -868,6 +871,7 @@ void loadConfig() {
     g.val.insert({"updatesAur", "0"});
     g.val.insert({"updatesFlatpak", "0"});
     g.val.insert({"updatesInterval", "60"});
+    g.val.insert({"updatesMinShow", "0"});
     g.val.insert({"peripheralNotify", "1"});
     g.val.insert({"peripheralLow", "20"});
     g.val.insert({"peripheralCritical", "5"});
@@ -2400,6 +2404,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "frameColor" || r.key == "barFollowsFrame") return g.val["frame"] != "0";
     if (r.key == "fakeRoundingSize") return g.val["fakeRounding"] != "0";
     if (r.key == "notchWidth") return g.val["barStyle"] == "notch";
+    if (r.key == "islandClick") return g.val["dynamicIsland"] == "1" && (g.val["barStyle"] == "island" || g.val["barStyle"] == "split");
     if (r.key == "dynamicIsland") return g.val["barStyle"] == "island" || g.val["barStyle"] == "split";
     if (r.key == "islandRounding") return g.val["barStyle"] == "island";
     if (r.key == "iconStyle") return g.val["materialIcons"] != "1";

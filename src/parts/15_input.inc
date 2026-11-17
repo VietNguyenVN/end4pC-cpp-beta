@@ -502,7 +502,9 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     if (app->onClockP) { clockPanelClick(*app); return; }
     if (!app->hoverBar) return;
     const Hit hit = hitTest(*app->hoverBar, app->pointerX, app->pointerY);
-    if (hit == HitSettings) {
+    if (hit == HitIsland) {
+        if (app->cfg.islandClick && !app->ic.open() && !anyPopupOpen(*app)) openIslandCard(*app, app->hoverBar);
+    } else if (hit == HitSettings) {
         toggleSettings();
     } else if (hit == HitLauncher) {
         toggleLauncher(*app);
@@ -574,6 +576,7 @@ void onPointerAxis(void* d, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t val
     if (app->onBtMenu) return;
     if (app->onIsland) { islandToggleView(*app); return; }
     if (app->onDock && app->dock.gridOpen) { dockGridScroll(*app, value > 0 ? 1 : -1); return; }
+    if (app->onCc && ccWheel(*app, value > 0 ? 1 : -1)) return;
     if (app->onCc && app->cc.page != CcPageNone) { ccRadioScroll(*app, value > 0 ? 1 : -1); return; }
     if (app->onSelector) { selectorScroll(*app, value > 0 ? 1 : -1); return; }
     if (app->onLauncher) { launcherScroll(*app, value > 0 ? 1 : -1); return; }

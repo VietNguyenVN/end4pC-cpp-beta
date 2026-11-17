@@ -143,7 +143,8 @@ bool kbdRead(App& app) {
         pango_layout_get_pixel_size(layout, &tw, &th);
         width = 4 + 18 + 4 + tw + 6;
         codeW = tw;
-        PangoFontDescription* m3f = pango_font_description_from_string("Sans 11");
+        PangoFontDescription* m3f = pango_font_description_from_string("Sans");
+        pango_font_description_set_absolute_size(m3f, 15 * PANGO_SCALE);  // (as the updates widget)
         pango_layout_set_font_description(layout, m3f);
         pango_layout_set_text(layout, list[active].code.c_str(), -1);
         pango_layout_get_pixel_size(layout, &tw, &th);

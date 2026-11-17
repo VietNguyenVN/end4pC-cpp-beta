@@ -479,6 +479,34 @@ void kbdPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double
         if (side) sideStateLayer(cr, app, x, y, w, h, lit);
         const auto& layouts = app.kbd.list;
         const std::string raw = layouts[std::clamp(app.kbd.active, 0, static_cast<int>(layouts.size()) - 1)].code;
+        if (!side) {  // the pill of the updates widget: the keyboard on the disc, the layout beside it
+            const double cy = y + h / 2.0;
+            roundedRect(cr, x, cy - kM3Box / 2.0, w, kM3Box, kM3Box / 2.0);
+            setSource(cr, app.color("primary_container"));
+            cairo_fill(cr);
+            if (lit) {
+                roundedRect(cr, x, cy - kM3Box / 2.0, w, kM3Box, kM3Box / 2.0);
+                setSource(cr, app.color("on_primary_container"), 0.08);
+                cairo_fill(cr);
+            }
+            cairo_new_sub_path(cr);
+            cairo_arc(cr, x + kM3Inset + kM3Disc / 2.0, cy, kM3Disc / 2.0, 0, 2 * M_PI);
+            setSource(cr, app.color("primary"));
+            cairo_fill(cr);
+            constexpr double kDiscIcon = 16;
+            drawIcon(cr, "keyboard", x + kM3Inset + (kM3Disc - kDiscIcon) / 2.0, cy - kDiscIcon / 2.0, kDiscIcon, app.color("on_primary"));
+            PangoFontDescription* bf = pango_font_description_from_string("Sans");
+            pango_font_description_set_absolute_size(bf, 15 * PANGO_SCALE);
+            pango_layout_set_font_description(layout, bf);
+            pango_layout_set_text(layout, raw.c_str(), -1);
+            int bw = 0, bh = 0;
+            pango_layout_get_pixel_size(layout, &bw, &bh);
+            setSource(cr, app.color("on_primary_container"));
+            cairo_move_to(cr, x + kM3Inset + kM3Disc + 6, cy - bh / 2.0);
+            pango_cairo_show_layout(cr, layout);
+            pango_font_description_free(bf);
+            return;
+        }
         PangoFontDescription* m3f = pango_font_description_from_string("Sans 11");
         pango_layout_set_font_description(layout, m3f);
         pango_layout_set_text(layout, raw.c_str(), -1);
@@ -524,13 +552,13 @@ constexpr double kM3LineOverlap = 5;
 void musicPaintM3(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layout, PangoFontDescription* restore) {
     const Hit hit = app.hoverBar == &bar ? hitTest(bar, app.pointerX, app.pointerY) : HitNone;
     const double cy = static_cast<double>(bar.height) / 2.0, x0 = musicX(bar);
-    const double artR = kMusicArt / 2.0, cov0 = x0 + kM3Inset, px = x0 + musicCtrlX(app), nx = px + kMediaNextX;
+    const double artD = kM3Disc, artR = artD / 2.0, cov0 = x0 + kM3SidePad, px = x0 + musicCtrlX(app), nx = px + kMediaNextX;
 
-    roundedRect(cr, x0, cy - kModuleBox / 2.0, musicW(app), kModuleBox, kModuleBox / 2.0);
+    roundedRect(cr, x0, cy - kM3Box / 2.0, musicW(app), kM3Box, kM3Box / 2.0);
     setSource(cr, app.color("primary_container"));
     cairo_fill(cr);
 
-    roundedRect(cr, cov0, cy - artR, kMusicArt, kMusicArt, artR);
+    roundedRect(cr, cov0, cy - artR, artD, artD, artR);
     setSource(cr, app.color("secondary_container"));
     cairo_fill(cr);
     if (app.musicArt) {
@@ -538,11 +566,13 @@ void musicPaintM3(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layo
         cairo_new_path(cr);
         cairo_arc(cr, cov0 + artR, cy, artR, 0, 2 * M_PI);
         cairo_clip(cr);
-        cairo_set_source_surface(cr, app.musicArt, cov0, cy - artR);
+        cairo_translate(cr, cov0, cy - artR);
+        cairo_scale(cr, artD / kMusicArt, artD / kMusicArt);  // (the cover is cached at kMusicArt)
+        cairo_set_source_surface(cr, app.musicArt, 0, 0);
         cairo_paint(cr);
         cairo_restore(cr);
     } else {
-        drawIcon(cr, "music_note", cov0 + (kMusicArt - kMediaIcon) / 2.0, cy - kMediaIcon / 2.0, kMediaIcon, app.color("on_secondary_container"));
+        drawIcon(cr, "music_note", cov0 + (artD - kMediaIcon) / 2.0, cy - kMediaIcon / 2.0, kMediaIcon, app.color("on_secondary_container"));
     }
 
     PangoFontDescription* artistFont = pango_font_description_from_string("Sans 9");
@@ -551,7 +581,7 @@ void musicPaintM3(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layo
     pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
     const std::string artistText = musicArtistShown(app), titleText = musicTitleShown(app);
     const bool hasArtist = !artistText.empty();
-    const double tx = cov0 + kMusicArt + kM3TextGap;
+    const double tx = cov0 + artD + kM3TextGap;
     auto measure = [&](PangoFontDescription* font, const std::string& text) {
         pango_layout_set_font_description(layout, font);
         pango_layout_set_text(layout, text.c_str(), -1);
@@ -576,12 +606,12 @@ void musicPaintM3(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layo
 
     const bool playing = app.musicStatus == "Playing";
     const Color playInk = app.color(playing ? "on_primary" : "on_primary_container");
-    const double py = cy - kQuickBox / 2.0;
-    roundedRect(cr, px, py, kMediaPillW, kQuickBox, kQuickBox / 2);
+    const double py = cy - kM3Disc / 2.0;
+    roundedRect(cr, px, py, kMediaPillW, kM3Disc, kM3Disc / 2);
     setSource(cr, app.color(playing ? "primary" : "on_primary_container"), playing ? 1 : 0.12);
     cairo_fill(cr);
     if (hit == HitPlay) {
-        roundedRect(cr, px, py, kMediaPillW, kQuickBox, kQuickBox / 2);
+        roundedRect(cr, px, py, kMediaPillW, kM3Disc, kM3Disc / 2);
         setSource(cr, playInk, 0.08);
         cairo_fill(cr);
     }
@@ -589,11 +619,11 @@ void musicPaintM3(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layo
 
     if (hit == HitNext) {
         cairo_new_path(cr);
-        cairo_arc(cr, nx + kQuickBox / 2.0, cy, kQuickBox / 2.0, 0, 2 * M_PI);
+        cairo_arc(cr, nx + kM3Disc / 2.0, cy, kM3Disc / 2.0, 0, 2 * M_PI);
         setSource(cr, app.color("on_primary_container"), 0.12);
         cairo_fill(cr);
     }
-    drawIcon(cr, "skip_next", nx + (kQuickBox - kMediaM3Icon) / 2.0, cy - kMediaM3Icon / 2.0, kMediaM3Icon, ink, true);
+    drawIcon(cr, "skip_next", nx + (kM3Disc - kMediaM3Icon) / 2.0, cy - kMediaM3Icon / 2.0, kMediaM3Icon, ink, true);
 
     pango_layout_set_width(layout, -1);
     pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_NONE);
