@@ -474,7 +474,6 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     if (button == kBtnRight) {
         const Hit rh = app->hoverBar ? hitTest(*app->hoverBar, app->pointerX, app->pointerY) : HitNone;
         if (rh >= kHitTray && rh < kHitTray + 100) trayClick(*app, rh - kHitTray, true);
-        else if (rh == HitMedia && musicProgress(*app)) mediaSend(*app, {"next"});
         else if (const char* mod = hitModule(rh)) toggleStylePicker(*app, app->hoverBar, mod);
         return;
     }

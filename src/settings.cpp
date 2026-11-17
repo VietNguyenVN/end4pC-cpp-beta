@@ -395,7 +395,8 @@ std::vector<Page> makePages() {
         {Slider, "islandRounding", "Island rounding", "How round the corners of each island are, as a share of its height. 50 makes them fully round.", {}, 0, 50, 1, "%"},
         {Toggle, "dynamicIsland", "Dynamic island", "A small island in the middle of the bar that replaces the avatar, the clock and the media widget: the avatar and the time, or the cover and a visualizer while music plays. Island and Split hug bars only.", {}},
         {Choice, "groupStyle", "Group style", "How the widgets sit on the bar. Free: each widget has its own look, as you set it in Widgets. The others put every widget on a cell of the bar (Pills: one chain per zone; Separated: a pill each; Transparent: no cells). Their widgets use a look without frame, and the look can not be changed from the popups of the bar.", {{"free", "Free"}, {"transparent", "Transparent"}, {"pills", "Pills"}, {"separated", "Separated"}}},
-        {Swatch, "groupColor", "Group color", "The color of the cells.", {{"surface_container_low", "Layer 0"}, {"surface_container_high", "Layer 1"}, {"primary_container", "Primary container"}, {"secondary_container", "Secondary container"}, {"tertiary_container", "Tertiary container"}}},
+        {Swatch, "groupColor", "Group color", "The color of the cells.", {{"surface", "Layer 0"}, {"surface_container_low", "Layer 1"}, {"surface_container", "Layer 2"}, {"surface_container_high", "Surface container high"}, {"surface_container_highest", "Surface container highest"}, {"primary_container", "Primary container"}, {"secondary_container", "Secondary container"}, {"tertiary_container", "Tertiary container"}}},
+        {Text, "groupColor", "Custom group color", "Or type your own color, like #1e1e2e, and press Enter. Type - for the default."},
         {Toggle, "islandClick", "Expand island on click", "The island opens when you click it instead of when the pointer rests on it.", {}},
         {Choice, "barScreens", "Bar on screens", "Which screens get the bar. The other ones keep their wallpaper but have no bar.", {}},
         {Toggle, "barShadow", "Bar shadow", "A soft shadow under the bar, in every style. With the bar background off, the widgets keep their own shadow.", {}},
@@ -407,9 +408,11 @@ std::vector<Page> makePages() {
         {Slider, "fakeRoundingSize", "Corner size", "The radius of those corners. 0 uses the same as your windows.", {}, 0, 48, 2, "px"},
         {Choice, "layoutFor", "Layout of", "The horizontal bars (top, bottom) and the vertical ones (left, right) each have their own widgets. Pick which one you edit.", {{"h", "Horizontal bar"}, {"v", "Vertical bar"}}},
         {Slider, "barSpacing", "Spacing", "The space between the widgets of the bar. 4 px by default.", {}, 0, 24, 1, "px"},
+        {Slider, "groupSpacing", "Spacing", "The space between the cells of the bar. 2 px by default.", {}, 2, 6, 1, "px"},
         {Slider, "sideBarSpacing", "Spacing", "The space between the widgets of the bar. 4 px by default.", {}, 0, 24, 1, "px"},
         {Widgets, "layoutEditor", "Widgets", "Drag a widget to move it between the left, center and right of the bar (top, middle and bottom in a vertical one). Right-click one to hide it, or drop it on Hidden."},
         {Choice, "workspaceStyle", "Workspaces", "Icons, numbered squares, dots, a pill, ticks or numbered rings.", {{"icons", "Icons"}, {"default", "Squares"}, {"gnome", "Dots"}, {"pill", "Pill"}, {"bar", "Bars"}, {"ring", "Rings"}, {"m3", "M3"}}},
+        {Choice, "workspaceStyle", "Workspaces", "Dots or M3: the group styles use these two.", {{"gnome", "Dots"}, {"m3", "M3"}}},
         {Choice, "workspaceNumbers", "Numbers style", "How the workspaces are numbered: 1 2 3, Roman numerals (I II III) or Chinese characters (一 二 三). Only the looks that show numbers.", {{"normal", "Normal"}, {"roman", "Roman"}, {"han", "Han chars"}}},
         {Toggle, "workspaceApps", "Show apps in workspaces", "Shows the icon of the biggest window of each workspace instead of its number or icon. Not for the dots and bar styles.", {}},
         {Slider, "workspaces", "Workspace count", "How many workspaces the bar shows.", {}, 1, 10, 1, ""},
@@ -432,6 +435,7 @@ std::vector<Page> makePages() {
         {Toggle, "resDisk", "Disk", "How full the main disk is.", {}},
         {Toggle, "resSwap", "Swap", "How much of the swap is in use.", {}},
         {Choice, "resStyle", "Style", "A filling circle, a ring, a label over a bar, bars or a tonal pill.", {{"filled", "Filled"}, {"outline", "Outline"}, {"text", "Text"}, {"bars", "Bars"}, {"pill", "Pill"}, {"m3", "M3"}}},
+        {Choice, "resStyle", "Style", "A filling circle, a ring, a label over a bar or a tonal pill.", {{"filled", "Filled"}, {"outline", "Outline"}, {"text", "Text"}, {"pill", "Pill"}, {"m3", "M3"}}},
         {Toggle, "resValue", "Show the value", "The percentage next to each one (under it in a vertical bar).", {}},
         {Slider, "resInterval", "Update every", "How often the numbers are read.", {}, 1000, 10000, 500, "ms"},
         {Slider, "resWarnCpu", "CPU warning", "It turns red at this load.", {}, 50, 100, 5, "%"},
@@ -818,6 +822,7 @@ void loadConfig() {
     g.val.insert({"dynamicIsland", "0"});
     g.val.insert({"islandClick", "0"});
     g.val.insert({"groupStyle", "free"});
+    g.val.insert({"groupSpacing", "2"});
     g.val.insert({"groupColor", "surface_container_high"});
     g.val.insert({"dividerSpacing", "0"});
     g.val.insert({"workspaceNumbers", "normal"});
@@ -2383,6 +2388,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "mon:enabled") return g_mons.size() > 1;
     if (r.key == "magnifier") return compositorName() == "Hyprland";
     if (r.key == "dockAutoHide" || r.key == "dockPin" || r.key == "dockMedia" || r.key == "dockLauncher" || r.key == "dockMagnify" || r.key == "dockIconSize" || r.key == "dockPinned") return g.val["dock"] == "1";
+    if (r.key == "groupSpacing") return g.val["layoutFor"] != "v" && (g.val["groupStyle"] == "pills" || g.val["groupStyle"] == "separated");
     if (r.key == "barSpacing") return g.val["layoutFor"] != "v" && g.val["groupStyle"] != "pills" && g.val["groupStyle"] != "separated";  // (the cells set the gap)
     if (r.key == "sideBarSpacing") return g.val["layoutFor"] == "v";
     if (r.key == "animStyle" || r.key == "animSpeed") return g.val["animEnabled"] == "1";
@@ -2415,14 +2421,21 @@ bool rowAvailable(const Row& r) {
     if (r.key == "islandRounding") return g.val["barStyle"] == "island";
     if (r.key == "iconStyle") return g.val["materialIcons"] != "1";
     if (r.key == "workspaces") return moduleUsed("workspaces") && compositorName() != "Niri";  // niri's workspaces are dynamic: the bar shows the ones that exist
-    if (r.key == "workspaceStyle") return moduleUsed("workspaces");
+    if (r.key == "workspaceStyle") {  // the full list, or Dots / M3 only in the group styles
+        const bool grp = (g.val["barPosition"] == "top" || g.val["barPosition"] == "bottom") && g.val["groupStyle"] != "free";
+        return moduleUsed("workspaces") && (r.opts.size() == 2) == grp;
+    }
     if (r.key == "workspaceNumbers") return moduleUsed("workspaces") && (g.val["workspaceStyle"] == "default" || g.val["workspaceStyle"] == "pill" || g.val["workspaceStyle"] == "ring" || g.val["workspaceStyle"] == "m3");
     if (r.key == "batteryPercent") return moduleUsed("battery");
     if (r.key == "workspaceApps") return moduleUsed("workspaces") && g.val["workspaceStyle"] != "gnome" && g.val["workspaceStyle"] != "bar";
     if (r.key == "trayPinDefault" || r.key == "trayTint") return moduleUsed("systray");
     if (r.key == "networkAlways" || r.key == "networkSpeed") return moduleUsed("network");
     if (r.key.compare(0, 6, "quick:") == 0) return moduleUsed("quickactions");
-    for (const char* k : {"resCpu", "resRam", "resTemp", "resDisk", "resSwap", "resStyle", "resValue", "resInterval", "resWarnCpu", "resWarnMem", "resWarnSwap"})
+    if (r.key == "resStyle") {  // the full list, or without Bars in the group styles
+        const bool grp = (g.val["barPosition"] == "top" || g.val["barPosition"] == "bottom") && g.val["groupStyle"] != "free";
+        return moduleUsed("resources") && (r.opts.size() == 5) == grp;
+    }
+    for (const char* k : {"resCpu", "resRam", "resTemp", "resDisk", "resSwap", "resValue", "resInterval", "resWarnCpu", "resWarnMem", "resWarnSwap"})
         if (r.key == k) return moduleUsed("resources");
     if (r.key == "dividerStyle" || r.key == "dividerSpacing") return moduleUsed("divider");
     if (r.key == "aiClaude" || r.key == "aiCodex" || r.key == "aiTokenLimit") return moduleUsed("aiusage");
@@ -2988,7 +3001,10 @@ Layout layoutPage(int pi) {
 double maxScroll(const Layout& L) { return std::max(0.0, L.contentH - cardH()); }
 
 int valInt(const Row& r) { return g.val.count(r.key) ? std::atoi(g.val[r.key].c_str()) : r.min; }
-std::string valStr(const Row& r) { return g.val.count(r.key) ? g.val[r.key] : ""; }
+std::string valStr(const Row& r) {
+    const std::string v = g.val.count(r.key) ? g.val[r.key] : "";
+    return r.kind == Text && r.key == "groupColor" && (v.empty() || v[0] != '#') ? "" : v;  // (the text field only shows a color of your own)
+}
 
 Rect sliderTrack(const RowLayout& rl) { return {rl.ctrlX, rl.ctrl.y, std::max(40.0, rl.ctrlW - 76), rl.ctrl.h}; }
 

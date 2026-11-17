@@ -189,7 +189,7 @@ inline const std::vector<WidgetStyleSet>& widgetStyleSets() {
         {"keyboard", "Keyboard layout", "", withFrames({{"code", "Code"}, {"icon", "Icon"}})},
         {"aiusage", "AI usage", "", {{"plain", "Plain"}, {"pill", "Pill", true}, {"outline", "Outline", true}, {"badge", "Badge", true}, {"tonal", "Tonal", true}, {"square", "Square", true}, {"ring", "Ring"}, {"bar", "Bar"}, {"text", "Text"}}},
         {"activewindow", "Active window", "", withFrames({{"title", "Title"}, {"chip", "Chip"}})},
-        {"notifications", "Notifications", "", withBtn({{"plain", "Plain"}, {"pill", "Pill", true}, {"outline", "Outline", true}, {"badge", "Badge", true}, {"square", "Square", true}, {"dot", "Dot"}})},
+        {"notifications", "Notifications", "", withBtn({{"plain", "Plain"}, {"pill", "Pill", true}, {"outline", "Outline", true}, {"badge", "Badge", true}, {"square", "Square", true}, {"dot", "Dot"}, {"count", "Count"}})},
         {"settings", "Settings button", "", withBtn(roundFrames)},
         {"launcher", "Launcher button", "", withBtn(roundFrames)},
         {"power", "Power button", "", withBtn(roundFrames)},
@@ -270,10 +270,11 @@ inline bool validGroupStyle(const std::string& s) {
         if (s == n) return true;
     return false;
 }
+inline bool hexColorText(const std::string& s) { return s.size() == 7 && s[0] == '#' && s.find_first_not_of("0123456789abcdef", 1) == std::string::npos; }
 inline bool validGroupColor(const std::string& r) {
-    for (const char* n : {"surface_container_low", "surface_container_high", "primary_container", "secondary_container", "tertiary_container"})
+    for (const char* n : {"surface", "surface_container_low", "surface_container", "surface_container_high", "surface_container_highest", "primary_container", "secondary_container", "tertiary_container"})
         if (r == n) return true;
-    return false;
+    return hexColorText(r);
 }
 inline bool validModuleList(const std::string& s) { return s.find_first_not_of("abcdefghijklmnopqrstuvwxyz,") == std::string::npos; }
 inline const char* const kWallpaperTransitions[] = {"none", "fade", "wipe", "circle", "slide", "blinds", "diamond", "split"};
@@ -324,6 +325,7 @@ struct Config {
     std::string islandView = "media";
     int dynamicIsland = 0;
     std::string groupStyle = "free";  // free | transparent | pills | separated (see hasGroupCell)
+    int groupSpacing = 2;  // px between the cells of the group styles (2 to 6)
     std::string groupColor = "surface_container_high";
     std::string groupFree = "island";  // comma separated modules that keep their own look and get no group cell
     int islandClick = 0;  // 1: the island opens on a click instead of on hover
@@ -1871,7 +1873,7 @@ constexpr double kSoftExtra = 8;
 double softExtra(const App& app, const char* mod) { return !sideBar(app) && widgetStyle(app, mod) == "m3soft" ? kSoftExtra : 0; }
 double notifW(const App& app) {
     const std::string style = widgetStyle(app, "notifications");
-    if (style == "dot") return kNotifW;
+    if (style == "dot" || style == "count") return kNotifW;
     if (style == "m3" || style == "m3filled") return roundBtnW(app, "notifications");
     return kNotifW + (app.notifCount <= 0 ? 0 : app.notifCount < 10 ? 10 : 18) + softExtra(app, "notifications");
 }
@@ -1926,10 +1928,10 @@ inline bool listHas(const std::string& list, const std::string& item) {
 }
 // The looks the group styles give to some widgets (nullptr: the widget keeps a frameless look of its own choice).
 inline const char* groupForcedLook(const std::string& mod) {
-    return mod == "media" ? "progress" : mod == "workspaces" ? "m3" : mod == "clock" ? "dot" : nullptr;
+    return mod == "media" ? "progress" : mod == "workspaces" ? "m3" : mod == "clock" ? "dot" : mod == "notifications" ? "count" : nullptr;
 }
 inline bool groupFreeWidget(const Config& c, const std::string& mod) {
-    return mod == "island" || listHas(c.groupFree, mod) || (!groupForcedLook(mod) && rawWidgetStyle(c, mod) == "m3");
+    return mod == "island" || listHas(c.groupFree, mod) || (!groupForcedLook(mod) && mod != "resources" && mod != "visualizer" && rawWidgetStyle(c, mod) == "m3");
 }
 inline bool hasGroupCell(const Config& c, const std::string& mod) {
     return groupHasCells(c) && mod != "divider" && !groupFreeWidget(c, mod);
@@ -1937,6 +1939,11 @@ inline bool hasGroupCell(const Config& c, const std::string& mod) {
 std::string widgetStyle(const Config& cfg, const std::string& mod) {
     const std::string s = rawWidgetStyle(cfg, mod);
     if (!groupActive(cfg) || groupFreeWidget(cfg, mod)) return s;
+    if (mod == "visualizer") return s == "reflect" ? "reflect" : "dots";  // (Reflection or Dots)
+    if (mod == "notifications") return s == "dot" ? "dot" : "count";  // (a dot, or the count on a small ball)
+    if (mod == "media") return s == "plain" ? "plain" : "progress";  // (the ring, or the cover with artist, title and controls)
+    if (mod == "resources") return s == "bars" ? "filled" : s;  // (every look but Bars fits on a cell, smaller: see resBox)
+    if (mod == "workspaces") return s == "gnome" ? "gnome" : "m3";  // (dots or M3)
     if (const char* forced = groupForcedLook(mod)) return forced;  // (media: a ring that fills with the song; workspaces: M3; clock: dot)
     const WidgetStyleSet* set = widgetStyleSet(mod);
     if (!set) return s;
@@ -1988,8 +1995,11 @@ std::string musicLineShown(const App& app) {
     return artist.empty() ? title : title + " \u2022 " + artist;
 }
 bool musicHasText(const App& app) { return widgetStyle(app, "media") != "cover"; }
-double musicPad(const App& app) { return musicProgress(app) ? 0 : genericFrame(widgetStyle(app, "media")) || mediaOnCell(app) ? kM3Inset : 0; }
-double musicPadRight(const App& app) { return genericFrame(widgetStyle(app, "media")) ? kM3Inset : 0; }  // (the last button has room of its own on a cell)  // (the cover sits as far from the left edge as from the top and bottom)
+// On a cell the cover sits as far from the left side as the last button's icon does from the right one (the cell pad plus the air of its box).
+constexpr double kMediaCellPad = 4;
+constexpr double kMusicCellTextGap = 2;  // (on a cell the title was about 16 px from the first button: this brings it to about 10)
+double musicPad(const App& app) { return musicProgress(app) ? 0 : genericFrame(widgetStyle(app, "media")) ? kM3Inset : mediaOnCell(app) ? kMediaCellPad : 0; }
+double musicPadRight(const App& app) { return genericFrame(widgetStyle(app, "media")) ? kM3Inset : mediaOnCell(app) ? -2 : 0; }  // (on a cell: the icon of the last button already has 2 px more air than the cover)  // (the last button has room of its own on a cell)  // (the cover sits as far from the left edge as from the top and bottom)
 double musicTextColW(const App& app) { return widgetStyle(app, "media") == "compact" ? app.musicTitleW : app.musicTextW; }
 constexpr double kMediaPillW = 40, kMediaNextX = kMediaPillW + 2;
 constexpr int kMediaIcon = 18;
@@ -1997,7 +2007,7 @@ constexpr int kMediaM3Icon = 16;
 bool musicM3(const App& app) { return widgetStyle(app, "media") == "m3"; }
 double musicCtrlX(const App& app) {
     if (musicM3(app)) return kM3SidePad + kM3Disc + kM3TextGap + app.musicM3TextW + kMusicGap;
-    return musicCoverPx(app) + kMusicGap + (musicHasText(app) ? musicTextColW(app) + kMusicGap : 0);
+    return musicCoverPx(app) + kMusicGap + (musicHasText(app) ? musicTextColW(app) + (mediaOnCell(app) ? kMusicCellTextGap : kMusicGap) : 0);
 }
 double musicW(const App& app) {
     if (musicProgress(app)) return kProgRing + kProgGap + app.musicLineW;

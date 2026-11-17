@@ -187,7 +187,11 @@ void drawTrayGlyph(cairo_t* cr, const App& app, cairo_surface_t* surf, double x,
 }
 
 const App::Periph* lowPeripheral(const App& app);
-double resOneW(const App& app) { const std::string s = widgetStyle(app, "resources"); return s == "text" ? 30 : s == "bars" ? 26 : kQuickBox; }  // (circles and pills are as big as the quick action buttons)
+// The size of the circles, pills and bars of the resources: on a group cell they are smaller, so they leave the same air around them above, below
+// and at the sides.
+constexpr double kResCellBox = 20;
+double resBox(const App& app) { return hasGroupCell(app.cfg, "resources") ? kResCellBox : kQuickBox; }
+double resOneW(const App& app) { const std::string s = widgetStyle(app, "resources"); return s == "text" ? 30 : resBox(app); }  // (circles and pills are as big as the quick action buttons)
 double resValW(const App& app) { return widgetStyle(app, "resources") == "bars" ? 0 : app.cfg.resValue ? 18 : 0; }
 double launcherM3W(const App& app);
 double updatesBarW(const App& app);
@@ -284,13 +288,12 @@ double moduleWidth(const App& app, const std::string& m) {
 double cellInsetR(const App& app, const std::string& m) {
     if (!hasGroupCell(app.cfg, m)) return 0;
     if (m == "activewindow") return kCellTitleInset;
-    return m == "visualizer" ? kVizCellPad : m == "aiusage" || m == "resources" || m == "weather" || m == "updates" || m == "network" || m == "media" ? kCellTextInset : 0;
+    if (m == "media") return musicProgress(app) ? kCellTextInset : 0;  // (the cover look has its own pad: musicPad)
+    return m == "visualizer" ? kVizCellPad : m == "aiusage" || m == "resources" || m == "weather" || m == "updates" || m == "network" ? kCellTextInset : 0;
 }
 // (the icon of the network widget already has air on its left)
 double cellInsetL(const App& app, const std::string& m) { return m == "network" ? 0 : cellInsetR(app, m); }
 
-// Space between two neighbouring cells (the group styles).
-constexpr double kGroupSpacing = 2;
 
 // The gap between two widgets keeps the visible space between their shapes: a cell reaches kGroupPad beyond the widget on each side.
 double moduleGap(const App& app, const std::string& a, const std::string& b) {
@@ -298,7 +301,7 @@ double moduleGap(const App& app, const std::string& a, const std::string& b) {
     if (!groupHasCells(app.cfg)) return base;
     const bool ca = hasGroupCell(app.cfg, a), cb = hasGroupCell(app.cfg, b);
     const double pads = (ca ? kGroupPad : 0) + (cb ? kGroupPad : 0);
-    return (ca && cb ? kGroupSpacing : base) + pads;
+    return (ca && cb ? app.cfg.groupSpacing : base) + pads;
 }
 
 // From the side of an island, notch or split body to the first widget: with cells it is the gap above and below a cell plus the pad of the

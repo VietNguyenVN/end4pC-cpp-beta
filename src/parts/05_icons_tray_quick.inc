@@ -549,11 +549,32 @@ void kbdPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double
 
 constexpr double kM3TextNudge = 1;
 constexpr double kM3LineOverlap = 5;
+// A disc that fills like a pie with the progress, the icon punched out of it: the M3 look of the resources.
+void drawProgressDisc(cairo_t* cr, const App&, double cx, double cy, double radius, double frac, const char* icon, double iconSize, const Color& ink) {
+    cairo_push_group(cr);
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, cx, cy, radius, 0, 2 * M_PI);
+    setSource(cr, ink, 0.5);
+    cairo_fill(cr);
+    if (frac > 0.005) {
+        cairo_move_to(cr, cx, cy);
+        cairo_arc(cr, cx, cy, radius - 0.5, -M_PI / 2, -M_PI / 2 + 2 * M_PI * std::min(frac, 0.9999));
+        cairo_close_path(cr);
+        setSource(cr, ink);
+        cairo_fill(cr);
+    }
+    cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OUT);
+    drawIcon(cr, icon, cx - iconSize / 2, cy - iconSize / 2, iconSize, ink);
+    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    cairo_pop_group_to_source(cr);
+    cairo_paint(cr);
+}
 double mediaPositionNow(const MediaPanel& M);  // (13_media_panel.inc)
 void musicPaintProgress(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layout, PangoFontDescription* restore) {
-    const double cy = static_cast<double>(bar.height) / 2.0, x0 = musicX(bar), R = kProgRing / 2.0, line = 2.5;
+    const double cy = static_cast<double>(bar.height) / 2.0, x0 = musicX(bar), R = kProgRing / 2.0;
     const bool playing = app.musicStatus == "Playing";
     const double frac = app.media.length > 0 ? std::clamp(mediaPositionNow(app.media) / app.media.length, 0.0, 1.0) : 0.0;
+    constexpr double line = 2.5;
     cairo_save(cr);
     cairo_set_line_width(cr, line);
     cairo_new_path(cr);

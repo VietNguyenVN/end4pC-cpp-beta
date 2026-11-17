@@ -770,7 +770,14 @@ void resetMediaPanel(MediaPanel& M) {
     const int cavaFd = M.cavaFd;
     std::string cavaBuf = std::move(M.cavaBuf);
     std::vector<double> points = std::move(M.points);
+    const double position = M.position, length = M.length;  // (the ring of the bar's media keeps filling while the panel opens and closes)
+    const std::string status = M.status;
+    const auto polledAt = M.polledAt;
     M = MediaPanel{};
+    M.position = position;
+    M.length = length;
+    M.status = status;
+    M.polledAt = polledAt;
     M.cavaPid = cavaPid;
     M.cavaFd = cavaFd;
     M.cavaBuf = std::move(cavaBuf);

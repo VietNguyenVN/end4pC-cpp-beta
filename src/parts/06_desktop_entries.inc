@@ -527,8 +527,9 @@ void drawResource(cairo_t* cr, const App& app, const ResItem& it, double cx, dou
     const double blend = std::clamp((u - 0.5) / 0.3, 0.0, 1.0);
     const Color use = warn ? err : Color{tert.r * (1 - blend) + prim.r * blend, tert.g * (1 - blend) + prim.g * blend, tert.b * (1 - blend) + prim.b * blend};
     const std::string look = resLookFor(app, side);
+    const double box = side ? kQuickBox : resBox(app), ic = 14 * box / kQuickBox;
     if (look == "pill") {
-        const double h = kQuickBox, w = app.cfg.resValue ? h + 18 : h, x = cx - h / 2, y = cy - h / 2;
+        const double h = box, w = app.cfg.resValue ? h + 18 : h, x = cx - h / 2, y = cy - h / 2;
         cairo_save(cr);
         roundedRect(cr, x, y, w, h, h / 2);
         cairo_clip(cr);
@@ -536,11 +537,11 @@ void drawResource(cairo_t* cr, const App& app, const ResItem& it, double cx, dou
         cairo_paint(cr);
         if (u > 0.005) { cairo_rectangle(cr, x, y, w * u, h); setSource(cr, use, 0.45); cairo_fill(cr); }
         cairo_restore(cr);
-        drawIcon(cr, it.icon, cx - 7, cy - 7, 14, app.color("on_secondary_container"));
+        drawIcon(cr, it.icon, cx - ic / 2, cy - ic / 2, ic, app.color("on_secondary_container"));
         return;
     }
     if (look == "bars") {
-        constexpr double kTrackW = 6, kTrackH = 26, kColGap = 5, kColW = 15;
+        const double kTrackW = 6, kTrackH = box, kColGap = 5, kColW = 15;
         const double x0 = cx - 13, tx = x0, ty = cy - kTrackH / 2, colX = x0 + kTrackW + kColGap, colCx = colX + kColW / 2.0;
         roundedRect(cr, tx, ty, kTrackW, kTrackH, kTrackW / 2);
         setSource(cr, on, 0.16);
@@ -583,7 +584,7 @@ void drawResource(cairo_t* cr, const App& app, const ResItem& it, double cx, dou
         if (u > 0.01) { roundedRect(cr, cx - 14, top + th + kGap, std::max(4.0, 28 * u), 4, 2); setSource(cr, use); cairo_fill(cr); }
         return;
     }
-    const double r = kQuickBox / 2.0;
+    const double r = box / 2.0;
     if (look == "outline") {
         cairo_new_sub_path(cr);
         cairo_arc(cr, cx, cy, r - 1.2, 0, 2 * M_PI);
@@ -598,29 +599,11 @@ void drawResource(cairo_t* cr, const App& app, const ResItem& it, double cx, dou
             cairo_stroke(cr);
             cairo_set_line_cap(cr, CAIRO_LINE_CAP_BUTT);
         }
-        drawIcon(cr, it.icon, cx - 7, cy - 7, 14, app.color("on_secondary_container"));
+        drawIcon(cr, it.icon, cx - ic / 2, cy - ic / 2, ic, app.color("on_secondary_container"));
         return;
     }
     if (look == "m3") {
-        constexpr double kDisc = kQuickBox / 2.0;
-        const Color ink = warn ? err : app.color("on_secondary_container");
-        cairo_push_group(cr);
-        cairo_new_sub_path(cr);
-        cairo_arc(cr, cx, cy, kDisc, 0, 2 * M_PI);
-        setSource(cr, ink, 0.5);
-        cairo_fill(cr);
-        if (u > 0.005) {
-            cairo_move_to(cr, cx, cy);
-            cairo_arc(cr, cx, cy, kDisc - 0.5, -M_PI / 2, -M_PI / 2 + 2 * M_PI * std::min(u, 0.9999));
-            cairo_close_path(cr);
-            setSource(cr, ink);
-            cairo_fill(cr);
-        }
-        cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OUT);
-        drawIcon(cr, it.icon, cx - 8, cy - 8, 16, ink);
-        cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-        cairo_pop_group_to_source(cr);
-        cairo_paint(cr);
+        drawProgressDisc(cr, app, cx, cy, box / 2.0, u, it.icon, 16 * box / kQuickBox, warn ? err : app.color("on_secondary_container"));
         return;
     }
     cairo_new_sub_path(cr);
@@ -634,14 +617,14 @@ void drawResource(cairo_t* cr, const App& app, const ResItem& it, double cx, dou
         setSource(cr, use);
         cairo_fill(cr);
     }
-    drawIcon(cr, it.icon, cx - 7, cy - 7, 14, app.color("on_secondary_container"));
+    drawIcon(cr, it.icon, cx - ic / 2, cy - ic / 2, ic, app.color("on_secondary_container"));
     if (u > 0.005) {
         cairo_save(cr);
         cairo_move_to(cr, cx, cy);
         cairo_arc(cr, cx, cy, r, -M_PI / 2, -M_PI / 2 + 2 * M_PI * std::min(u, 0.9999));
         cairo_close_path(cr);
         cairo_clip(cr);
-        drawIcon(cr, it.icon, cx - 7, cy - 7, 14, warn ? app.color("on_error") : app.color("on_primary"));
+        drawIcon(cr, it.icon, cx - ic / 2, cy - ic / 2, ic, warn ? app.color("on_error") : app.color("on_primary"));
         cairo_restore(cr);
     }
 }
@@ -963,7 +946,11 @@ void drawGroupCells(cairo_t* cr, const Bar& bar) {
     const double h = kQuickBox + 2 * kGroupPad, y = (bar.height - h) / 2.0;
     for (const GroupSpan& g : bar.groups) {
         roundedRectCorners(cr, g.x0, y, g.x1 - g.x0, h, g.rl, g.rr, g.rr, g.rl);
-        setSource(cr, app.color(app.cfg.groupColor.c_str()));
+        if (hexColorText(app.cfg.groupColor)) {
+            unsigned rgb = 0;
+            std::sscanf(app.cfg.groupColor.c_str() + 1, "%x", &rgb);
+            setSource(cr, Color{((rgb >> 16) & 255) / 255.0, ((rgb >> 8) & 255) / 255.0, (rgb & 255) / 255.0});
+        } else setSource(cr, app.color(app.cfg.groupColor.c_str()));
         cairo_fill(cr);
     }
 }
@@ -2455,7 +2442,13 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
         text(time, tf, bx + 8, cy, onSurf);
         if (hasDate) {
             if (cr) { cairo_new_sub_path(cr); cairo_arc(cr, bx + 8 + tw + 8 + 2.5, cy, 2.5, 0, 2 * M_PI); setSource(cr, app.color("tertiary")); cairo_fill(cr); }
-            text(app.clockDate, df, bx + 8 + tw + 21, cy, onSurf, 0.6);
+            if (cr) {  // the date sits on the same baseline as the time (their boxes have different ascents, so centring both made the date ride high)
+                size(time, tf, tw, th);
+                const double base = cy - th / 2.0 + pango_layout_get_baseline(layout) / static_cast<double>(PANGO_SCALE);
+                size(app.clockDate, df, dw, dh);
+                const double dateTop = base - pango_layout_get_baseline(layout) / static_cast<double>(PANGO_SCALE);
+                text(app.clockDate, df, bx + 8 + tw + 21, dateTop + dh / 2.0, onSurf, 0.6);
+            }
         }
     } else if (style == "bold") {  // "Pixel": the chunky digits of the desktop clock, in a row, and the date on a chip beside them
         constexpr double nh = kQuickBox, nw = nh * 2.8;
@@ -3186,6 +3179,32 @@ void draw(Bar& bar) {
                 setSource(cr, app.color("on_primary"));
                 cairo_fill(cr);
                 setSource(cr, app.color("primary"));
+                cairo_move_to(cr, badgeX + (badgeW - tw) / 2.0, badgeY + (badgeH - th) / 2.0);
+                pango_cairo_show_layout(cr, layout);
+                pango_layout_set_font_description(layout, font);
+                pango_font_description_free(bf);
+            }
+        } else if (style == "count") {  // the bell, with the number on a small ball at the top corner
+            if (nh) {
+                roundedRect(cr, nx, ny, nw, nhgt, nhgt / 2);
+                setSource(cr, app.color("surface_container_high"));
+                cairo_fill(cr);
+            }
+            drawIcon(cr, bell, nx + (nw - 18) / 2.0, ny + (nhgt - 18) / 2.0, 18, app.color(dnd ? "on_surface_variant" : "on_surface"), nh);
+            if (any) {
+                char cnt[8];
+                std::snprintf(cnt, sizeof cnt, "%d", app.notifCount > 99 ? 99 : app.notifCount);
+                PangoFontDescription* bf = pango_font_description_from_string("Sans Bold 7");
+                pango_layout_set_font_description(layout, bf);
+                pango_layout_set_text(layout, cnt, -1);
+                pango_layout_get_pixel_size(layout, &tw, &th);
+                constexpr double badgeH = 12;
+                const double badgeW = std::max<double>(tw + 6, badgeH);
+                const double badgeX = nx + nw - badgeW + 1, badgeY = ny - 1;
+                roundedRect(cr, badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+                setSource(cr, app.color("primary"));
+                cairo_fill(cr);
+                setSource(cr, app.color("on_primary"));
                 cairo_move_to(cr, badgeX + (badgeW - tw) / 2.0, badgeY + (badgeH - th) / 2.0);
                 pango_cairo_show_layout(cr, layout);
                 pango_layout_set_font_description(layout, font);

@@ -1141,9 +1141,24 @@ constexpr double kKbdRowH = 56, kKbdRowGap = 6, kKbdAddH = 48;
 
 constexpr int kKbdPickFit = 5;
 
+// The looks the popup of a widget offers: with the group styles the workspaces only have Dots and M3.
+std::vector<WidgetStyleOption> styleChoices(const App& app, const std::string& mod) {
+    std::vector<WidgetStyleOption> out = widgetStyleChoices(mod, sideBar(app));
+    if (mod == "notifications" && groupActive(app.cfg))
+        out.erase(std::remove_if(out.begin(), out.end(), [](const WidgetStyleOption& o) { return std::string(o.id) != "dot" && std::string(o.id) != "count"; }), out.end());
+    if (mod == "media" && groupActive(app.cfg))
+        out.erase(std::remove_if(out.begin(), out.end(), [](const WidgetStyleOption& o) { return std::string(o.id) != "progress" && std::string(o.id) != "plain"; }), out.end());
+    if (mod == "visualizer" && groupActive(app.cfg))
+        out.erase(std::remove_if(out.begin(), out.end(), [](const WidgetStyleOption& o) { return std::string(o.id) != "dots" && std::string(o.id) != "reflect"; }), out.end());
+    if (mod == "resources" && groupActive(app.cfg))
+        out.erase(std::remove_if(out.begin(), out.end(), [](const WidgetStyleOption& o) { return std::string(o.id) == "bars"; }), out.end());
+    if (mod == "workspaces" && groupActive(app.cfg))
+        out.erase(std::remove_if(out.begin(), out.end(), [](const WidgetStyleOption& o) { return std::string(o.id) != "gnome" && std::string(o.id) != "m3"; }), out.end());
+    return out;
+}
 constexpr double kStyleHeadH = 64, kStyleChipH = 48, kStyleChipGap = 8;
 double clkStyleH(const App& app, const ClockPanel& P) {
-    const int n = static_cast<int>(widgetStyleChoices(P.styleMod, sideBar(app)).size()), rows = (n + 1) / 2;
+    const int n = static_cast<int>(styleChoices(app, P.styleMod).size()), rows = (n + 1) / 2;
     return kClkPad + kStyleHeadH + kClkGap + rows * (kStyleChipH + kStyleChipGap) - kStyleChipGap + kClkPad;
 }
 
@@ -1262,7 +1277,7 @@ void clkStylePaint(ClkCtx& X) {
     X.text("Pick a look for this widget", 12, false, kClkPad + 68, kClkPad + 44, ink, 0.78);
     const std::string current = widgetStyle(app, set->mod);
     const double colW = (w - kStyleChipGap) / 2, top = kClkPad + kStyleHeadH + kClkGap;
-    const std::vector<WidgetStyleOption> choices = widgetStyleChoices(set->mod, sideBar(app));
+    const std::vector<WidgetStyleOption> choices = styleChoices(app, set->mod);
     for (size_t i = 0; i < choices.size(); i++) {
         const double cx = kClkPad + (i % 2) * (colW + kStyleChipGap), cy = top + (i / 2) * (kStyleChipH + kStyleChipGap);
         const int id = ClkStyle + static_cast<int>(i);
@@ -1549,7 +1564,7 @@ void retractClockPanel(App& app) {
 void toggleStylePicker(App& app, Bar* bar, const std::string& mod) {
     ClockPanel& P = app.clockP;
     if (!widgetStyleSet(mod)) return;
-    if (groupActive(app.cfg) && !groupFreeWidget(app.cfg, mod)) return;  // (in the group styles the cell gives the look)
+    if (groupActive(app.cfg) && !groupFreeWidget(app.cfg, mod) && mod != "workspaces" && mod != "resources" && mod != "visualizer" && mod != "notifications" && mod != "media") return;  // (in the group styles the cell gives the look; workspaces keep Dots / M3, resources all of theirs)
     if (P.open() && (P.kind != 6 || P.styleMod != mod)) closeClockPanel(app);
     if (!P.open()) { openClockPanel(app, bar, 6, 0, mod); return; }
     if (P.phase >= 2) { P.phase = 1; P.from = P.reveal; P.animStart = std::chrono::steady_clock::now(); }
@@ -1663,7 +1678,7 @@ void clockPanelClick(App& app) {
         P.wxReqAt = std::chrono::steady_clock::now();
     }
     else if (id >= ClkStyle && id < ClkStyle + 32) {
-        const std::vector<WidgetStyleOption> choices = widgetStyleChoices(P.styleMod, sideBar(app));
+        const std::vector<WidgetStyleOption> choices = styleChoices(app, P.styleMod);
         const size_t i = static_cast<size_t>(id - ClkStyle);
         if (i < choices.size() && setConfig(app, "widgetStyle", P.styleMod + "=" + choices[i].id).empty()) { applyConfig(app); drawAll(app); }
     }
