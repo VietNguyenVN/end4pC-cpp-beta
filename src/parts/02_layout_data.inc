@@ -195,6 +195,8 @@ double btBarW(const App& app);
 bool updatesShown(const App& app) { return app.cfg.updatesEnable && (app.cfg.updatesMinShow <= 0 || app.updatesTotal >= app.cfg.updatesMinShow); }
 double launcherWidth(const App& app) { return !sideBar(app) && widgetStyle(app, "launcher") == "m3" ? launcherM3W(app) : roundBtnWide(app, "launcher"); }
 constexpr double kVizM3Pad = 5;
+constexpr double kVizCellPad = 8;  // (air between the bars of a visualizer and the sides of its group cell)
+constexpr double kCellTextInset = 6, kCellTitleInset = 4;  // (the active window title already has 6 px of its own)  // (air between the text of AI usage / resources and the sides of their cell)
 
 constexpr double kIslandItem = kBarAvatar;
 constexpr double kIslandPadIn = (kBarHeight - kIslandItem) / 2.0 - kIslandPad;
@@ -277,8 +279,59 @@ double moduleWidth(const App& app, const std::string& m) {
     return 0;
 }
 
+// Air between a widget's content and the sides of its cell, for the widgets whose bare look draws to the edge of its box. The slot of the
+// widget is moved in by it, and the cell reaches it on both sides, so painting and hit tests keep using the content only.
+double cellInsetR(const App& app, const std::string& m) {
+    if (!hasGroupCell(app.cfg, m)) return 0;
+    if (m == "activewindow") return kCellTitleInset;
+    return m == "visualizer" ? kVizCellPad : m == "aiusage" || m == "resources" || m == "weather" || m == "updates" || m == "network" || m == "media" ? kCellTextInset : 0;
+}
+// (the icon of the network widget already has air on its left)
+double cellInsetL(const App& app, const std::string& m) { return m == "network" ? 0 : cellInsetR(app, m); }
+
+// Space between two neighbouring cells (the group styles).
+constexpr double kGroupSpacing = 2;
+
+// The gap between two widgets keeps the visible space between their shapes: a cell reaches kGroupPad beyond the widget on each side.
 double moduleGap(const App& app, const std::string& a, const std::string& b) {
-    return isDivider(a) || isDivider(b) ? app.cfg.dividerSpacing : app.cfg.barSpacing;
+    const double base = isDivider(a) || isDivider(b) ? app.cfg.dividerSpacing : app.cfg.barSpacing;
+    if (!groupHasCells(app.cfg)) return base;
+    const bool ca = hasGroupCell(app.cfg, a), cb = hasGroupCell(app.cfg, b);
+    const double pads = (ca ? kGroupPad : 0) + (cb ? kGroupPad : 0);
+    return (ca && cb ? kGroupSpacing : base) + pads;
+}
+
+// From the side of an island, notch or split body to the first widget: with cells it is the gap above and below a cell plus the pad of the
+// cell, so the cell is as far from the side of the body as from its top and bottom.
+double bodyPad(const App& app) {
+    return groupHasCells(app.cfg) ? (kBarHeight - (kQuickBox + 2 * kGroupPad)) / 2.0 + kGroupPad : kNotchPad;
+}
+
+// Cells: one per widget that has one. The run of neighbouring cells (cut by a divider, a free widget or the end of a zone) decides the corners.
+void groupCells(const App& app, Bar& bar, const std::vector<std::string>& mods, double x) {
+    if (!groupHasCells(app.cfg) || sideBar(app)) return;
+    const double full = (kQuickBox + 2 * kGroupPad) / 2.0, mid = kGroupMidRadius;
+    const bool joined = app.cfg.groupStyle == "pills";
+    size_t runStart = bar.groups.size();
+    bool open = false;
+    auto close = [&] {
+        const size_t n = bar.groups.size() - runStart;
+        for (size_t k = 0; k < n; k++) {
+            GroupSpan& g = bar.groups[runStart + k];
+            g.rl = !joined || k == 0 ? full : mid;
+            g.rr = !joined || k + 1 == n ? full : mid;
+        }
+        open = false;
+    };
+    for (size_t i = 0; i < mods.size(); i++) {
+        const double w = moduleWidth(app, mods[i]) + cellInsetL(app, mods[i]) + cellInsetR(app, mods[i]);
+        if (hasGroupCell(app.cfg, mods[i])) {
+            if (!open) { runStart = bar.groups.size(); open = true; }
+            bar.groups.push_back({std::max(0.0, x - kGroupPad), std::min<double>(bar.width, x + w + kGroupPad), full, full});
+        } else if (open) close();
+        x += w + (i + 1 < mods.size() ? moduleGap(app, mods[i], mods[i + 1]) : 0);
+    }
+    if (open) close();
 }
 
 double edgePad(const App& app, const std::string& m) {
@@ -293,6 +346,7 @@ double edgePad(const App& app, const std::string& m) {
 void layoutBar(Bar& bar) {
     const App& app = *bar.app;
     bar.slot.clear();
+    bar.groups.clear();
     const double W = bar.width;
     auto live = [&](const std::vector<std::string>& v) {
         std::vector<std::string> out;
@@ -303,17 +357,19 @@ void layoutBar(Bar& bar) {
     std::map<std::string, int> copies;
     bar.vizMirror.clear();
     auto flow = [&](const std::vector<std::string>& mods, double x) {
+        const double x0 = x;
         int vizHere = 0;
         for (size_t i = 0; i < mods.size(); i++) {
             if (mods[i] == "visualizer") bar.vizMirror.push_back(vizHere++ % 2 == 1);
-            bar.slot[repeatable(mods[i]) ? mods[i] + "#" + std::to_string(copies[mods[i]]++) : mods[i]] = x;
-            x += moduleWidth(app, mods[i]) + (i + 1 < mods.size() ? moduleGap(app, mods[i], mods[i + 1]) : 0);
+            bar.slot[repeatable(mods[i]) ? mods[i] + "#" + std::to_string(copies[mods[i]]++) : mods[i]] = x + cellInsetL(app, mods[i]);
+            x += moduleWidth(app, mods[i]) + cellInsetL(app, mods[i]) + cellInsetR(app, mods[i]) + (i + 1 < mods.size() ? moduleGap(app, mods[i], mods[i + 1]) : 0);
         }
+        groupCells(app, bar, mods, x0);
     };
     auto span = [&](const std::vector<std::string>& mods) {
         double w = 0;
         for (size_t i = 0; i < mods.size(); i++)
-            w += moduleWidth(app, mods[i]) + (i + 1 < mods.size() ? moduleGap(app, mods[i], mods[i + 1]) : 0);
+            w += moduleWidth(app, mods[i]) + cellInsetL(app, mods[i]) + cellInsetR(app, mods[i]) + (i + 1 < mods.size() ? moduleGap(app, mods[i], mods[i + 1]) : 0);
         return w;
     };
 
@@ -321,9 +377,9 @@ void layoutBar(Bar& bar) {
         const auto l = live(app.cfg.layoutLeft), c = live(centerModules(app)), r = live(app.cfg.layoutRight);
         const double sl = span(l), sc = span(c), sr = span(r);
         bar.segs.clear();
-        if (sl > 0) { bar.segs.push_back({0, kEdgePad + sl + kNotchPad}); flow(l, kEdgePad); }
-        if (sc > 0) { const double x0 = (W - sc) / 2.0; bar.segs.push_back({x0 - kNotchPad, x0 + sc + kNotchPad}); flow(c, x0); }
-        if (sr > 0) { bar.segs.push_back({W - sr - kNotchPad - kEdgePad, W}); flow(r, W - kEdgePad - sr); }
+        if (sl > 0) { bar.segs.push_back({0, kEdgePad + sl + bodyPad(app)}); flow(l, kEdgePad); }
+        if (sc > 0) { const double x0 = (W - sc) / 2.0; bar.segs.push_back({x0 - bodyPad(app), x0 + sc + bodyPad(app)}); flow(c, x0); }
+        if (sr > 0) { bar.segs.push_back({W - sr - bodyPad(app) - kEdgePad, W}); flow(r, W - kEdgePad - sr); }
         return;
     }
     if (app.cfg.barStyle == "notch" && !sideBar(app)) {
@@ -331,14 +387,14 @@ void layoutBar(Bar& bar) {
         const double sl = span(l), sc = span(c), sr = span(r);
         int groups = 0;
         for (double v : {sl, sc, sr}) groups += v > 0;
-        const double natural = sl + sc + sr + std::max(0, groups - 1) * kModuleGap + 2 * kNotchPad;
+        const double natural = sl + sc + sr + std::max(0, groups - 1) * kModuleGap + 2 * bodyPad(app);
         const double wide = W * app.cfg.notchWidth / 100.0;
         const double nw = std::clamp(std::max(natural, wide), 0.0, W - 2 * kNotchEar);
         const double x0 = (W - nw) / 2.0;
         bar.segs = {{x0, x0 + nw}};
-        flow(l, x0 + kNotchPad);
-        flow(r, x0 + nw - kNotchPad - sr);
-        const double lo = x0 + kNotchPad + sl + (sl > 0 ? kModuleGap : 0), hi = x0 + nw - kNotchPad - sr - (sr > 0 ? kModuleGap : 0) - sc;
+        flow(l, x0 + bodyPad(app));
+        flow(r, x0 + nw - bodyPad(app) - sr);
+        const double lo = x0 + bodyPad(app) + sl + (sl > 0 ? kModuleGap : 0), hi = x0 + nw - bodyPad(app) - sr - (sr > 0 ? kModuleGap : 0) - sc;
         flow(c, wide > natural ? std::clamp((W - sc) / 2.0, lo, std::max(lo, hi)) : lo);
         return;
     }
@@ -430,7 +486,9 @@ Hit hitTest(const Bar& bar, double x, double y) {
             const double ix = quickX(bar) + quickPadX(app) + quickItemX(app, i);
             if (x >= ix - slack && x < ix + quickItemW(app, quickShown(app)[i]) + slack) return kHitQuick + quickShown(app)[i];
         }
-    if (hasSlot(bar, "media") && musicM3(app)) {
+    if (hasSlot(bar, "media") && musicProgress(app)) {
+        if (x >= musicX(bar) && x < musicX(bar) + musicW(app)) return HitMedia;
+    } else if (hasSlot(bar, "media") && musicM3(app)) {
         const double px = musicX(bar) + musicCtrlX(app);
         if (x >= px - 2 && x < px + kMediaPillW + 1) return HitPlay;
         if (x >= px + kMediaNextX - 1 && x < px + kMediaNextX + kM3Disc + 2) return HitNext;

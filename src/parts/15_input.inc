@@ -474,6 +474,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     if (button == kBtnRight) {
         const Hit rh = app->hoverBar ? hitTest(*app->hoverBar, app->pointerX, app->pointerY) : HitNone;
         if (rh >= kHitTray && rh < kHitTray + 100) trayClick(*app, rh - kHitTray, true);
+        else if (rh == HitMedia && musicProgress(*app)) mediaSend(*app, {"next"});
         else if (const char* mod = hitModule(rh)) toggleStylePicker(*app, app->hoverBar, mod);
         return;
     }
@@ -484,6 +485,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
         else if (mh == HitUpdates) startUpdatesNow(*app);
         else if (mh == HitVolume) runDetached({"wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"});
         else if (mh == HitBluetooth) btTogglePower(*app);
+        else if (mh == HitMedia && musicProgress(*app)) mediaSend(*app, {"play-pause"});
         else if (mh >= kHitTray && mh < kHitTray + 100 && mh - kHitTray < static_cast<int>(app->tray.size())) trayTogglePin(*app, app->tray[mh - kHitTray].id);
         return;
     }

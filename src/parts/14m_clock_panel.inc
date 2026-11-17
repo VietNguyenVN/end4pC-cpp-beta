@@ -1549,6 +1549,7 @@ void retractClockPanel(App& app) {
 void toggleStylePicker(App& app, Bar* bar, const std::string& mod) {
     ClockPanel& P = app.clockP;
     if (!widgetStyleSet(mod)) return;
+    if (groupActive(app.cfg) && !groupFreeWidget(app.cfg, mod)) return;  // (in the group styles the cell gives the look)
     if (P.open() && (P.kind != 6 || P.styleMod != mod)) closeClockPanel(app);
     if (!P.open()) { openClockPanel(app, bar, 6, 0, mod); return; }
     if (P.phase >= 2) { P.phase = 1; P.from = P.reveal; P.animStart = std::chrono::steady_clock::now(); }

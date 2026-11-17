@@ -635,6 +635,7 @@ int main(int argc, char** argv) {
         }
         if (app.dmenu.open() && app.dmenu.configured && (dmStep(app) || app.dmenu.animating)) { drawDesktopMenu(app); timeoutMs = 16; }
         mediaWTick(app, before, timeoutMs);
+        barMediaTick(app, before, timeoutMs);
         resWTick(app, before, timeoutMs);
         calWTick(app, before, timeoutMs);
         clockWTick(app, before, timeoutMs);

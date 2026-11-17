@@ -253,6 +253,15 @@ void measureMusic(App& app) {
         pango_font_description_free(fd);
     }
     app.musicM3TextW = std::min(m3Widest + 2, static_cast<int>(kMediaTextMax));
+    {
+        PangoFontDescription* fd = pango_font_description_from_string(kProgFont);
+        pango_layout_set_font_description(layout, fd);
+        pango_layout_set_text(layout, musicLineShown(app).c_str(), -1);
+        int w = 0, h = 0;
+        pango_layout_get_pixel_size(layout, &w, &h);
+        app.musicLineW = std::clamp(w + 2, kMusicTextMin, kProgLineMax);
+        pango_font_description_free(fd);
+    }
     g_object_unref(layout);
     cairo_destroy(cr);
     cairo_surface_destroy(surf);

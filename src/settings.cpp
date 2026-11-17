@@ -394,6 +394,8 @@ std::vector<Page> makePages() {
         {Slider, "notchWidth", "Notch width", "How wide the Notch bar is, as a share of the screen. 0 makes it only as wide as its widgets need.", {}, 0, 100, 5, "%"},
         {Slider, "islandRounding", "Island rounding", "How round the corners of each island are, as a share of its height. 50 makes them fully round.", {}, 0, 50, 1, "%"},
         {Toggle, "dynamicIsland", "Dynamic island", "A small island in the middle of the bar that replaces the avatar, the clock and the media widget: the avatar and the time, or the cover and a visualizer while music plays. Island and Split hug bars only.", {}},
+        {Choice, "groupStyle", "Group style", "How the widgets sit on the bar. Free: each widget has its own look, as you set it in Widgets. The others put every widget on a cell of the bar (Pills: one chain per zone; Separated: a pill each; Transparent: no cells). Their widgets use a look without frame, and the look can not be changed from the popups of the bar.", {{"free", "Free"}, {"transparent", "Transparent"}, {"pills", "Pills"}, {"separated", "Separated"}}},
+        {Swatch, "groupColor", "Group color", "The color of the cells.", {{"surface_container_low", "Layer 0"}, {"surface_container_high", "Layer 1"}, {"primary_container", "Primary container"}, {"secondary_container", "Secondary container"}, {"tertiary_container", "Tertiary container"}}},
         {Toggle, "islandClick", "Expand island on click", "The island opens when you click it instead of when the pointer rests on it.", {}},
         {Choice, "barScreens", "Bar on screens", "Which screens get the bar. The other ones keep their wallpaper but have no bar.", {}},
         {Toggle, "barShadow", "Bar shadow", "A soft shadow under the bar, in every style. With the bar background off, the widgets keep their own shadow.", {}},
@@ -815,6 +817,8 @@ void loadConfig() {
     g.val.insert({"barShadow", "0"});
     g.val.insert({"dynamicIsland", "0"});
     g.val.insert({"islandClick", "0"});
+    g.val.insert({"groupStyle", "free"});
+    g.val.insert({"groupColor", "surface_container_high"});
     g.val.insert({"dividerSpacing", "0"});
     g.val.insert({"workspaceNumbers", "normal"});
     g.val.insert({"sideBarSpacing", "4"});
@@ -2379,7 +2383,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "mon:enabled") return g_mons.size() > 1;
     if (r.key == "magnifier") return compositorName() == "Hyprland";
     if (r.key == "dockAutoHide" || r.key == "dockPin" || r.key == "dockMedia" || r.key == "dockLauncher" || r.key == "dockMagnify" || r.key == "dockIconSize" || r.key == "dockPinned") return g.val["dock"] == "1";
-    if (r.key == "barSpacing") return g.val["layoutFor"] != "v";
+    if (r.key == "barSpacing") return g.val["layoutFor"] != "v" && g.val["groupStyle"] != "pills" && g.val["groupStyle"] != "separated";  // (the cells set the gap)
     if (r.key == "sideBarSpacing") return g.val["layoutFor"] == "v";
     if (r.key == "animStyle" || r.key == "animSpeed") return g.val["animEnabled"] == "1";
     if (r.key == "wallpaperAutoMin" || r.key == "wallpaperAutoFavs") return g.val["wallpaperAuto"] == "1";
@@ -2404,6 +2408,8 @@ bool rowAvailable(const Row& r) {
     if (r.key == "frameColor" || r.key == "barFollowsFrame") return g.val["frame"] != "0";
     if (r.key == "fakeRoundingSize") return g.val["fakeRounding"] != "0";
     if (r.key == "notchWidth") return g.val["barStyle"] == "notch";
+    if (r.key == "groupStyle") return g.val["barPosition"] == "top" || g.val["barPosition"] == "bottom";
+    if (r.key == "groupColor") return (g.val["barPosition"] == "top" || g.val["barPosition"] == "bottom") && g.val["groupStyle"] != "free" && g.val["groupStyle"] != "transparent";
     if (r.key == "islandClick") return g.val["dynamicIsland"] == "1" && (g.val["barStyle"] == "island" || g.val["barStyle"] == "split");
     if (r.key == "dynamicIsland") return g.val["barStyle"] == "island" || g.val["barStyle"] == "split";
     if (r.key == "islandRounding") return g.val["barStyle"] == "island";

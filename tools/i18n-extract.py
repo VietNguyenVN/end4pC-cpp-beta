@@ -30,7 +30,7 @@ def keep(s: str) -> bool:
     if not (s[0].isupper() or s[0].isdigit()): return False       # Keys, commands, CSS names and paths start with a lowercase letter
     if re.search(r'[{}$<>=\\]|%[sdfl0-9.]|://|\.(png|svg|json|txt|sh|py|lua|ttf|tsv)\b|^[A-Z0-9_]+$', s): return False
     if re.fullmatch(r'[A-Z][A-Za-z0-9]*', s) and any(c.isupper() for c in s[1:]) and ' ' not in s: return False  # CamelCase ids
-    if re.match(r'^(Sans|Monospace)( Bold| Light)?( \d+)?$|^(Mem|Swap)\w+:$|^Ag$|^Desktop Entry$|^Advanced Micro|^Logitech|^Linux ?$|^Arch$|^Adwaita$', s): return False  # fonts, /proc names, brands
+    if re.match(r'^(Sans|Monospace)( Bold| Light| Medium)?( [\d.]+)?$|^(Mem|Swap)\w+:$|^Ag$|^Desktop Entry$|^Advanced Micro|^Logitech|^Linux ?$|^Arch$|^Adwaita$', s): return False  # fonts, /proc names, brands
     if re.match(r'^(Ctrl|Shift|Alt|Super)\+', s): return False        # keyboard shortcuts shown next to a tooltip are not translated
     if s in NATIVE: return False
     return True

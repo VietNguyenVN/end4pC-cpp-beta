@@ -662,8 +662,9 @@ void openControlCenter(App& app, bool fromAvatar = false) {
     constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
     const auto& ll = app.cfg.layoutLeft;
     const bool leftSide = !vert && fromAvatar && std::find(ll.begin(), ll.end(), "avatar") != ll.end();
+    const bool underAvatar = !vert && fromAvatar && app.hoverBar && hasSlot(*app.hoverBar, "avatar");  // (opens under the avatar wherever it sits in the bar)
     const bool avatarLow = vert && sideModuleAtBottom(app, "avatar", false);
-    zwlr_layer_surface_v1_set_anchor(C.layer, vert ? ((avatarLow ? kB : kT) | (app.cfg.barPosition == "right" ? kR : kL)) : ((atBottom ? kB : kT) | (leftSide ? kL : kR)));
+    zwlr_layer_surface_v1_set_anchor(C.layer, vert ? ((avatarLow ? kB : kT) | (app.cfg.barPosition == "right" ? kR : kL)) : ((atBottom ? kB : kT) | (leftSide || underAvatar ? kL : kR)));
     if (vert) {
         const int side = std::max(0, sideCardEdge(app) - static_cast<int>(kCcRoom)), top = app.cfg.frame + 12 - static_cast<int>(kCcRoom);
         zwlr_layer_surface_v1_set_margin(C.layer, avatarLow ? 0 : top, app.cfg.barPosition == "right" ? side : 0, avatarLow ? top : 0, app.cfg.barPosition == "left" ? side : 0);
@@ -677,11 +678,20 @@ void openControlCenter(App& app, bool fromAvatar = false) {
         if (app.cfg.barStyle == "float" || app.cfg.barStyle == "island") edge += kBarGap;
         const int margin = std::max(0, edge - static_cast<int>(kCcRoom));
         const int sideM = std::max(0, app.cfg.frame + 12 - static_cast<int>(kCcRoom));
-        zwlr_layer_surface_v1_set_margin(C.layer, atBottom ? 0 : margin, leftSide ? 0 : sideM, atBottom ? margin : 0, leftSide ? sideM : 0);
-        if (fromAvatar && app.hoverBar) {
+        if (underAvatar) {
             const double sideMargin = app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0);
             const double screenLen = app.hoverBar->width + 2.0 * sideMargin;
-            C.along = app.pointerX + sideMargin - (leftSide ? sideM : screenLen - kCcSurfW - sideM);
+            const double center = slotX(*app.hoverBar, "avatar") + moduleWidth(app, "avatar") / 2.0 + app.cfg.frame;
+            const double surfLeft = std::clamp(center + sideMargin - kCcSurfW / 2.0, static_cast<double>(sideM), std::max<double>(sideM, screenLen - kCcSurfW - sideM));
+            zwlr_layer_surface_v1_set_margin(C.layer, atBottom ? 0 : margin, 0, atBottom ? margin : 0, static_cast<int>(surfLeft));
+            C.along = center + sideMargin - surfLeft;
+        } else {
+            zwlr_layer_surface_v1_set_margin(C.layer, atBottom ? 0 : margin, leftSide ? 0 : sideM, atBottom ? margin : 0, leftSide ? sideM : 0);
+            if (fromAvatar && app.hoverBar) {
+                const double sideMargin = app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0);
+                const double screenLen = app.hoverBar->width + 2.0 * sideMargin;
+                C.along = app.pointerX + sideMargin - (leftSide ? sideM : screenLen - kCcSurfW - sideM);
+            }
         }
     }
     zwlr_layer_surface_v1_set_size(C.layer, kCcSurfW, kCcSurfH);

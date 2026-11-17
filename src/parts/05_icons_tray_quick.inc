@@ -549,6 +549,43 @@ void kbdPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double
 
 constexpr double kM3TextNudge = 1;
 constexpr double kM3LineOverlap = 5;
+double mediaPositionNow(const MediaPanel& M);  // (13_media_panel.inc)
+void musicPaintProgress(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layout, PangoFontDescription* restore) {
+    const double cy = static_cast<double>(bar.height) / 2.0, x0 = musicX(bar), R = kProgRing / 2.0, line = 2.5;
+    const bool playing = app.musicStatus == "Playing";
+    const double frac = app.media.length > 0 ? std::clamp(mediaPositionNow(app.media) / app.media.length, 0.0, 1.0) : 0.0;
+    cairo_save(cr);
+    cairo_set_line_width(cr, line);
+    cairo_new_path(cr);
+    cairo_arc(cr, x0 + R, cy, R - line / 2, 0, 2 * M_PI);
+    setSource(cr, app.color("on_surface"), 0.16);
+    cairo_stroke(cr);
+    if (frac > 0) {
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_new_path(cr);
+        cairo_arc(cr, x0 + R, cy, R - line / 2, -M_PI / 2, -M_PI / 2 + 2 * M_PI * frac);
+        setSource(cr, app.color("primary"));
+        cairo_stroke(cr);
+    }
+    cairo_restore(cr);
+    constexpr double icon = 12;
+    drawIcon(cr, playing ? "pause" : "music_note", x0 + R - icon / 2, cy - icon / 2, icon, app.color("on_surface"), true);
+
+    PangoFontDescription* font = pango_font_description_from_string(kProgFont);
+    pango_layout_set_font_description(layout, font);
+    pango_font_description_free(font);
+    pango_layout_set_width(layout, std::max(app.musicLineW, 1) * PANGO_SCALE);
+    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+    pango_layout_set_text(layout, musicLineShown(app).c_str(), -1);
+    int tw = 0, th = 0;
+    pango_layout_get_pixel_size(layout, &tw, &th);
+    setSource(cr, app.color(playing ? "on_surface" : "on_surface_variant"));
+    cairo_move_to(cr, x0 + kProgRing + kProgGap, cy - th / 2.0);
+    pango_cairo_show_layout(cr, layout);
+    pango_layout_set_width(layout, -1);
+    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_NONE);
+    pango_layout_set_font_description(layout, restore);
+}
 void musicPaintM3(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layout, PangoFontDescription* restore) {
     const Hit hit = app.hoverBar == &bar ? hitTest(bar, app.pointerX, app.pointerY) : HitNone;
     const double cy = static_cast<double>(bar.height) / 2.0, x0 = musicX(bar);

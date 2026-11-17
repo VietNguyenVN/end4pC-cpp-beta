@@ -279,6 +279,27 @@ void mediaWApply(App& app) {
     deskDraw(app, X);
 }
 
+// The ring of the Progress look of the bar's media widget moves with the song: a redraw a second while it plays, and a poll now and then (or
+// when the track changes) to stay in sync.
+void barMediaTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs) {
+    static std::chrono::steady_clock::time_point nextDraw{}, nextPoll{};
+    static std::string key;
+    bool shown = false;
+    for (const auto& b : app.bars) shown = shown || hasSlot(*b, "media");
+    if (!shown || !musicProgress(app) || app.musicStatus.empty()) return;
+    const std::string now_key = app.musicTitle + "\x1f" + app.musicArtist;
+    if (now_key != key || now >= nextPoll) {
+        key = now_key;
+        pollMedia(app);
+        nextPoll = now + std::chrono::seconds(5);
+        nextDraw = now;
+    }
+    if (app.musicStatus != "Playing") return;
+    if (now >= nextDraw) { nextDraw = now + std::chrono::seconds(1); drawAll(app); }
+    const int ms = std::max<int>(1, static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(nextDraw - now).count()));
+    timeoutMs = timeoutMs < 0 ? ms : std::min(timeoutMs, ms);
+}
+
 void mediaWTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs) {
     MediaW& X = app.mediaW;
     if (!X.open() || !X.configured) return;

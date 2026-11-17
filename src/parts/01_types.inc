@@ -11,6 +11,7 @@ constexpr double kFloatRadius = 18;
 constexpr double kHugRadius = 20;
 constexpr double kNotchEar = 16;
 constexpr double kNotchPad = 5;
+constexpr double kGroupPad = 2, kGroupMidRadius = 6;  // (a cell is the box of the widget plus kGroupPad on each side)
 constexpr double kIslandPad = 5;
 constexpr int kButtonMargin = 8;
 constexpr const char* kCollageDefaultTree = R"({"t":"leaf","id":1,"img":""})";
@@ -73,6 +74,8 @@ struct BlurSurface {
     std::vector<BlurRect> sent;
 };
 
+struct GroupSpan { double x0, x1, rl, rr; };
+
 struct Bar {
     App* app = nullptr;
     wl_output* output = nullptr;
@@ -102,6 +105,7 @@ struct Bar {
     std::string roundApplied;
     Strip corners[4];
     std::map<std::string, double> slot;
+    std::vector<GroupSpan> groups;  // the cells behind the widgets (cfg.groupStyle)
     std::vector<bool> vizMirror;
     std::shared_ptr<WpJob> wpJob;
     cairo_surface_t* animFrom = nullptr;
@@ -166,26 +170,26 @@ inline bool validBarClock(const std::string& s) {
         if (s == n) return true;
     return false;
 }
-struct WidgetStyleOption { const char* id; const char* label; };
+struct WidgetStyleOption { const char* id; const char* label; bool framed = false; };  // framed: the look draws a body of its own
 struct WidgetStyleSet { const char* mod; const char* title; const char* legacy; std::vector<WidgetStyleOption> options; };
 inline const std::vector<WidgetStyleSet>& widgetStyleSets() {
-    static const std::vector<WidgetStyleOption> frames = {{"plain", "Plain"}, {"pill", "Pill"}, {"outline", "Outline"}, {"badge", "Badge"}, {"tonal", "Tonal"}, {"square", "Square"}};
+    static const std::vector<WidgetStyleOption> frames = {{"plain", "Plain"}, {"pill", "Pill", true}, {"outline", "Outline", true}, {"badge", "Badge", true}, {"tonal", "Tonal", true}, {"square", "Square", true}};
     auto withFrames = [](std::vector<WidgetStyleOption> own) { std::vector<WidgetStyleOption> v = frames; v.insert(v.end(), own.begin(), own.end()); return v; };
-    static const std::vector<WidgetStyleOption> roundFrames = {{"plain", "Plain"}, {"pill", "Pill"}, {"outline", "Outline"}, {"badge", "Badge"}, {"square", "Square"}};
-    static const std::vector<WidgetStyleOption> btnLooks = {{"m3soft", "Filled tonal"}, {"m3filled", "Filled"}};
+    static const std::vector<WidgetStyleOption> roundFrames = {{"plain", "Plain"}, {"pill", "Pill", true}, {"outline", "Outline", true}, {"badge", "Badge", true}, {"square", "Square", true}};
+    static const std::vector<WidgetStyleOption> btnLooks = {{"m3soft", "Filled tonal", true}, {"m3filled", "Filled", true}};
     auto withBtn = [](std::vector<WidgetStyleOption> v) { v.insert(v.end(), btnLooks.begin(), btnLooks.end()); return v; };
     static const std::vector<WidgetStyleSet> sets = [&] { std::vector<WidgetStyleSet> v = {
-        {"clock", "Clock", "barClock", {{"pill", "Pill"}, {"minimal", "Minimal"}, {"outline", "Outline"}, {"tiles", "Tiles"}, {"badge", "Badge"}, {"stacked", "Stacked"}, {"analog", "Analog"}, {"split", "Split"}, {"compact", "Compact"}, {"dot", "Dot"}, {"bold", "Pixel"}}},
-        {"workspaces", "Workspaces", "workspaceStyle", {{"icons", "Icons"}, {"default", "Squares"}, {"gnome", "Dots"}, {"pill", "Pill"}, {"bar", "Bars"}, {"ring", "Rings"}}},
-        {"resources", "Resources", "resStyle", {{"filled", "Filled"}, {"outline", "Outline"}, {"text", "Text"}, {"bars", "Bars"}, {"pill", "Pill"}}},
-        {"weather", "Weather", "", {{"plain", "Plain"}, {"pill", "Pill"}, {"outline", "Outline"}, {"badge", "Badge"}, {"tonal", "Tonal"}, {"square", "Square"}, {"icon", "Icon"}, {"temp", "Temp"}, {"stacked", "Stacked"}}},
+        {"clock", "Clock", "barClock", {{"pill", "Pill", true}, {"minimal", "Minimal"}, {"outline", "Outline", true}, {"tiles", "Tiles", true}, {"badge", "Badge", true}, {"stacked", "Stacked"}, {"analog", "Analog"}, {"split", "Split"}, {"compact", "Compact"}, {"dot", "Dot"}, {"bold", "Pixel"}}},
+        {"workspaces", "Workspaces", "workspaceStyle", {{"icons", "Icons"}, {"default", "Squares"}, {"gnome", "Dots"}, {"pill", "Pill", true}, {"bar", "Bars"}, {"ring", "Rings"}}},
+        {"resources", "Resources", "resStyle", {{"filled", "Filled", true}, {"outline", "Outline", true}, {"text", "Text"}, {"bars", "Bars"}, {"pill", "Pill", true}}},
+        {"weather", "Weather", "", {{"plain", "Plain"}, {"pill", "Pill", true}, {"outline", "Outline", true}, {"badge", "Badge", true}, {"tonal", "Tonal", true}, {"square", "Square", true}, {"icon", "Icon"}, {"temp", "Temp"}, {"stacked", "Stacked"}}},
         {"volume", "Volume", "", withBtn(withFrames({{"level", "Level"}, {"percent", "Percent"}}))},
         {"network", "Network", "", withBtn(withFrames({{"label", "Label"}}))},
         {"battery", "Battery", "", withFrames({{"ring", "Ring"}, {"bar", "Bar"}, {"text", "Text"}})},
         {"keyboard", "Keyboard layout", "", withFrames({{"code", "Code"}, {"icon", "Icon"}})},
-        {"aiusage", "AI usage", "", {{"plain", "Plain"}, {"pill", "Pill"}, {"outline", "Outline"}, {"badge", "Badge"}, {"tonal", "Tonal"}, {"square", "Square"}, {"ring", "Ring"}, {"bar", "Bar"}, {"text", "Text"}}},
+        {"aiusage", "AI usage", "", {{"plain", "Plain"}, {"pill", "Pill", true}, {"outline", "Outline", true}, {"badge", "Badge", true}, {"tonal", "Tonal", true}, {"square", "Square", true}, {"ring", "Ring"}, {"bar", "Bar"}, {"text", "Text"}}},
         {"activewindow", "Active window", "", withFrames({{"title", "Title"}, {"chip", "Chip"}})},
-        {"notifications", "Notifications", "", withBtn({{"plain", "Plain"}, {"pill", "Pill"}, {"outline", "Outline"}, {"badge", "Badge"}, {"square", "Square"}, {"dot", "Dot"}})},
+        {"notifications", "Notifications", "", withBtn({{"plain", "Plain"}, {"pill", "Pill", true}, {"outline", "Outline", true}, {"badge", "Badge", true}, {"square", "Square", true}, {"dot", "Dot"}})},
         {"settings", "Settings button", "", withBtn(roundFrames)},
         {"launcher", "Launcher button", "", withBtn(roundFrames)},
         {"power", "Power button", "", withBtn(roundFrames)},
@@ -195,13 +199,13 @@ inline const std::vector<WidgetStyleSet>& widgetStyleSets() {
         {"drives", "Removable drives", "", withBtn(withFrames({}))},
         {"avatar", "Avatar", "", {{"plain", "Plain"}, {"ring", "Ring"}, {"squircle", "Squircle"}}},
         {"quickactions", "Quick actions", "", withBtn(roundFrames)},
-        {"media", "Media", "", withFrames({{"compact", "Compact"}, {"cover", "Cover"}})},
+        {"media", "Media", "", withFrames({{"compact", "Compact"}, {"cover", "Cover"}, {"progress", "Progress"}})},
         {"visualizer", "Visualizer", "", {{"dots", "Dots"}, {"winamp", "Winamp"}, {"reflect", "Reflection"}, {"m3", "M3"}}},
     };
     for (WidgetStyleSet& set : v) {
         if (std::string(set.mod) == "quickactions") set.options.push_back({"split", "Split"});
         const bool hasM3 = std::any_of(set.options.begin(), set.options.end(), [](const WidgetStyleOption& o) { return std::string(o.id) == "m3"; });
-        if (!hasM3) set.options.push_back({"m3", "M3"});
+        if (!hasM3) set.options.push_back({"m3", "M3", true});
     }
     return v; }();
     return sets;
@@ -261,6 +265,17 @@ inline bool validBorderRole(const std::string& r) {
         if (r == n) return true;
     return false;
 }
+inline bool validGroupStyle(const std::string& s) {
+    for (const char* n : {"free", "transparent", "pills", "separated"})
+        if (s == n) return true;
+    return false;
+}
+inline bool validGroupColor(const std::string& r) {
+    for (const char* n : {"surface_container_low", "surface_container_high", "primary_container", "secondary_container", "tertiary_container"})
+        if (r == n) return true;
+    return false;
+}
+inline bool validModuleList(const std::string& s) { return s.find_first_not_of("abcdefghijklmnopqrstuvwxyz,") == std::string::npos; }
 inline const char* const kWallpaperTransitions[] = {"none", "fade", "wipe", "circle", "slide", "blinds", "diamond", "split"};
 inline const char* const kLyricsProviders[] = {"auto", "lrclib", "betterlyrics", "netease", "kugou"};
 inline bool validLyricsProvider(const std::string& v) {
@@ -308,6 +323,9 @@ struct Config {
     int barShadow = 0;
     std::string islandView = "media";
     int dynamicIsland = 0;
+    std::string groupStyle = "free";  // free | transparent | pills | separated (see hasGroupCell)
+    std::string groupColor = "surface_container_high";
+    std::string groupFree = "island";  // comma separated modules that keep their own look and get no group cell
     int islandClick = 0;  // 1: the island opens on a click instead of on hover
     int barSpacing = 4;
     int sideBarSpacing = 4;
@@ -1531,6 +1549,7 @@ struct App {
     std::string musicArtist, musicTitle;
     int musicTextW = 100;
     int musicTitleW = 100;
+    int musicLineW = 100;  // "Title • Artist" of the Progress look of the media widget
     int musicM3TextW = 0;
     std::string musicArtUrl;
     std::string musicArtFallback;  // keep a fallback across metadata signals with no cover URL
@@ -1861,7 +1880,7 @@ constexpr double kWsGap = 8, kWsDot = 10, kWsActiveW = 28;
 constexpr double kNumGap = 6, kNumW = 28, kNumActiveW = 42, kNumH = 26;
 static_assert(kMusicArt == kNumH, "cover and workspace boxes share one height");
 
-std::string widgetStyle(const Config& cfg, const std::string& mod) {
+std::string rawWidgetStyle(const Config& cfg, const std::string& mod) {
     const WidgetStyleSet* set = widgetStyleSet(mod);
     if (!set) return "";
     const bool side = cfg.barPosition == "left" || cfg.barPosition == "right";
@@ -1890,6 +1909,45 @@ std::string widgetStyle(const Config& cfg, const std::string& mod) {
     }
     return set->options.front().id;
 }
+
+// The group styles (Pills, Separated, Segmented...) put the widgets of a horizontal bar on cells painted by the bar: a widget that is not free
+// is drawn in a look without a body of its own, and gets a cell. Free: the island, the modules of cfg.groupFree and any widget whose look is M3.
+inline bool groupActive(const Config& c) { return c.groupStyle != "free" && c.barPosition != "left" && c.barPosition != "right"; }
+inline bool groupHasCells(const Config& c) { return groupActive(c) && c.groupStyle != "transparent"; }
+inline bool listHas(const std::string& list, const std::string& item) {
+    size_t at = 0;
+    while (at <= list.size()) {
+        size_t end = list.find(',', at);
+        if (end == std::string::npos) end = list.size();
+        if (list.compare(at, end - at, item) == 0 && end - at == item.size()) return true;
+        at = end + 1;
+    }
+    return false;
+}
+// The looks the group styles give to some widgets (nullptr: the widget keeps a frameless look of its own choice).
+inline const char* groupForcedLook(const std::string& mod) {
+    return mod == "media" ? "progress" : mod == "workspaces" ? "m3" : mod == "clock" ? "dot" : nullptr;
+}
+inline bool groupFreeWidget(const Config& c, const std::string& mod) {
+    return mod == "island" || listHas(c.groupFree, mod) || (!groupForcedLook(mod) && rawWidgetStyle(c, mod) == "m3");
+}
+inline bool hasGroupCell(const Config& c, const std::string& mod) {
+    return groupHasCells(c) && mod != "divider" && !groupFreeWidget(c, mod);
+}
+std::string widgetStyle(const Config& cfg, const std::string& mod) {
+    const std::string s = rawWidgetStyle(cfg, mod);
+    if (!groupActive(cfg) || groupFreeWidget(cfg, mod)) return s;
+    if (const char* forced = groupForcedLook(mod)) return forced;  // (media: a ring that fills with the song; workspaces: M3; clock: dot)
+    const WidgetStyleSet* set = widgetStyleSet(mod);
+    if (!set) return s;
+    bool framed = false;
+    for (const WidgetStyleOption& o : set->options)
+        if (s == o.id) framed = o.framed;
+    if (!framed) return s;
+    for (const WidgetStyleOption& o : set->options)
+        if (!o.framed) return o.id;
+    return s;
+}
 std::string widgetStyle(const App& app, const std::string& mod) { return widgetStyle(app.cfg, mod); }
 
 constexpr double kFrameGutter = 6;
@@ -1912,14 +1970,26 @@ double awinBarW(const App& app) {
     if (style == "chip") return std::min(app.awin.clsW + 4 + 18 + 4 + 8.0, kAwinMaxW);
     return app.awin.barW + (genericFrame(style) ? 2 * kFrameGutter : 0);
 }
-double musicCoverPx(const App& app) { const std::string s = widgetStyle(app, "media"); return genericFrame(s) ? kM3Disc : s == "compact" ? 23 : kMusicArt; }
+// On a group cell the cover is the size of the M3 disc and sits as far from the left edge of the cell as from its top and bottom.
+bool mediaOnCell(const App& app) { return hasGroupCell(app.cfg, "media"); }
+double musicCoverPx(const App& app) { const std::string s = widgetStyle(app, "media"); return genericFrame(s) || mediaOnCell(app) ? kM3Disc : s == "compact" ? 23 : kMusicArt; }
 std::string musicArtistShown(const App& app) { return app.musicStatus.empty() ? std::string(i18n::tr("Play")) : app.musicArtist; }
 std::string musicTitleShown(const App& app) {
     if (!app.musicStatus.empty()) return app.musicTitle;
     return widgetStyle(app, "media") == "compact" ? std::string(i18n::tr("Play something")) : std::string(i18n::tr("Something"));
 }
+bool musicProgress(const App& app) { return widgetStyle(app, "media") == "progress"; }
+// The Progress look: a ring that fills with the song, then "Title • Artist". No controls (middle click plays/pauses, right click skips).
+constexpr const char* kProgFont = "Sans Medium 10";
+constexpr double kProgRing = 20, kProgGap = 6;
+constexpr int kProgLineMax = 260;
+std::string musicLineShown(const App& app) {
+    const std::string title = musicTitleShown(app), artist = app.musicStatus.empty() ? std::string() : app.musicArtist;
+    return artist.empty() ? title : title + " \u2022 " + artist;
+}
 bool musicHasText(const App& app) { return widgetStyle(app, "media") != "cover"; }
-double musicPad(const App& app) { return genericFrame(widgetStyle(app, "media")) ? kM3Inset : 0; }  // (the cover sits as far from the left edge as from the top and bottom)
+double musicPad(const App& app) { return musicProgress(app) ? 0 : genericFrame(widgetStyle(app, "media")) || mediaOnCell(app) ? kM3Inset : 0; }
+double musicPadRight(const App& app) { return genericFrame(widgetStyle(app, "media")) ? kM3Inset : 0; }  // (the last button has room of its own on a cell)  // (the cover sits as far from the left edge as from the top and bottom)
 double musicTextColW(const App& app) { return widgetStyle(app, "media") == "compact" ? app.musicTitleW : app.musicTextW; }
 constexpr double kMediaPillW = 40, kMediaNextX = kMediaPillW + 2;
 constexpr int kMediaIcon = 18;
@@ -1930,8 +2000,9 @@ double musicCtrlX(const App& app) {
     return musicCoverPx(app) + kMusicGap + (musicHasText(app) ? musicTextColW(app) + kMusicGap : 0);
 }
 double musicW(const App& app) {
+    if (musicProgress(app)) return kProgRing + kProgGap + app.musicLineW;
     if (musicM3(app)) return musicCtrlX(app) + kMediaNextX + kM3Disc + kM3SidePad;
-    return 2 * musicPad(app) + musicCtrlX(app) + kMusicBtn * 3 - (kQuickItem - kQuickBox);
+    return musicPad(app) + musicPadRight(app) + musicCtrlX(app) + kMusicBtn * 3 - (kQuickItem - kQuickBox);
 }
 double volumeW(const App& app) {
     const std::string s = widgetStyle(app, "volume");
@@ -1969,16 +2040,26 @@ double wsWidth(const App& app, int id) {
     if (numberedStyle(app)) return id == app.workspace ? kNumActiveW : kNumW;
     return id == app.workspace ? kWsActiveW : kWsDot;
 }
+// Space between the sides of the workspaces' box and what they draw. The pill look has its own. The looks of small bare marks (dots, bars) get,
+// on a group cell, the gap they have above and below a mark, so nothing touches the edge of the cell.
+double wsInset(const App& app) {
+    if (pillStyle(app)) return kPillPad;
+    if (!hasGroupCell(app.cfg, "workspaces")) return 0;
+    const double cell = kQuickBox + 2 * kGroupPad;
+    if (barStyleWs(app)) return (cell - kWsTickBusy) / 2.0 - kGroupPad;
+    if (!m3Ws(app) && !numberedStyle(app) && !iconStyleWs(app) && !ringStyleWs(app)) return (cell - kWsDot) / 2.0 - kGroupPad;
+    return 0;
+}
 int wsShown(const App& app) { return app.wsCount > 0 ? std::clamp(app.wsCount, 1, 20) : app.cfg.workspaces; }
 double wsTotalW(const App& app) {
     double w = 0;
     for (int i = 1; i <= wsShown(app); i++) w += wsWidth(app, i) + (i > 1 ? wsGap(app) : 0);
-    return w + (pillStyle(app) ? 2 * kPillPad : 0);
+    return w + 2 * wsInset(app);
 }
 double wsXOf(const Bar& bar, int id) {
     const App& app = *bar.app;
     auto it = bar.slot.find("workspaces");
-    double x = (it == bar.slot.end() ? 0 : it->second) + (pillStyle(app) ? kPillPad : 0);
+    double x = (it == bar.slot.end() ? 0 : it->second) + wsInset(app);
     for (int i = 1; i < id; i++) x += wsWidth(app, i) + wsGap(app);
     return x;
 }

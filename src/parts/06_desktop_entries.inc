@@ -678,10 +678,10 @@ std::vector<Rect> islandRects(const Bar& bar) {
             if (moduleWidth(app, m) <= 0) continue;
             const std::string& key = keys[r][k++];
             if (!hasSlot(bar, key.c_str())) continue;
-            x0 = std::min(x0, slotX(bar, key.c_str()));
-            x1 = std::max(x1, slotX(bar, key.c_str()) + moduleWidth(app, m));
+            x0 = std::min(x0, slotX(bar, key.c_str()) - cellInsetL(app, m));
+            x1 = std::max(x1, slotX(bar, key.c_str()) + moduleWidth(app, m) + cellInsetR(app, m));
         }
-        if (x0 < x1) out.push_back({x0 - kIslandPad, 0, x1 - x0 + 2 * kIslandPad, double(bar.height)});
+        if (x0 < x1) { const double ip = groupHasCells(app.cfg) ? bodyPad(app) : kIslandPad; out.push_back({x0 - ip, 0, x1 - x0 + 2 * ip, double(bar.height)}); }
     }
     return out;
 }
@@ -955,6 +955,17 @@ void paintBarShadow(cairo_t* cr, const Bar& bar) {
     cairo_mask_surface(cr, shadow, 0, 0);
     cairo_restore(cr);
     cairo_surface_destroy(shadow);
+}
+
+void drawGroupCells(cairo_t* cr, const Bar& bar) {
+    const App& app = *bar.app;
+    if (!groupHasCells(app.cfg)) return;
+    const double h = kQuickBox + 2 * kGroupPad, y = (bar.height - h) / 2.0;
+    for (const GroupSpan& g : bar.groups) {
+        roundedRectCorners(cr, g.x0, y, g.x1 - g.x0, h, g.rl, g.rr, g.rr, g.rl);
+        setSource(cr, app.color(app.cfg.groupColor.c_str()));
+        cairo_fill(cr);
+    }
 }
 
 void drawBarBackground(cairo_t* cr, const Bar& bar) {
@@ -2637,6 +2648,7 @@ void draw(Bar& bar) {
     drawBarBackground(cr, bar);
     cairo_push_group(cr);
     cairo_translate(cr, 0, bar.contentY);
+    drawGroupCells(cr, bar);
 
     PangoLayout* layout = pango_cairo_create_layout(cr);
     PangoFontDescription* font = pango_font_description_from_string("Sans Bold 13");
@@ -2753,15 +2765,16 @@ void draw(Bar& bar) {
         pango_font_description_free(numFont);
     }
 
+    if (hasSlot(bar, "media") && musicProgress(app)) musicPaintProgress(cr, app, bar, layout, font);
     if (hasSlot(bar, "media") && musicM3(app)) musicPaintM3(cr, app, bar, layout, font);
-    if (hasSlot(bar, "media") && !musicM3(app)) {
+    if (hasSlot(bar, "media") && !musicM3(app) && !musicProgress(app)) {
         const std::string style = widgetStyle(app, "media");
         const Hit hit = app.hoverBar == &bar ? hitTest(bar, app.pointerX, app.pointerY) : HitNone;
         const bool lit = hit == HitMedia || hit == HitPrev || hit == HitPlay || hit == HitNext;
         const bool framed = genericFrame(style);
         Color ink = app.color("on_surface");
         if (framed) ink = styleFrame(cr, app, style, musicX(bar), (bar.height - kMediaFrameH) / 2.0, musicW(app), kMediaFrameH, lit);
-        const bool roundCover = framed && style != "square";
+        const bool roundCover = (framed && style != "square") || (mediaOnCell(app) && app.cfg.groupStyle == "separated");
         const double cov = musicCoverPx(app), scale = cov / kMusicArt;
         const double mx = musicX(bar) + musicPad(app), artY = (bar.height - cov) / 2.0;
 
