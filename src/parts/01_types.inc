@@ -339,6 +339,7 @@ struct Config {
     std::string notificationPosition = "top_right";
     int doNotDisturb = 0;
     int notificationTimeout = 4000;
+    int notificationAppIcons = 0;  // 1: a notification without a picture shows its app's icon instead of a symbol
     std::string osdPosition = "right";
     int osdTimeout = 2000;
     std::string barScreens;
