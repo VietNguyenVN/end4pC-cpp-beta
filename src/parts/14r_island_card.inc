@@ -297,6 +297,8 @@ void islandNotifPaint(App& app, cairo_t* cr) {
         cairo_set_source_surface(cr, pic, 0, 0);
         cairo_paint(cr);
         cairo_restore(cr);
+    } else if (cairo_surface_t* appIcon = app.cfg.notificationAppIcons ? notifAppIcon(app, n) : nullptr) {
+        paintNotifAppIcon(cr, appIcon, shape, kIcPad, kIcPad, kIcNIcon, 32);
     } else {
         drawIcon(cr, notifSolarIcon(n), kIcPad + (kIcNIcon - 26) / 2.0, kIcPad + (kIcNIcon - 26) / 2.0, 26, app.color(crit ? "on_primary_container" : "on_secondary_container"), true);
     }

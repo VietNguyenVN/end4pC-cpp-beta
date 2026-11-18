@@ -491,6 +491,48 @@ cairo_surface_t* notifPicture(App& app, const Notif& n) {
     return surf;
 }
 
+// The icon of the app that sent a notification, for one without a picture (notificationAppIcons): the Icon of its desktop entry,
+// else the app icon name it sent (image-path, then app_icon), else its name as a desktop entry or an app icon. Only app icons
+// resolve (lookupIcon searches the Applications folders), so a status name like dialog-information keeps the symbol.
+// Null when nothing is found (the symbol is drawn then).
+cairo_surface_t* notifAppIcon(App& app, const Notif& n) {
+    const std::string key = "app:" + n.desktopEntry + "|" + n.icon + "|" + n.imagePath + "|" + n.app;
+    if (auto it = app.np.icons.find(key); it != app.np.icons.end()) return it->second;
+    auto stem = [](std::string v) {
+        if (v.size() > 8 && v.compare(v.size() - 8, 8, ".desktop") == 0) v.resize(v.size() - 8);
+        return v;
+    };
+    auto fromEntry = [](const std::string& id) -> std::string {
+        if (id.empty() || id.find('/') != std::string::npos) return "";  // (an id, never a path)
+        const std::string file = findDesktopFile(id);
+        return file.empty() ? "" : lookupIcon(desktopValue(file, "Icon"), 64);
+    };
+    auto isName = [](const std::string& v) { return !v.empty() && v[0] != '/' && v.rfind("file://", 0) != 0; };
+    std::string appId = lowerCopy(n.app);
+    std::replace(appId.begin(), appId.end(), ' ', '-');
+    std::string path = fromEntry(stem(n.desktopEntry));
+    if (path.empty()) path = fromEntry(lowerCopy(stem(n.desktopEntry)));
+    if (path.empty() && isName(n.imagePath)) path = lookupIcon(n.imagePath, 64);  // (image-path may also be an icon name: notify-send -i sends it there)
+    if (path.empty() && isName(n.icon)) path = lookupIcon(n.icon, 64);
+    if (path.empty()) path = fromEntry(appId);
+    if (path.empty() && !appId.empty()) path = lookupIcon(appId, 64);
+    cairo_surface_t* surf = path.empty() ? nullptr : loadIconSurface(path, 64);
+    app.np.icons[key] = surf;
+    return surf;
+}
+
+// Paints an app icon (a square surface) at size px, centered in the shape of side box at (x, y) and clipped to it.
+void paintNotifAppIcon(cairo_t* cr, cairo_surface_t* icon, const std::string& shape, double x, double y, double box, double size) {
+    cairo_save(cr);
+    shapePath(cr, shape, x, y, box);
+    cairo_clip(cr);
+    cairo_translate(cr, x + (box - size) / 2.0, y + (box - size) / 2.0);
+    cairo_scale(cr, size / cairo_image_surface_get_width(icon), size / cairo_image_surface_get_height(icon));
+    cairo_set_source_surface(cr, icon, 0, 0);
+    cairo_paint(cr);
+    cairo_restore(cr);
+}
+
 std::string notifAppLabel(const Notif& n) {
     if (n.app.empty()) return "Notification";
     return lowerCopy(n.app) == "end4pc" ? "Shell" : n.app;
@@ -617,6 +659,8 @@ void drawNotifPopup(App& app) {
             cairo_set_source_surface(cr, pic, 0, 0);
             cairo_paint(cr);
             cairo_restore(cr);
+        } else if (cairo_surface_t* appIcon = app.cfg.notificationAppIcons ? notifAppIcon(app, n) : nullptr) {
+            paintNotifAppIcon(cr, appIcon, shape, ix, iy, kNotifIcon, 24);
         } else {
             drawIcon(cr, notifSolarIcon(n), ix + 9, iy + 9, 20, app.color(n.urgency >= 2 ? "on_primary_container" : "on_secondary_container"), true);
         }
