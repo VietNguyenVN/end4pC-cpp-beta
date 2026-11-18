@@ -16,6 +16,8 @@ struct UnitsPage final : ToolPage {
     std::vector<std::pair<std::string, int>> from{9, {"", 0}};  // (unused: kept per category below)
     std::vector<std::string> fromId, toId;
     std::string amount = "1";
+    size_t curAmount = 1, curFilter = 0;  // (the carets of the amount and of the unit search)
+    Rect amountBox, searchBox;
     std::map<std::string, double> rates;  // per US dollar
     long long ratesAt = 0;
     TrJob job;
@@ -59,7 +61,7 @@ struct UnitsPage final : ToolPage {
             if (eq == std::string::npos) continue;
             const std::string k = line.substr(0, eq), v = line.substr(eq + 1);
             if (k == "cat") cat = std::clamp(std::atoi(v.c_str()), 0, static_cast<int>(cats.size()) - 1);
-            else if (k == "amount" && v.size() < 30) amount = v;
+            else if (k == "amount" && v.size() < 30) { amount = v; curAmount = amount.size(); }
             else if (k.size() > 5 && k.compare(0, 5, "from.") == 0) { const size_t n = std::atoi(k.c_str() + 5); if (n < cats.size()) fromId[n] = v; }
             else if (k.size() > 3 && k.compare(0, 3, "to.") == 0) { const size_t n = std::atoi(k.c_str() + 3); if (n < cats.size()) toId[n] = v; }
         }
@@ -169,13 +171,23 @@ struct UnitsPage final : ToolPage {
         return r;
     }
 
-    void bigNumber(cairo_t* cr, const std::string& s, const Rect& box, const Color& fg, double alpha, bool caret) {
+    static double bigPx(const std::string& s, const Rect& box) {  // the biggest size that fits the box
         double px = 54, tw = 0, th = 0;
         for (; px > 22; px -= 4) { measure(s, px, true, 0, tw, th); if (tw <= box.w - 6) break; }
+        return px;
+    }
+    void bigNumber(cairo_t* cr, const std::string& s, const Rect& box, const Color& fg, double alpha, bool caret, size_t at = std::string::npos) {
+        double tw = 0, th = 0, cw = 0, ch = 0;
+        const double px = bigPx(s, box);
         measure(s, px, true, 0, tw, th);
         const double y = box.y + (box.h - th) / 2;
         text(cr, s, box.x, y, px, true, fg, 0, alpha);
-        if (caret) { src(cr, fg); cairo_rectangle(cr, box.x + tw + 2, y + th * 0.12, 3, th * 0.76); cairo_fill(cr); }
+        if (caret) {
+            measure(s.substr(0, std::min(at, s.size())), px, true, 0, cw, ch);
+            src(cr, fg);
+            cairo_rectangle(cr, box.x + cw + 2, y + th * 0.12, 3, th * 0.76);
+            cairo_fill(cr);
+        }
     }
 
     void drawFrom(cairo_t* cr) {
@@ -188,8 +200,10 @@ struct UnitsPage final : ToolPage {
         const bool caretOn = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - lastKey).count() / 530 % 2 == 0;
         lastCaret = caretOn;
         const Rect box{c.x + 24, c.y + 78, c.w - 48, 90};
+        amountBox = box;
+        curAmount = std::min(curAmount, amount.size());
         if (amount.empty()) text(cr, "0", box.x, box.y + 14, 54, true, g.color("on_surface_variant"), 0, 0.4);
-        bigNumber(cr, amount, box, fg, 1, caretOn && !popup);
+        bigNumber(cr, amount, box, fg, 1, caretOn && !popup, curAmount);
         const UnUnit* a = fromU();
         if (a) text(cr, a->name, c.x + 24, c.y + 172, 15, false, g.color("on_surface_variant"));
         const Color bg = g.color("secondary_container"), sf = g.color("on_secondary_container");
@@ -315,8 +329,17 @@ struct UnitsPage final : ToolPage {
         cairo_fill(cr);
         const auto items = popupItems();
         const double pad = 10, gap = 5, chH = 38, searchH = cats[static_cast<size_t>(cat)].units.size() > 14 ? 34 : 0;
+        searchBox = searchH > 0 ? Rect{popArea.x + pad, popArea.y + pad, popArea.w - 2 * pad, searchH} : Rect{};
         if (searchH > 0) {
+            curFilter = std::min(curFilter, filter.size());
             trLine(cr, filter.empty() ? std::string(i18n::tr("Type to search")) : filter, popArea.x + pad + 8, popArea.y + pad + 7, popArea.w - 2 * pad - 16, 15, !filter.empty(), g.color("on_surface_variant"), filter.empty() ? 0.6 : 1);
+            if (lastCaret) {  // the caret of the search
+                double cw = 0, ch = 0;
+                measure(filter.substr(0, curFilter), 15, !filter.empty(), 0, cw, ch);
+                src(cr, g.color("primary"));
+                cairo_rectangle(cr, popArea.x + pad + 8 + cw + 1, popArea.y + pad + 7, 2, 20);
+                cairo_fill(cr);
+            }
         }
         const Rect list{popArea.x + pad, popArea.y + pad + searchH, popArea.w - 2 * pad, popArea.h - 2 * pad - searchH};
         const int cols = list.w > 330 ? 2 : 1, rows = (static_cast<int>(items.size()) + cols - 1) / cols;
@@ -389,7 +412,7 @@ struct UnitsPage final : ToolPage {
     void setUnit(bool source, int idx) {
         (source ? fromId : toId)[static_cast<size_t>(cat)] = C().units[static_cast<size_t>(idx)].id;
         popup = 0;
-        filter.clear();
+        filter.clear(); curFilter = 0;
         saveState();
     }
     void setCategory(int c) {
@@ -409,7 +432,7 @@ struct UnitsPage final : ToolPage {
             next = buf;
         }
         std::swap(fromId[static_cast<size_t>(cat)], toId[static_cast<size_t>(cat)]);
-        if (!next.empty() && next.find('e') == std::string::npos) amount = next;
+        if (!next.empty() && next.find('e') == std::string::npos) { amount = next; curAmount = amount.size(); }
         saveState();
     }
     bool typeAmount(const std::string& t) {
@@ -418,10 +441,12 @@ struct UnitsPage final : ToolPage {
             if (ch == ',') ch = '.';
             const bool digit = ch >= '0' && ch <= '9';
             if (!digit && ch != '.' && ch != '-') continue;
+            curAmount = std::min(curAmount, amount.size());
             if (ch == '.' && amount.find('.') != std::string::npos) continue;
-            if (ch == '-' && !(amount.empty() && cat == kUnTemperature)) continue;
+            if (ch == '-' && !(curAmount == 0 && amount.find('-') == std::string::npos && cat == kUnTemperature)) continue;
             if (amount.size() >= 18) continue;
-            amount += ch;
+            amount.insert(curAmount, 1, ch);
+            curAmount++;
             changed = true;
         }
         return changed;
@@ -432,18 +457,19 @@ struct UnitsPage final : ToolPage {
         std::string clean;
         for (char ch : t) if (ch != ' ' && ch != '\n' && ch != '\t' && ch != '$' && ch != '€' && ch != '\xe2' && ch != '\x82' && ch != '\xac') clean += ch;
         amount.clear();
+        curAmount = 0;
         typeAmount(clean);
         saveState();
     }
     bool act(const Hover& h) {
         switch (h.id) {
             case CatChip: setCategory(h.arg); break;
-            case FromChip: popup = popup == 1 ? 0 : 1; filter.clear(); popScroll = 0; break;
-            case ToChip: popup = popup == 2 ? 0 : 2; filter.clear(); popScroll = 0; break;
+            case FromChip: popup = popup == 1 ? 0 : 1; filter.clear(); curFilter = 0; popScroll = 0; break;
+            case ToChip: popup = popup == 2 ? 0 : 2; filter.clear(); curFilter = 0; popScroll = 0; break;
             case PopItem: setUnit(popup == 1, h.arg); break;
             case Swap: swap(); break;
             case Paste: pasteClipboard(); break;
-            case Clear: amount.clear(); saveState(); break;
+            case Clear: amount.clear(); curAmount = 0; saveState(); break;
             case Copy: {
                 const std::string r = resultText();
                 if (r == "—") return false;
@@ -470,7 +496,9 @@ struct UnitsPage final : ToolPage {
     bool click(double x, double y, bool press) override {
         if (!press) return false;
         const Hover h = hitAt(x, y);
+        if (popup && searchBox.w > 0 && searchBox.contains(x, y)) { curFilter = tbCaretAt(filter, 15, x - (searchBox.x + 8)); lastKey = Clock::now(); return true; }
         if (popup && h.id != PopItem) { popup = 0; return true; }
+        if (!popup && amountBox.contains(x, y)) { curAmount = tbCaretAt(amount, bigPx(amount, amountBox), x - amountBox.x, true); lastKey = Clock::now(); return true; }
         if (h.id != None) return act(h);
         return false;
     }
@@ -485,14 +513,23 @@ struct UnitsPage final : ToolPage {
     bool key(const KeyEvent& k) override {
         lastKey = Clock::now();
         if (popup) {
-            if (k.sym == XKB_KEY_Escape) { popup = 0; filter.clear(); return true; }
-            if (k.sym == XKB_KEY_BackSpace) { if (!filter.empty()) filter.pop_back(); popScroll = 0; return true; }
+            if (k.sym == XKB_KEY_Escape) { popup = 0; filter.clear(); curFilter = 0; return true; }
+            curFilter = std::min(curFilter, filter.size());
+            switch (k.sym) {
+                case XKB_KEY_Left: curFilter = curFilter > 0 ? trPrevChar(filter, curFilter) : 0; return true;
+                case XKB_KEY_Right: curFilter = tbNextChar(filter, curFilter); return true;
+                case XKB_KEY_Home: curFilter = 0; return true;
+                case XKB_KEY_End: curFilter = filter.size(); return true;
+                case XKB_KEY_BackSpace: if (curFilter > 0) { const size_t p = trPrevChar(filter, curFilter); filter.erase(p, curFilter - p); curFilter = p; } popScroll = 0; return true;
+                case XKB_KEY_Delete: if (curFilter < filter.size()) filter.erase(curFilter, tbNextChar(filter, curFilter) - curFilter); popScroll = 0; return true;
+                default: break;
+            }
             if (k.sym == XKB_KEY_Return || k.sym == XKB_KEY_KP_Enter) {
                 const auto items = popupItems();
                 if (!items.empty()) setUnit(popup == 1, items[0]);
                 return true;
             }
-            if (!k.ctrl && !k.alt && !k.text.empty()) { filter += k.text; popScroll = 0; return true; }
+            if (!k.ctrl && !k.alt && !k.text.empty()) { filter.insert(curFilter, k.text); curFilter += k.text.size(); popScroll = 0; return true; }
             return false;
         }
         if (k.ctrl) {
@@ -500,8 +537,16 @@ struct UnitsPage final : ToolPage {
             if (k.sym == XKB_KEY_c) return act({Copy, 0});
             return false;
         }
-        if (k.sym == XKB_KEY_BackSpace) { if (!amount.empty()) amount.pop_back(); saveState(); return true; }
-        if (k.sym == XKB_KEY_Delete) { amount.clear(); saveState(); return true; }
+        curAmount = std::min(curAmount, amount.size());
+        switch (k.sym) {
+            case XKB_KEY_Left: curAmount = curAmount > 0 ? trPrevChar(amount, curAmount) : 0; return true;
+            case XKB_KEY_Right: curAmount = tbNextChar(amount, curAmount); return true;
+            case XKB_KEY_Home: curAmount = 0; return true;
+            case XKB_KEY_End: curAmount = amount.size(); return true;
+            case XKB_KEY_BackSpace: if (curAmount > 0) { const size_t p = trPrevChar(amount, curAmount); amount.erase(p, curAmount - p); curAmount = p; saveState(); } return true;
+            case XKB_KEY_Delete: if (curAmount < amount.size()) { amount.erase(curAmount, tbNextChar(amount, curAmount) - curAmount); saveState(); } return true;
+            default: break;
+        }
         if (k.alt || k.text.empty()) return false;
         const bool used = typeAmount(k.text);
         if (used) saveState();

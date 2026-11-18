@@ -185,6 +185,45 @@ struct TimersPage final : ToolPage {
     bool animating() const override { return band.over != 0; }
 
     bool addHit(const Rect& r, Act act, int a = 0, int b = 0) { hits.push_back({r, act, a, b}); return hotAct == act && hotA == a && hotB == b; }
+    // Times drawn with every digit as wide as the widest one, so a number that changes (a "1" is narrower than a "0") does not wobble.
+    static double digitPitch(double px, bool bold) {
+        static std::map<std::pair<int, bool>, double> cache;
+        const auto key = std::make_pair(static_cast<int>(px * 10), bold);
+        if (const auto it = cache.find(key); it != cache.end()) return it->second;
+        double best = 0, h = 0;
+        for (char d = '0'; d <= '9'; d++) {
+            double w = 0;
+            measure(std::string(1, d), px, bold, 0, w, h);
+            best = std::max(best, w);
+        }
+        return cache[key] = best;
+    }
+    static double monoWidth(const std::string& s, double px, bool bold) {
+        const double dp = digitPitch(px, bold);
+        double w = 0, h = 0;
+        for (char ch : s) {
+            if (ch >= '0' && ch <= '9') { w += dp; continue; }
+            double cw = 0;
+            measure(std::string(1, ch), px, bold, 0, cw, h);
+            w += cw;
+        }
+        return w;
+    }
+    static void monoText(cairo_t* cr, const std::string& s, double x, double y, double px, bool bold, const Color& c, double alpha = 1) {
+        const double dp = digitPitch(px, bold);
+        for (char ch : s) {
+            double cw = 0, h = 0;
+            measure(std::string(1, ch), px, bold, 0, cw, h);
+            const bool digit = ch >= '0' && ch <= '9';
+            text(cr, std::string(1, ch), x + (digit ? (dp - cw) / 2 : 0), y, px, bold, c, 0, alpha);
+            x += digit ? dp : cw;
+        }
+    }
+    static void centeredMono(cairo_t* cr, const std::string& s, const Rect& r, double px, bool bold, const Color& c, double alpha = 1) {
+        double w = 0, hh = 0;
+        measure("0", px, bold, 0, w, hh);
+        monoText(cr, s, r.x + (r.w - monoWidth(s, px, bold)) / 2, r.y + (r.h - hh) / 2, px, bold, c, alpha);
+    }
     static void centered(cairo_t* cr, const std::string& str, const Rect& r, double px, bool bold, const Color& c, double alpha = 1) {
         double w = 0, hh = 0;
         measure(str, px, bold, 0, w, hh);
@@ -372,6 +411,7 @@ struct TimersPage final : ToolPage {
                 addHit(r, kPeriod, k);
                 rrect(cr, r.x, r.y, r.w, r.h, 8);
                 if (on) { src(cr, g.color("tertiary_container")); cairo_fill(cr); }
+                else cairo_new_path(cr);  // (an unfilled path would stay and be filled, over the "AM", with the next one)
                 centered(cr, k == 0 ? "AM" : "PM", r, 16, true, g.color(on ? "on_tertiary_container" : "on_surface_variant"));
             }
             rrect(cr, sx + 96 + 24 + 96 + 12 + 0.5, sy + 0.5, 51, 79, 7.5);
@@ -543,7 +583,7 @@ struct TimersPage final : ToolPage {
         const double left = t.running ? std::max(0.0, (t.endAt - tpNow()) / 1000.0) : t.remaining;
         const Color fg = g.color(t.done ? "on_primary_container" : "on_surface"), sub = g.color(t.done ? "on_primary_container" : "on_surface_variant");
         text(cr, t.label.empty() ? "Timer " + std::to_string(t.id) : t.label, c.x + 20, c.y + 14, 15, false, sub, c.w - 300);
-        text(cr, tpClock(left), c.x + 20, c.y + 34, 34, true, fg);
+        monoText(cr, tpClock(left), c.x + 20, c.y + 34, 34, true, fg);
         const double bw = c.w - 40, frac = t.total > 0 ? std::clamp(1 - left / t.total, 0.0, 1.0) : 0;
         rrect(cr, c.x + 20, c.y + c.h - 20, bw, 4, 2);
         src(cr, fg, 0.18);
@@ -572,7 +612,7 @@ struct TimersPage final : ToolPage {
         src(cr, g.color("surface_container_low"));
         cairo_fill(cr);
         const double el = st.swAccum + (st.swRunning ? (tpNow() - st.swStart) / 1000.0 : 0);
-        centered(cr, tpClock(el, true), {b.x, b.y + 36, b.w, 130}, 110, true, g.color("on_surface"));
+        centeredMono(cr, tpClock(el, true), {b.x, b.y + 36, b.w, 130}, 110, true, g.color("on_surface"));
         const double bw = 150, gap = 14, total = 3 * bw + 2 * gap, x0 = b.x + (b.w - total) / 2, y = b.y + 190;
         button(cr, {x0, y, bw, 56}, st.swRunning ? "Pause" : "Start", st.swRunning ? "pause" : "play", true, st.swRunning ? kSwPause : kSwStart);
         button(cr, {x0 + bw + gap, y, bw, 56}, "Lap", "flag", false, kSwLap, 0, 0, st.swRunning || el > 0);
@@ -589,10 +629,10 @@ struct TimersPage final : ToolPage {
             src(cr, g.color("surface_container"));
             cairo_fill(cr);
             text(cr, "Lap " + std::to_string(i + 1), c.x + 22, c.y + 12, 16, false, g.color("on_surface_variant"));
-            centered(cr, tpClock(st.laps[i] - prev, true), {c.x, c.y, c.w, c.h}, 18, true, g.color("on_surface"));
+            centeredMono(cr, tpClock(st.laps[i] - prev, true), {c.x, c.y, c.w, c.h}, 18, true, g.color("on_surface"));
             double tw = 0, th = 0;
-            measure(tpClock(st.laps[i], true), 15, false, 0, tw, th);
-            text(cr, tpClock(st.laps[i], true), c.x + c.w - 22 - tw, c.y + 13, 15, false, g.color("on_surface_variant"));
+            tw = monoWidth(tpClock(st.laps[i], true), 15, false);
+            monoText(cr, tpClock(st.laps[i], true), c.x + c.w - 22 - tw, c.y + 13, 15, false, g.color("on_surface_variant"));
             prev = st.laps[i];
             ly += 52;
         }
@@ -660,10 +700,16 @@ struct TimersPage final : ToolPage {
     void drawReminderCard(cairo_t* cr, Rect c, const TpReminder& r) {
         listCard(cr, c, false);
         char tm[8];
-        std::snprintf(tm, sizeof tm, "%02d:%02d", r.hour, r.minute);
+        if (h24) std::snprintf(tm, sizeof tm, "%02d:%02d", r.hour, r.minute);
+        else std::snprintf(tm, sizeof tm, "%02d:%02d", r.hour % 12 == 0 ? 12 : r.hour % 12, r.minute);  // (the same clock as the card of the new reminder)
         const Color fg = g.color("on_surface"), sub = g.color("on_surface_variant");
         const double a = r.enabled ? 1 : 0.45;
         text(cr, tm, c.x + 20, c.y + (c.h - 41) / 2, 34, true, fg, 0, a);
+        if (!h24) {
+            double tw = 0, th = 0;
+            measure(tm, 34, true, 0, tw, th);
+            text(cr, r.hour >= 12 ? "PM" : "AM", c.x + 20 + tw + 5, c.y + (c.h - 41) / 2 + 17, 13, true, fg, 0, a * 0.8);
+        }
         const std::string when = r.date ? tpDateText(r.date) : std::string(r.repeat == 1 ? "Every day" : r.repeat == 2 ? "Weekdays" : "Once");
         const std::string until = tpUntil(r);
         const std::string meta = when + (r.label.empty() ? "" : "  \xC2\xB7  " + r.label);

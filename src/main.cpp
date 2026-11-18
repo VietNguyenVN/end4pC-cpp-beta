@@ -146,6 +146,7 @@ namespace {
 #include "parts/14u_timers.inc"
 #include "parts/14v_osk.inc"
 #include "parts/14w_qr_card.inc"
+#include "parts/14wc_confirm_card.inc"
 #include "parts/14x_drives.inc"
 #include "parts/14y_game_overlay.inc"
 #include "parts/14z_desk_viz.inc"

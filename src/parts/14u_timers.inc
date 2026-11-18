@@ -106,10 +106,42 @@ std::string clockText(double secs) {
     return b;
 }
 
-// The bell: a notification (it is the island's when the island is on), the sound, and the island's own message.
+// The bell of a timer or a reminder: a notification that stays until you answer it (Snooze 5 min or Dismiss, or the cross), and the sound,
+// which repeats for about 20 seconds or until you answer. The notification is the island's when the island is on.
+void alarmStop() { runDetached({"pkill", "-f", "end4pC-alarm-loop"}); }
+std::string timersCommand(App& app, const std::string& what, const std::string& arg);
+
+void alarmAction(App& app, const Notif& n, const std::string& key) {
+    alarmStop();
+    if (key != "snooze") return;
+    const std::string label = n.summary == "Timer" || n.summary == "Reminder" ? "" : n.summary;
+    if (n.body.compare(0, 8, "Reminder") == 0) {
+        std::time_t later = std::time(nullptr) + 300;
+        std::tm tm{};
+        localtime_r(&later, &tm);
+        char when[32];
+        std::snprintf(when, sizeof when, "%02d:%02d %04d-%02d-%02d ", tm.tm_hour, tm.tm_min, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+        timersCommand(app, "reminder", std::string("add ") + when + label);
+    } else {
+        timersCommand(app, "timer", "add 5m " + label);
+    }
+}
+
 void timersRing(App& app, const std::string& title, const std::string& body) {
-    runDetached({"notify-send", "-a", "end4pC", "-i", "alarm-symbolic", title.c_str(), body.c_str()});
-    runDetached({"bash", "-c", "f=/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga; for i in 1 2; do paplay \"$f\" 2>/dev/null || canberra-gtk-play -i alarm-clock-elapsed 2>/dev/null || pw-play \"$f\" 2>/dev/null; done"});
+    alarmStop();
+    const std::string snooze = i18n::tr("Snooze 5 min"), dismiss = i18n::tr("Dismiss");
+    const NotifyAction actions[2] = {{"snooze", snooze.c_str()}, {"dismiss", dismiss.c_str()}};
+    NotifyRequest r{};
+    r.app = "end4pC";
+    r.desktopEntry = "end4pC-alarm";  // (what marks the notification as the alarm of a timer or a reminder)
+    r.icon = "alarm-symbolic";
+    r.summary = title.c_str();
+    r.body = body.c_str();
+    r.nactions = 2;
+    r.actions = actions;
+    r.urgency = 2;
+    onNotifyRequest(nullptr, &r);
+    runDetached({"bash", "-c", "# end4pC-alarm-loop\nf=/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga; for i in $(seq 1 10); do paplay \"$f\" 2>/dev/null || canberra-gtk-play -i alarm-clock-elapsed 2>/dev/null || pw-play \"$f\" 2>/dev/null; sleep 1; done"});
 }
 
 void timersCheck(App& app) {

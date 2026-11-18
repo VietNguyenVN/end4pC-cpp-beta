@@ -1,6 +1,7 @@
 #include <cairo.h>
 #include "i18n.h"
 #include "oled.h"
+#include "shapes.h"
 #include "shellfont.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <librsvg/rsvg.h>
@@ -133,7 +134,11 @@ void loadColors() {
     cs << cf.rdbuf();
     const std::string ct = cs.str();
     const size_t k = ct.find("\"uiBackground\"");
-    if (k != std::string::npos && ct.compare(ct.find('"', ct.find(':', k)), 6, "\"oled\"") == 0) {
+    const size_t cm = ct.find("\"colorMode\"");
+    const bool light = cm != std::string::npos && ct.compare(ct.find('"', ct.find(':', cm)), 7, "\"light\"") == 0;
+    if (k != std::string::npos && light && ct.compare(ct.find('"', ct.find(':', k)), 7, "\"white\"") == 0)
+        for (const char* n : {"background", "surface", "surface_container_lowest"}) g_colors[n] = {1, 1, 1};
+    if (k != std::string::npos && !light && ct.compare(ct.find('"', ct.find(':', k)), 6, "\"oled\"") == 0) {
         for (const char* n : {"background", "surface", "surface_dim", "surface_container_lowest"}) g_colors[n] = {0, 0, 0};
         for (const char* n : {"surface_container_low", "surface_container", "surface_container_high", "surface_container_highest", "surface_variant", "surface_bright"}) {
             auto it = g_colors.find(n);
@@ -406,6 +411,8 @@ bool pamCheck(const std::string& user, std::string password) {
     return ok;
 }
 
+enum class LockAnim { None, SplitH, SplitV, Shape };
+
 struct Output {
     wl_output* output = nullptr;
     uint32_t name = 0;
@@ -413,6 +420,11 @@ struct Output {
     ext_session_lock_surface_v1* lockSurface = nullptr;
     int w = 0, h = 0;
     bool configured = false;
+    cairo_surface_t* cache = nullptr;  // the lock screen painted once, while it animates
+    int cacheW = 0, cacheH = 0;
+    bool cacheDirty = true, framePending = false;
+    wl_callback* frameCb = nullptr;
+    std::chrono::steady_clock::time_point frameAt;
 };
 
 struct App {
@@ -433,6 +445,12 @@ struct App {
     enum { Idle, Checking, Wrong } status = Idle;
     std::atomic<int> authResult{-1};
     std::chrono::steady_clock::time_point lockedAt;
+    LockAnim animMode = LockAnim::None;
+    enum { AnimIdle, AnimEntering, AnimExiting } animPhase = AnimIdle;
+    bool animStarted = false, unlocking = false;
+    std::chrono::steady_clock::time_point animStart;
+    double animSeconds = 0.55, shapeStart = 0;
+    std::string shapeName = "Cookie7Sided", baseRole;  // baseRole: the color outside the shape when the wallpaper is centered
 } g;
 
 std::map<std::string, cairo_surface_t*> g_bgCache;
@@ -450,15 +468,8 @@ cairo_surface_t* background(int w, int h) {
 void onBufferRelease(void*, wl_buffer* b) { wl_buffer_destroy(b); }
 const wl_buffer_listener kBufferListener = {onBufferRelease};
 
-void draw(Output& o) {
-    if (!o.configured || o.w <= 0 || o.h <= 0) return;
-    const int W = o.w, H = o.h, stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-lock", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
-    cairo_t* cr = mkcr(surface);
-
+// The wallpaper alone, as the desktop shows it.
+void paintWallpaper(cairo_t* cr, int W, int H) {
     cairo_set_source_rgb(cr, 0.06, 0.06, 0.07);
     cairo_paint(cr);
     if (cairo_surface_t* bg = background(W, H)) {
@@ -470,6 +481,11 @@ void draw(Output& o) {
         cairo_paint(cr);
         cairo_restore(cr);
     }
+}
+
+// The lock screen as it is when it has come in: the wallpaper with its veil, and the clock, the weather, the avatar and the password box.
+void paintFrame(cairo_t* cr, int W, int H) {
+    paintWallpaper(cr, W, H);
     cairo_set_source_rgba(cr, 0, 0, 0, 0.38);
     cairo_paint(cr);
 
@@ -578,6 +594,112 @@ void draw(Output& o) {
         text(cr, up, tx + 1, top + nameS.h - 2, 16, false, white, 0.75);
     }
 
+}
+
+// ---- how the lock screen comes in and goes out (cfg lockAnimation) ----------------------------------------------------------------
+double easeOutCubic(double t) {
+    t = std::clamp(t, 0.0, 1.0);
+    return 1 - (1 - t) * (1 - t) * (1 - t);
+}
+
+double entryOpen(double t) {
+    t = std::clamp(t, 0.0, 1.0);
+    if (g.animMode == LockAnim::Shape) return std::min(1.0, t * t * (3 - 2 * t) * 1.15);
+    return easeOutCubic(t);
+}
+
+double exitOpen(double t) { return easeOutCubic(1 - t); }
+
+double animOpen() {
+    if (g.animPhase == App::AnimIdle) return 1;
+    const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - g.animStart).count() / g.animSeconds;
+    return g.animPhase == App::AnimEntering ? entryOpen(t) : exitOpen(t);
+}
+
+constexpr double kSeamAlpha = 0;
+
+// The frame (already painted in cache) as it shows when the animation is open of 0..1.
+void compose(cairo_t* cr, int W, int H, cairo_surface_t* cache, double open) {
+    const Color base = g.baseRole.empty() ? Color{0, 0, 0} : color(g.baseRole);
+    src(cr, base);
+    cairo_paint(cr);
+    if (g.animMode == LockAnim::SplitH || g.animMode == LockAnim::SplitV) {
+        paintWallpaper(cr, W, H);  // (what is not covered yet is the wallpaper, as the desktop shows it, and not black: the halves come over it with their veil)
+        const bool horizontal = g.animMode == LockAnim::SplitH;  // (the halves are the top and the bottom one)
+        const double len = horizontal ? H : W, off = (1 - open) * len / 2.0;
+        auto half = [&](int k) {  // 0: top or left, 1: bottom or right
+            const double d = k == 0 ? -off : off, o0 = k == 0 ? 0 : len / 2.0;
+            const double x = horizontal ? 0 : o0 + d, y = horizontal ? o0 + d : 0;
+            cairo_set_source_surface(cr, cache, horizontal ? 0 : d, horizontal ? d : 0);
+            cairo_rectangle(cr, x, y, horizontal ? W : len / 2.0, horizontal ? len / 2.0 : H);
+            cairo_fill(cr);
+        };
+        half(1);
+        half(0);
+        if (kSeamAlpha > 0 && off > 0.5) {
+            const double a = kSeamAlpha * std::min(1.0, off / 60.0);
+            for (int k = 0; k < 2; k++) {
+                const double e = len / 2.0 + (k == 0 ? -off : off) - 1.5;
+                cairo_set_source_rgba(cr, 1, 1, 1, a);
+                if (horizontal) cairo_rectangle(cr, 0, e, W, 3); else cairo_rectangle(cr, e, 0, 3, H);
+                cairo_fill(cr);
+            }
+        }
+        return;
+    }
+    if (g.animMode == LockAnim::Shape) {
+        const double full = std::hypot(double(W), double(H)) * 1.4, size = g.shapeStart + (full - g.shapeStart) * std::clamp(open, 0.0, 1.0);
+        if (size < 2) return;
+        cairo_save(cr);
+        cairo_translate(cr, W / 2.0, H / 2.0);
+        cairo_rotate(cr, (1 - open) * 0.6);
+        shapes::path(cr, shapes::table(assetsDir()), g.shapeName, -size / 2, -size / 2, size);
+        cairo_restore(cr);  // (the path keeps the rotation it was built with)
+        cairo_clip(cr);
+        cairo_set_source_surface(cr, cache, 0, 0);
+        cairo_paint(cr);
+    }
+}
+
+void frameDone(void* d, wl_callback* cb, uint32_t) {
+    Output* o = static_cast<Output*>(d);
+    o->framePending = false;
+    o->frameCb = nullptr;
+    wl_callback_destroy(cb);
+}
+const wl_callback_listener kFrameListener = {frameDone};
+
+void draw(Output& o) {
+    if (!o.configured || o.w <= 0 || o.h <= 0) return;
+    const bool animating = g.animPhase != App::AnimIdle;
+    if (animating && o.framePending) return;  // (the last frame has not been shown yet)
+    const int W = o.w, H = o.h, stride = W * 4, size = stride * H;
+    const int fd = memfd_create("end4pC-lock", 0);
+    if (fd < 0 || ftruncate(fd, size) < 0) return;
+    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    cairo_t* cr = mkcr(surface);
+
+    if (animating) {
+        if (!o.cache || o.cacheW != W || o.cacheH != H || o.cacheDirty) {
+            if (o.cache) cairo_surface_destroy(o.cache);
+            o.cache = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, W, H);
+            cairo_t* cc = mkcr(o.cache);
+            paintFrame(cc, W, H);
+            cairo_destroy(cc);
+            o.cacheW = W;
+            o.cacheH = H;
+            o.cacheDirty = false;
+        }
+        compose(cr, W, H, o.cache, animOpen());
+        o.framePending = true;
+        o.frameAt = std::chrono::steady_clock::now();
+        o.frameCb = wl_surface_frame(o.surface);
+        wl_callback_add_listener(o.frameCb, &kFrameListener, &o);
+    } else {
+        paintFrame(cr, W, H);
+    }
+
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
     munmap(data, size);
@@ -598,6 +720,11 @@ void onLockSurfaceConfigure(void* d, ext_session_lock_surface_v1* ls, uint32_t s
     o->w = static_cast<int>(w);
     o->h = static_cast<int>(h);
     o->configured = true;
+    o->cacheDirty = true;
+    if (!g.animStarted) {  // the first screen that is ready starts the animation of coming in
+        g.animStarted = true;
+        if (g.animMode != LockAnim::None) { g.animPhase = App::AnimEntering; g.animStart = std::chrono::steady_clock::now(); }
+    }
     draw(*o);
 }
 const ext_session_lock_surface_v1_listener kLockSurfaceListener = {onLockSurfaceConfigure};
@@ -654,7 +781,7 @@ void submit() {
 }
 
 void onKey(void*, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t state) {
-    if (state != WL_KEYBOARD_KEY_STATE_PRESSED || !g.xkbState || g.status == App::Checking) return;
+    if (state != WL_KEYBOARD_KEY_STATE_PRESSED || !g.xkbState || g.status == App::Checking || g.unlocking) return;
     const uint32_t code = key + 8;
     const xkb_keysym_t sym = xkb_state_key_get_one_sym(g.xkbState, code);
     const bool ctrl = xkb_state_mod_name_is_active(g.xkbState, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0;
@@ -708,6 +835,8 @@ void onGlobalRemove(void*, wl_registry*, uint32_t name) {
     for (auto it = g.outputs.begin(); it != g.outputs.end(); ++it)
         if ((*it)->name == name) {
             Output& o = **it;
+            if (o.frameCb) wl_callback_destroy(o.frameCb);
+            if (o.cache) cairo_surface_destroy(o.cache);
             if (o.lockSurface) ext_session_lock_surface_v1_destroy(o.lockSurface);
             if (o.surface) wl_surface_destroy(o.surface);
             if (o.output) wl_output_destroy(o.output);
@@ -723,9 +852,81 @@ void unlockAndExit() {
     wl_display_roundtrip(g.display);
     g.done = true;
 }
+
+// The password was right: the screen goes out with its animation (the session stays locked until it ends), then it unlocks.
+void startUnlock() {
+    bool shown = false;
+    for (const auto& o : g.outputs) shown = shown || o->configured;
+    if (g.animMode == LockAnim::None || !shown) { unlockAndExit(); return; }
+    g.unlocking = true;
+    g.animPhase = App::AnimExiting;
+    g.animStart = std::chrono::steady_clock::now();
+    for (auto& o : g.outputs) { o->cacheDirty = true; o->framePending = false; }
+    drawAll();
 }
 
-int main() {
+// Moves the animation on: false when there is none.
+void animTick(bool& redraw) {
+    if (g.animPhase == App::AnimIdle) return;
+    const auto now = std::chrono::steady_clock::now();
+    for (auto& o : g.outputs)
+        if (o->framePending && now - o->frameAt > std::chrono::milliseconds(120)) o->framePending = false;  // (no frame callback came: do not stall)
+    if (std::chrono::duration<double>(now - g.animStart).count() < g.animSeconds) { redraw = true; return; }
+    if (g.animPhase == App::AnimExiting) { unlockAndExit(); return; }
+    g.animPhase = App::AnimIdle;
+    for (auto& o : g.outputs) {
+        if (o->cache) { cairo_surface_destroy(o->cache); o->cache = nullptr; }
+        o->framePending = false;
+    }
+    redraw = true;
+}
+}
+
+// The animation of coming in and going out, from the config (off when the shell's animations are off).
+void readAnimConfig() {
+    const std::string cfg = readFile(configFile());
+    std::string v;
+    g.animMode = LockAnim::None;
+    if (jsonValue(cfg, "lockAnimation", v))
+        g.animMode = v == "split_h" ? LockAnim::SplitH : v == "split_v" ? LockAnim::SplitV : v == "shape" ? LockAnim::Shape : LockAnim::None;
+    if (jsonValue(cfg, "animEnabled", v) && v == "0") g.animMode = LockAnim::None;
+    double speed = 100;
+    if (jsonValue(cfg, "animSpeed", v) && !v.empty()) speed = std::clamp(std::atof(v.c_str()), 50.0, 200.0);
+    g.animSeconds = (g.animMode == LockAnim::Shape ? 0.75 : 0.55) * 100.0 / speed;
+    if (jsonValue(cfg, "centeredWallpaperShape", v) && !v.empty()) g.shapeName = v;
+    if (jsonValue(cfg, "centeredWallpaper", v) && v == "1") {  // the shape starts as the one the desktop shows, and outside it is the desktop's color
+        g.baseRole = "primary_container";
+        if (jsonValue(cfg, "centeredWallpaperColor", v) && !v.empty()) g.baseRole = v;
+        g.shapeStart = 400;
+        if (jsonValue(cfg, "centeredWallpaperSize", v) && !v.empty()) g.shapeStart = std::clamp(std::atof(v.c_str()), 400.0, 800.0);
+    }
+}
+
+// `end4pC-lock --dump-frames DIR`: writes pictures of every animation at some points of it (no lock is taken), to look at them.
+void dumpFrames(const std::string& dir) {
+    constexpr int W = 1280, H = 720;
+    cairo_surface_t* cache = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, W, H);
+    cairo_t* cc = mkcr(cache);
+    paintFrame(cc, W, H);
+    cairo_destroy(cc);
+    struct Case { const char* name; LockAnim mode; bool centered; };
+    for (const Case& c : {Case{"split-h", LockAnim::SplitH, false}, Case{"split-v", LockAnim::SplitV, false}, Case{"shape", LockAnim::Shape, false}, Case{"shape-centered", LockAnim::Shape, true}}) {
+        g.animMode = c.mode;
+        g.baseRole = c.centered ? "primary_container" : "";
+        g.shapeStart = c.centered ? 400 : 0;
+        for (int i = 0; i <= 6; i++) {
+            cairo_surface_t* s = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, W, H);
+            cairo_t* cr = mkcr(s);
+            compose(cr, W, H, cache, entryOpen(i / 6.0));
+            cairo_destroy(cr);
+            cairo_surface_write_to_png(s, (dir + "/" + c.name + "-" + std::to_string(i) + ".png").c_str());
+            cairo_surface_destroy(s);
+        }
+    }
+    cairo_surface_destroy(cache);
+}
+
+int main(int argc, char** argv) {
     if (pipe(g_wake) != 0) return 1;
     loadColors();
     applyShellFont(fontFamilyFromConfig(configFile()), fontWeightFromConfig(configFile(), "fontWeightText", 450), fontWeightFromConfig(configFile(), "fontWeightTitle", 550));
@@ -737,6 +938,8 @@ int main() {
     }
     loadProfile();
     loadWeatherCache();
+    readAnimConfig();
+    if (argc >= 3 && std::strcmp(argv[1], "--dump-frames") == 0) { dumpFrames(argv[2]); return 0; }
 
     g.xkbCtx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     g.display = wl_display_connect(nullptr);
@@ -760,7 +963,7 @@ int main() {
         wl_display_flush(g.display);
         while (wl_display_prepare_read(g.display) != 0) wl_display_dispatch_pending(g.display);
         pollfd fds[2] = {{wl_display_get_fd(g.display), POLLIN, 0}, {g_wake[0], POLLIN, 0}};
-        if (poll(fds, 2, 1000) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
+        if (poll(fds, 2, g.animPhase != App::AnimIdle ? 30 : 1000) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
         if (fds[0].revents & POLLIN) wl_display_read_events(g.display);
         else wl_display_cancel_read(g.display);
         wl_display_dispatch_pending(g.display);
@@ -772,12 +975,14 @@ int main() {
             for (ssize_t i = 0; i < n; i++) {
                 if (b[i] == 'w') redraw = true;
                 if (b[i] == 'a') {
-                    if (g.authResult == 1) { unlockAndExit(); break; }
+                    if (g.authResult == 1) { startUnlock(); break; }
                     g.status = App::Wrong;
                     redraw = true;
                 }
             }
         }
+        if (g.done) break;
+        animTick(redraw);
         if (g.done) break;
         const time_t now = time(nullptr);
         tm lt{};

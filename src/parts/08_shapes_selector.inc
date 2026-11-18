@@ -148,7 +148,7 @@ std::string thumbCachePath(const std::string& src) {
     struct stat st{};
     stat(src.c_str(), &st);
     char name[48];
-    std::snprintf(name, sizeof name, "%016zx.png", std::hash<std::string>{}(src + "|" + std::to_string(st.st_mtime)));
+    std::snprintf(name, sizeof name, "%016zx.png", std::hash<std::string>{}(src + "|" + std::to_string(st.st_mtim.tv_sec) + "." + std::to_string(st.st_mtim.tv_nsec) + "|" + std::to_string(st.st_size)));
     const char* c = std::getenv("XDG_CACHE_HOME");
     return (c ? std::string(c) : homeDir() + "/.cache") + "/end4pC/thumbs/" + name;
 }

@@ -467,7 +467,9 @@ std::chrono::steady_clock::time_point notifPanelWake(const App& app) {
     return app.panel.band.busy() ? std::min(wake, now + std::chrono::milliseconds(16)) : wake;
 }
 
+void alarmStop();  // (14u_timers.inc)
 void deleteNotif(App& app, uint32_t id) {
+    if (const Notif* n = findNotif(app, id); n && n->desktopEntry == "end4pC-alarm") alarmStop();  // (closing the notification of an alarm silences it)
     dismissNotif(app, id, 2);
     for (auto it = app.notifs.begin(); it != app.notifs.end(); ++it)
         if (it->id == id) {

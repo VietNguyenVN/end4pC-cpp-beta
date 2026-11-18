@@ -1162,7 +1162,9 @@ void focusNotifApp(App& app, uint32_t id) {
     if (!best.empty()) wmFocusWindow(best);
 }
 
+void alarmAction(App& app, const Notif& n, const std::string& key);  // (14u_timers.inc)
 void notifInvoke(App& app, uint32_t id, const std::string& key) {
+    if (const Notif* n = findNotif(app, id); n && n->desktopEntry == "end4pC-alarm") { alarmAction(app, *n, key); return; }  // (the alarm of a timer or a reminder is ours)
     if (app.bus) notifyd_emit_action(app.bus, id, key.c_str());
     if (key == "default") focusNotifApp(app, id);
 }

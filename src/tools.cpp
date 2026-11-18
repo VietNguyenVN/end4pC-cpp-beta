@@ -214,7 +214,14 @@ void loadColors() {
     }
     g.colorsStamp = mtimeOf(colorsPath());
     std::string ui;
-    if (!jsonValue(readFile(configPath()), "uiBackground", ui) || ui != "oled") return;
+    std::string mode;
+    const bool light = jsonValue(readFile(configPath()), "colorMode", mode) && mode == "light";
+    if (!jsonValue(readFile(configPath()), "uiBackground", ui)) return;
+    if (light && ui == "white") {
+        for (const char* n : {"background", "surface", "surface_container_lowest"}) g.colors[n] = Color{1, 1, 1};
+        return;
+    }
+    if (ui != "oled" || light) return;
     for (const char* n : {"background", "surface", "surface_dim", "surface_container_lowest"}) g.colors[n] = Color{0, 0, 0};
     for (const char* n : {"surface_container_low", "surface_container", "surface_container_high", "surface_container_highest", "surface_variant", "surface_bright"}) {
         auto it = g.colors.find(n);
@@ -411,6 +418,7 @@ private:
 #include "tools/page_converter.inc"
 #include "tools/page_video.inc"
 #include "tools/page_timers.inc"
+#include "tools/textbox.inc"
 #include "tools/page_units.inc"
 #include "tools/keybinds_store.inc"
 #include "tools/page_keybinds.inc"

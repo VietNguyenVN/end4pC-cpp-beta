@@ -772,24 +772,8 @@ struct KeybindsPage final : ToolPage {
         return false;
     }
 
-    static size_t nextChar(const std::string& v, size_t i) {
-        if (i >= v.size()) return v.size();
-        i++;
-        while (i < v.size() && (static_cast<unsigned char>(v[i]) & 0xC0) == 0x80) i++;
-        return i;
-    }
-    // The byte offset of the character boundary nearest to x (measured from the start of the text).
-    size_t caretAt(const std::string& v, double px, double x) {
-        size_t best = 0;
-        double bestD = 1e9;
-        for (size_t i = 0;; i = nextChar(v, i)) {
-            double w = 0, h = 0;
-            measure(v.substr(0, i), px, false, 0, w, h);
-            if (std::fabs(w - x) < bestD) { bestD = std::fabs(w - x); best = i; }
-            if (i >= v.size()) break;
-        }
-        return best;
-    }
+    static size_t nextChar(const std::string& v, size_t i) { return tbNextChar(v, i); }
+    size_t caretAt(const std::string& v, double px, double x) { return tbCaretAt(v, px, x); }
 
     // Typing into a box: the text goes in at the caret, and the arrows, Home, End, Delete and Backspace work around it.
     bool typeInto(std::string& s, size_t& cur, const KeyEvent& k, size_t max) {

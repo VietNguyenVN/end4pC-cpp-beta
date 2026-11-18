@@ -370,6 +370,7 @@ std::vector<Page> makePages() {
           {"scheme-rainbow", "Rainbow"}, {"scheme-vibrant", "Vibrant"}, {"scheme-smart", "Smart"}}},
         {Accent, "accent", "Accent color", "Colors taken from your wallpaper. Pick one and the whole palette is built around it, or pick any color on screen. Neutral then uses Tonal Spot."},
         {Choice, "uiBackground", "UI background", "Themed follows the wallpaper colors. OLED turns the surfaces black.", {{"themed", "Themed"}, {"oled", "OLED"}}},
+        {Choice, "uiBackground", "UI background", "Themed follows the wallpaper colors. White turns the main surfaces white.", {{"themed", "Themed"}, {"white", "White"}}},
         {Slider, "barOpacity", "Transparency", "How see-through the bar and the panels are. The blur behind them shows through.", {}, 0, 100, 5, "%"},
         {Text, "fontFamily", "Font", "The font of the whole shell, like Google Sans Flex. Type the family name and press Enter; type - for the system default.", {}},
         {Slider, "fontWeightText", "Text weight", "How heavy the normal text is, with a variable font like Google Sans Flex. 450 is the default.", {}, 300, 700, 10, ""},
@@ -461,6 +462,7 @@ std::vector<Page> makePages() {
         {Split, "cornerBL", "Bottom left", "What a click in this corner opens.", {{"none", "Nothing"}, {"controlcenter", "Control center"}, {"media", "Player"}, {"wallpapers", "Wallpapers"}, {"launcher", "Launcher"}, {"notifications", "Notifications"}, {"power", "Power menu"}, {"lock", "Lock screen"}, {"settings", "Settings"}}},
         {Split, "cornerBR", "Bottom right", "What a click in this corner opens.", {{"none", "Nothing"}, {"controlcenter", "Control center"}, {"media", "Player"}, {"wallpapers", "Wallpapers"}, {"launcher", "Launcher"}, {"notifications", "Notifications"}, {"power", "Power menu"}, {"lock", "Lock screen"}, {"settings", "Settings"}}},
         {Toggle, "lockOnStart", "Lock on startup", "Show the lock screen when the shell starts with the session, so the desktop is not left open after an automatic login. Restarting the shell does not lock again.", {}},
+        {Choice, "lockAnimation", "Lock animation", "How the lock screen comes in and goes out. Split: two halves slide in from the top and bottom (or from the sides) and meet in the middle. Shape: the shape of the centered wallpaper grows from the center until it fills the screen, and shrinks back when you unlock.", {{"none", "None"}, {"split_h", "Split top and bottom"}, {"split_v", "Split sides"}, {"shape", "Shape"}}},
         {Toggle, "unlockKeyring", "Unlock the keyring", "When you unlock the lock screen, also unlock the password keyring (gnome-keyring) with the same password, so apps do not ask for it again. Your API keys for the online wallpapers live there.", {}},
         {Toggle, "dock", "Dock", "A floating dock at the edge of the screen with your pinned apps and the ones that are open."},
         {Choice, "dockPosition", "Position", "Which edge of the screen the dock sits on.", {{"bottom", "Bottom"}, {"left", "Left"}, {"right", "Right"}, {"top", "Top"}}},
@@ -775,7 +777,10 @@ void loadColors() {
         g.colors[line.substr(q1 + 1, q2 - q1 - 1)] = {((v >> 16) & 255) / 255.0, ((v >> 8) & 255) / 255.0, (v & 255) / 255.0};
     }
     g.colorsStamp = mtimeOf(colorsPath());
-    if (jsonValueIs(readFile(configPath()), "uiBackground", "oled")) {
+    const bool lightMode = jsonValueIs(readFile(configPath()), "colorMode", "light");
+    if (lightMode && jsonValueIs(readFile(configPath()), "uiBackground", "white"))
+        for (const char* n : {"background", "surface", "surface_container_lowest"}) g.colors[n] = Color{1, 1, 1};
+    if (jsonValueIs(readFile(configPath()), "uiBackground", "oled") && !lightMode) {
         for (const char* n : {"background", "surface", "surface_dim", "surface_container_lowest"}) g.colors[n] = Color{0, 0, 0};
         for (const char* n : {"surface_container_low", "surface_container", "surface_container_high", "surface_container_highest", "surface_variant", "surface_bright"}) {
             auto it = g.colors.find(n);
@@ -817,6 +822,7 @@ void loadConfig() {
     g.val.insert({"frameColor", "black"});
     g.val.insert({"barFollowsFrame", "0"});
     g.val.insert({"lockOnStart", "0"});
+    g.val.insert({"lockAnimation", "none"});
     g.val.insert({"barSpacing", "4"});
     g.val.insert({"barShadow", "0"});
     g.val.insert({"dynamicIsland", "0"});
@@ -2399,6 +2405,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "dockScreen") return g.val["dock"] == "1" && g_screens.size() > 1;
     if (r.key == "barScreens" || r.key == "widgetScreen") return g_screens.size() > 1;
     if (r.key == "themePrimary" || r.key == "themeSecondary" || r.key == "themeTertiary") return !g.val["theme"].empty();
+    if (r.key == "uiBackground") return (g.val["colorMode"] == "light") == (r.opts.size() == 2 && r.opts[1].first == "white");  // (OLED in the dark mode, White in the light one)
     if (r.key == "colorScheme" || r.key == "accent") return g.val["theme"].empty();
     if (r.key.compare(0, 9, "hotCorner") == 0 && r.key != "hotCorners") return g.val["hotCorners"] == "1";
     if (r.key == "customTextSize") return g.val["w:text"] == "1" && g.val["customTextFit"] != "1";

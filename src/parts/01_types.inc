@@ -324,6 +324,7 @@ struct Config {
     int barShadow = 0;
     std::string islandView = "media";
     int dynamicIsland = 0;
+    std::string lockAnimation = "none";  // none | split_h | split_v | shape: how the lock screen comes in and goes out (src/lock.cpp)
     std::string groupStyle = "free";  // free | transparent | pills | separated (see hasGroupCell)
     int groupSpacing = 2;  // px between the cells of the group styles (2 to 6)
     std::string groupColor = "surface_container_high";
@@ -1370,6 +1371,13 @@ struct OskState {  // the on-screen keyboard
     bool onOther = false;                            // while dragging, the pointer is over another surface of the shell (it moved faster than the keyboard)
     double otherX = 0, otherY = 0, accDx = 0, accDy = 0;
 };
+struct ConfirmState {  // the Android-style card that asks before clearing the cache
+    wl_surface* surface = nullptr;
+    zwlr_layer_surface_v1* layer = nullptr;
+    bool configured = false;
+    int hover = -1;
+    uintmax_t bytes = 0;
+};
 struct QrState {  // the card that shows a QR code made from a link or a text
     wl_surface* surface = nullptr;
     zwlr_layer_surface_v1* layer = nullptr;
@@ -1640,7 +1648,7 @@ struct App {
     DrivesBar drives;
     DrivesMenu drivesMenu;
     bool onBtMenu = false;
-    bool onOsk = false, onQr = false, onDrives = false, onGame = false, onViz = false;
+    bool onOsk = false, onQr = false, onConfirm = false, onDrives = false, onGame = false, onViz = false;
     IslandCard ic;
     bool onIsland = false;
     int screenH = 0;
@@ -1658,6 +1666,7 @@ struct App {
     DockPanelState dtp;
     OskState osk;
     QrState qr;
+    ConfirmState confirm;
     GameOverlay game;
     DeskViz dv;
     bool onDock = false;
