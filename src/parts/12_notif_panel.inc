@@ -246,6 +246,8 @@ void drawNotifPanel(App& app) {
                 cairo_set_source_surface(cr, pic, 0, 0);
                 cairo_paint(cr);
                 cairo_restore(cr);
+            } else if (cairo_surface_t* appIcon = app.cfg.notificationAppIcons ? notifAppIcon(app, n) : nullptr) {
+                paintNotifAppIcon(cr, appIcon, shape, ix, iy, 36, 22);
             } else {
                 drawIcon(cr, notifSolarIcon(n), ix + 8, iy + 8, 20, app.color(n.urgency >= 2 ? "on_primary_container" : "on_secondary_container"), true);
             }
