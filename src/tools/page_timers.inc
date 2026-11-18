@@ -787,7 +787,7 @@ struct TimersPage final : ToolPage {
     bool leave() override { const bool had = hotAct != kNone; hotAct = kNone; hotA = hotB = -1; return had; }
     bool scroll(double, double, double dy) override {
         const double view = tab == 1 ? 300 : listRect.h - 64;
-        elasticWheel(band, scrollY, std::max(0.0, contentH - view), dy * 48);
+        elasticWheel(band, scrollY, std::max(0.0, contentH - view), dy * 3);
         return true;
     }
     Cursor cursor(double x, double y) const override {
