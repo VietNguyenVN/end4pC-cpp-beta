@@ -17,7 +17,7 @@ BINS=(end4pC end4pC-settings end4pC-tools end4pC-lock)
 if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; R=$'\e[31m'; N=$'\e[0m'; else B= G= R= N=; fi
 die() { echo "${R}error:${N} $*" >&2; exit 1; }
 say() { echo "${B}==>${N} $*"; }
-git() { command git -C "$PROJECT" "$@"; }
+git() { command git --no-pager -C "$PROJECT" "$@"; }  # (no pager: a machine without less would fail on git log)
 
 CHECK=0 YES=0 BACK=0
 for a in "$@"; do
