@@ -617,12 +617,15 @@ constexpr double kAxisStep = 15.0;
 void onPointerAxis(void* d, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t value) {
     auto* app = static_cast<App*>(d);
     if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) app->axisPending += wl_fixed_to_double(value);
+    else if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL) app->axisPendingH += wl_fixed_to_double(value);
 }
 void onPointerFrame(void* d, wl_pointer*) {
     auto* app = static_cast<App*>(d);
-    const double v = app->axisPending;
+    // The desktop menu's wallpaper strip runs sideways: a horizontal swipe (or tilt) moves it too.
+    // Elsewhere only vertical scrolling counts, as before.
+    const double v = app->axisPending + (app->onDmenu ? app->axisPendingH : 0);
     const uint32_t source = app->axisSource;
-    app->axisPending = 0;
+    app->axisPending = app->axisPendingH = 0;
     app->axisSource = WL_POINTER_AXIS_SOURCE_WHEEL;  // (the next frame says its own source, if any)
     if (v == 0) return;
     if (source == WL_POINTER_AXIS_SOURCE_WHEEL || source == WL_POINTER_AXIS_SOURCE_WHEEL_TILT) {
@@ -639,7 +642,8 @@ void onPointerFrame(void* d, wl_pointer*) {
 }
 void onPointerAxisSource(void* d, wl_pointer*, uint32_t source) { static_cast<App*>(d)->axisSource = source; }
 void onPointerAxisStop(void* d, wl_pointer*, uint32_t, uint32_t axis) {
-    if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) static_cast<App*>(d)->axisCarry = 0;  // (the fingers left the touchpad)
+    (void)axis;
+    static_cast<App*>(d)->axisCarry = 0;  // (the fingers left the touchpad; a sideways swipe on the desktop menu stops on the horizontal axis)
 }
 void onPointerAxisDiscrete(void*, wl_pointer*, uint32_t, int32_t) {}
 
