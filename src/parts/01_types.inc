@@ -2061,13 +2061,13 @@ double wsWidth(const App& app, int id) {
     return id == app.workspace ? kWsActiveW : kWsDot;
 }
 // Space between the sides of the workspaces' box and what they draw. The pill look has its own. The looks of small bare marks (dots, bars) get,
-// on a group cell, the gap they have above and below a mark, so nothing touches the edge of the cell.
+// the gap they have above and below a mark, so nothing touches the edge of the cell or the widget next to them.
 double wsInset(const App& app) {
     if (pillStyle(app)) return kPillPad;
-    if (!hasGroupCell(app.cfg, "workspaces")) return 0;
-    const double cell = kQuickBox + 2 * kGroupPad;
-    if (barStyleWs(app)) return (cell - kWsTickBusy) / 2.0 - kGroupPad;
-    if (!m3Ws(app) && !numberedStyle(app) && !iconStyleWs(app) && !ringStyleWs(app)) return (cell - kWsDot) / 2.0 - kGroupPad;
+    const double pad = hasGroupCell(app.cfg, "workspaces") ? kGroupPad : 0;
+    const double cell = kQuickBox + 2 * pad;
+    if (barStyleWs(app)) return (cell - kWsTickBusy) / 2.0 - pad;
+    if (!m3Ws(app) && !numberedStyle(app) && !iconStyleWs(app) && !ringStyleWs(app)) return (cell - kWsDot) / 2.0 - pad;
     return 0;
 }
 int wsShown(const App& app) { return app.wsCount > 0 ? std::clamp(app.wsCount, 1, 20) : app.cfg.workspaces; }
