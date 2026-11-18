@@ -823,6 +823,26 @@ double dmScrollTarget(int n, int focus, double inner) {
     return first;
 }
 
+// The wallpaper of the carousel under the pointer, as it is drawn right now (-1: none). It is asked again as the carousel moves and when a click
+// comes, because scrolling moves the wallpapers under a pointer that stays still and sends no motion event.
+int dmCarouselAt(const DesktopMenu& D, double x, double y) {
+    const double bx = D.card.x + 8 + kDmCarPad, by = D.card.y + 8 + kDmCarPad, ih = kDmCarH - 2 * kDmCarPad, inner = kDmCardW - 16 - 2 * kDmCarPad;
+    if (!Rect{bx, by, inner, ih}.contains(x, y)) return -1;
+    const int n = static_cast<int>(D.files.size());
+    if (n == 0 || D.widths.size() < static_cast<size_t>(n)) return -1;
+    std::vector<double> pos(n + 1, 0);
+    for (int i = 0; i < n; i++) pos[i + 1] = pos[i] + D.widths[i] + kDmItemGap;
+    const int lo = std::clamp(static_cast<int>(std::floor(D.curAnim)), 0, std::max(0, n - 1)), hi = std::min(lo + 1, n - 1);
+    const double fr = D.curAnim - lo, origin = pos[lo] * (1 - fr) + pos[hi] * fr;
+    int hovered = -1;
+    for (int i = 0; i < n; i++) {
+        const double l = bx + pos[i] - origin, r = l + D.widths[i];
+        if (!D.carMoving && (l < bx - 1 || r > bx + inner + 1)) continue;
+        if (x >= l && x < r) hovered = i;
+    }
+    return hovered;
+}
+
 bool dmStep(App& app) {
     DesktopMenu& D = app.dmenu;
     const auto now = std::chrono::steady_clock::now();
@@ -838,6 +858,7 @@ bool dmStep(App& app) {
     const double scroll = dmScrollTarget(static_cast<int>(D.widths.size()), focus, inner), dc = scroll - D.curAnim;
     if (std::abs(dc) > 0.01) { D.curAnim += dc * k; moving = true; } else D.curAnim = scroll;
     D.carMoving = moving;
+    if (app.onDmenu && D.anim.phase == kPopOpen) D.hovered = dmCarouselAt(D, app.pointerX, app.pointerY);
     return moving;
 }
 
@@ -937,20 +958,8 @@ void dmenuMotion(App& app) {
     DesktopMenu& D = app.dmenu;
     if (D.anim.phase != kPopOpen) return;
     const double x = app.pointerX, y = app.pointerY;
-    int hovered = -1, row = -1, sub = -1;
-    const double bx = D.card.x + 8 + kDmCarPad, by = D.card.y + 8 + kDmCarPad, ih = kDmCarH - 2 * kDmCarPad, inner = kDmCardW - 16 - 2 * kDmCarPad;
-    if (Rect{bx, by, inner, ih}.contains(x, y)) {
-        const int n = static_cast<int>(D.files.size());
-        std::vector<double> pos(n + 1, 0);
-        for (int i = 0; i < n; i++) pos[i + 1] = pos[i] + D.widths[i] + kDmItemGap;
-        const int lo = std::clamp(static_cast<int>(std::floor(D.curAnim)), 0, std::max(0, n - 1)), hi = std::min(lo + 1, n - 1);
-        const double fr = D.curAnim - lo, origin = pos[lo] * (1 - fr) + pos[hi] * fr;
-        for (int i = 0; i < n; i++) {
-            const double l = bx + pos[i] - origin, r = l + D.widths[i];
-            if (!D.carMoving && (l < bx - 1 || r > bx + inner + 1)) continue;
-            if (x >= l && x < r) hovered = i;
-        }
-    }
+    int row = -1, sub = -1;
+    const int hovered = dmCarouselAt(D, x, y);
     for (int i = 0; i < 3; i++)
         if (Rect{D.card.x, D.card.y + 8 + kDmCarH + 4 + i * (kDmRowH + 2), kDmCardW, kDmRowH}.contains(x, y)) row = i;
     if (D.subOpen) for (const auto& [id, r] : D.subHits) if (r.contains(x, y)) sub = id;
@@ -968,6 +977,7 @@ void dmenuMotion(App& app) {
 void dmenuClick(App& app) {
     DesktopMenu& D = app.dmenu;
     const double x = app.pointerX, y = app.pointerY;
+    if (D.anim.phase == kPopOpen) D.hovered = dmCarouselAt(D, x, y);
     if (popIsOut(D.anim)) return;
     if (D.anim.phase != kPopOpen) {
         if (!D.card.contains(x, y)) retractDesktopMenu(app);
