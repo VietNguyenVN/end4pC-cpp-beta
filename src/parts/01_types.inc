@@ -1531,6 +1531,10 @@ struct App {
     Bar* hoverBar = nullptr;
     double pointerX = 0;
     double pointerY = 0;
+    // Vertical scroll: the source of the current pointer frame (wl_pointer.axis_source) and, for a touchpad,
+    // the amount still to turn into steps (see onPointerAxis).
+    uint32_t axisSource = WL_POINTER_AXIS_SOURCE_WHEEL;
+    double axisPending = 0, axisCarry = 0;
     std::string clockTime, clockDate, clockAmPm;
     int clockW = 120;
     int islandTimeW = 40;

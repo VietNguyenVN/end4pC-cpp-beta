@@ -572,9 +572,9 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     }
 }
 
-void onPointerAxis(void* d, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t value) {
-    auto* app = static_cast<App*>(d);
-    if (axis != WL_POINTER_AXIS_VERTICAL_SCROLL) return;
+// One step of the wheel over the shell (down: away from the user); the steps come from onPointerAxis.
+void pointerAxisStep(App* app, bool down) {
+    const int value = down ? 1 : -1;  // (the handlers below only look at the sign)
     if (app->hotCorner >= 0) {
         if (!app->cfg.hotCorners) return;
         if (app->hotCorner == 0) changeBrightness(*app, value > 0 ? -3 : 3, -1, app->hotCornerOut);  // (the monitor that corner belongs to)
@@ -609,9 +609,38 @@ void onPointerAxis(void* d, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t val
     if (overHit != HitVolume) return;
     runDetached({"wpctl", "set-volume", "-l", volLimit(*app).c_str(), "@DEFAULT_AUDIO_SINK@", volStep(*app, value > 0).c_str()});
 }
-void onPointerFrame(void*, wl_pointer*) {}
-void onPointerAxisSource(void*, wl_pointer*, uint32_t) {}
-void onPointerAxisStop(void*, wl_pointer*, uint32_t, uint32_t) {}
+// A wheel notch arrives as one event of about this value; a touchpad (finger) or continuous source sends many small ones.
+// Wheels keep one step per event. A touchpad's values are added up and give one step per notch's worth, so a swipe
+// moves in proportion to the fingers and a small opposite value when they lift no longer jumps a whole step back.
+// The value is applied at the end of its frame, when the frame's axis_source (sent in any order) is known.
+constexpr double kAxisStep = 15.0;
+void onPointerAxis(void* d, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t value) {
+    auto* app = static_cast<App*>(d);
+    if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) app->axisPending += wl_fixed_to_double(value);
+}
+void onPointerFrame(void* d, wl_pointer*) {
+    auto* app = static_cast<App*>(d);
+    const double v = app->axisPending;
+    const uint32_t source = app->axisSource;
+    app->axisPending = 0;
+    app->axisSource = WL_POINTER_AXIS_SOURCE_WHEEL;  // (the next frame says its own source, if any)
+    if (v == 0) return;
+    if (source == WL_POINTER_AXIS_SOURCE_WHEEL || source == WL_POINTER_AXIS_SOURCE_WHEEL_TILT) {
+        pointerAxisStep(app, v > 0);
+        return;
+    }
+    if ((app->axisCarry > 0 && v < 0) || (app->axisCarry < 0 && v > 0)) app->axisCarry = 0;  // (a change of direction starts over)
+    app->axisCarry += v;
+    while (std::fabs(app->axisCarry) >= kAxisStep) {
+        const bool down = app->axisCarry > 0;
+        app->axisCarry += down ? -kAxisStep : kAxisStep;
+        pointerAxisStep(app, down);
+    }
+}
+void onPointerAxisSource(void* d, wl_pointer*, uint32_t source) { static_cast<App*>(d)->axisSource = source; }
+void onPointerAxisStop(void* d, wl_pointer*, uint32_t, uint32_t axis) {
+    if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) static_cast<App*>(d)->axisCarry = 0;  // (the fingers left the touchpad)
+}
 void onPointerAxisDiscrete(void*, wl_pointer*, uint32_t, int32_t) {}
 
 const wl_pointer_listener kPointerListener = {
