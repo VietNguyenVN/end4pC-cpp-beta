@@ -5071,15 +5071,18 @@ void onPButton(void*, wl_pointer*, uint32_t, uint32_t, uint32_t button, uint32_t
 }
 void onPAxis(void*, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t value) {
     if (axis != WL_POINTER_AXIS_VERTICAL_SCROLL || g.animT < 1) return;
+    // Scroll by the amount the compositor sent, like the Tools pages do: a wheel notch is ~15, so about 45 px,
+    // and a touchpad sends many small values, so it follows the fingers (and the touchpad scroll factor).
+    const double d = wl_fixed_to_double(value) * 3;
     if (!g_splitOpen.empty() && g_splitRect.contains(g.px - (kMargin + kSideW + kGap), g.py - kMargin)) {
-        g_splitScroll += value > 0 ? 40 : -40;
+        g_splitScroll += d;
         g.dirty = true;
         return;
     }
     if (searchResultsShown()) {
         g_searchEl.pos = g.searchScroll;
         g_searchEl.max = searchMaxScroll();
-        g_searchEl.by(value > 0 ? 48 : -48);
+        g_searchEl.by(d);
         g.searchScroll = g_searchEl.pos;
         motion();
         g.dirty = true;
@@ -5088,7 +5091,7 @@ void onPAxis(void*, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t value) {
     const Layout L = layoutPage(g.page);
     g_scrollEl.pos = g.scroll;
     g_scrollEl.max = maxScroll(L);
-    g_scrollEl.by(value > 0 ? 48 : -48);
+    g_scrollEl.by(d);
     g.scroll = g_scrollEl.pos;
     motion();
     g.dirty = true;
