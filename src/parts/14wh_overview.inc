@@ -3,7 +3,7 @@
 // they keep being alive and usable. Click a workspace to go there. The live thumbnails are captured with ext-image-copy-capture (the
 // toplevel id Hyprland lists is hyprctl's stableId); with "Live windows" off, or when a window cannot be captured, a box with the app icon
 // takes its place. Hyprland only (niri has an overview of its own).
-constexpr double kOvPad = 14, kOvThumbH = 104, kOvThumbGap = 14, kOvLabelH = 22, kOvPlusLen = 64, kOvScrollStep = 80, kOvWindowGap = 12;
+constexpr double kOvPad = 14, kOvThumbH = 104, kOvThumbGap = 14, kOvLabelH = 22, kOvPlusLen = 64, kOvScrollStep = 80, kOvWindowGap = 5;
 constexpr int kOvInMs = 240, kOvOutMs = 170, kOvLiveMs = 50, kOvBackMs = 600, kOvDrawMs = 30, kOvMaxCaptures = 40;
 
 void ovMoveTo(App& app, const std::string& address, int ws);
