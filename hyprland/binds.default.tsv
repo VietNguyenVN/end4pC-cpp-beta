@@ -9,6 +9,7 @@ Shell	SUPER + Super_L	shell	launcher toggle	Launcher	e
 Shell	SUPER + V	shell	launcher clipboard	Clipboard history		
 Shell	SUPER + M	shell	media toggle	Media Player		
 Shell	SUPER + Escape	shell	settings	Settings		
+Shell	SUPER + SHIFT + Escape	shell	forcequit	Force quit		
 Shell	SUPER + slash	shell	tools	Tools		
 Shell	SUPER + P	shell	power toggle	Power Menu		
 Shell	SUPER + G	shell	game toggle	Game overlay		

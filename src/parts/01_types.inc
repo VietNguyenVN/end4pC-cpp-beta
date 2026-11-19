@@ -152,7 +152,7 @@ int g_iconScale = 100;  // % of the size every icon is asked for (Settings > App
 const std::vector<std::string> kSchemes = {"scheme-tonal-spot", "scheme-neutral", "scheme-content", "scheme-expressive", "scheme-fidelity",
                                            "scheme-fruit-salad", "scheme-monochrome", "scheme-rainbow", "scheme-vibrant", "scheme-smart"};
 const std::vector<std::string> kCornerActions = {"none", "controlcenter", "media", "wallpapers", "launcher", "notifications", "power", "lock", "settings"};
-const std::vector<std::string> kModules = {"workspaces", "media", "quickactions", "network", "volume", "clock", "notifications", "settings", "avatar", "battery", "systray", "resources", "launcher", "power", "tools", "weather", "aiusage", "keyboard", "activewindow", "divider", "visualizer", "updates", "bluetooth", "docktopanel", "drives"};
+const std::vector<std::string> kModules = {"workspaces", "media", "quickactions", "network", "volume", "clock", "notifications", "settings", "avatar", "battery", "systray", "resources", "launcher", "power", "tools", "weather", "aiusage", "keyboard", "activewindow", "divider", "visualizer", "updates", "bluetooth", "docktopanel", "drives", "privacy"};
 
 inline bool validNotifPosition(const std::string& p) {
     for (const char* n : {"top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right"})
@@ -197,6 +197,7 @@ inline const std::vector<WidgetStyleSet>& widgetStyleSets() {
         {"updates", "Updates", "", withBtn(withFrames({}))},
         {"bluetooth", "Bluetooth", "", withBtn(withFrames({}))},
         {"drives", "Removable drives", "", withBtn(withFrames({}))},
+        {"privacy", "Privacy indicators", "", withBtn(withFrames({}))},
         {"avatar", "Avatar", "", {{"plain", "Plain"}, {"ring", "Ring"}, {"squircle", "Squircle"}}},
         {"quickactions", "Quick actions", "", withBtn(roundFrames)},
         {"media", "Media", "", withFrames({{"compact", "Compact"}, {"cover", "Cover"}, {"progress", "Progress"}})},
@@ -230,7 +231,7 @@ inline const std::vector<std::pair<std::string, std::vector<std::string>>>& side
         {"power", {"plain", "pill", "outline", "badge", "square", "m3soft", "m3filled", "m3"}}, {"tools", {"plain", "pill", "outline", "badge", "square", "m3soft", "m3filled", "m3"}},
         {"updates", btnFrames},
         {"bluetooth", btnFrames},
-        {"drives", btnFrames},
+        {"drives", btnFrames}, {"privacy", btnFrames},
         {"quickactions", {"plain", "pill", "outline", "badge", "square", "m3soft", "m3filled", "m3"}},
     };
     return ids;
@@ -340,6 +341,8 @@ struct Config {
     std::string notificationPosition = "top_right";
     int doNotDisturb = 0;
     int notificationTimeout = 4000;
+    int privacyAlways = 0, privacyMic = 1, privacyCam = 1, privacyScreen = 1;  // privacy indicators: show them even when idle; which of the three to watch
+    int conflictCheck = 1;  // 1: at the first start of a session, look for programs that conflict with the shell
     int notificationAppIcons = 0;  // 1: a notification without a picture shows its app's icon instead of a symbol
     std::string osdPosition = "right";
     int osdTimeout = 2000;
@@ -853,6 +856,12 @@ struct MediaColors {
     Color secondaryContainer, secondaryContainerHover, secondaryContainerActive, onPrimary, onSecondaryContainer;
 };
 
+struct EqState {  // the equalizer of the media panel (see 13d_eq_backend.inc); it outlives the panel
+    double gain[10] = {};
+    double preamp = 0;
+    bool enabled = false, loaded = false;
+    int preset = 0;  // the index of the preset the curve matches, -1: a curve of its own
+};
 struct MediaPanel {
     wl_surface* surface = nullptr;
     zwlr_layer_surface_v1* layer = nullptr;
@@ -876,6 +885,11 @@ struct MediaPanel {
     std::vector<double> points;
     bool lyricsMode = false;
     double lyricT = 0, lyricV = 0;
+    bool eqMode = false, eqMoving = false;  // the equalizer page grows the card; eqT animates like lyricT
+    double eqT = 0, eqV = 0;
+    std::chrono::steady_clock::time_point eqLast{}, eqApplied{};
+    Rect rEq, rEqToggle, eqBand[11], eqChip[8];
+    int eqDrag = -1, eqHover = -1;  // a band (0..9, 10: the preamp) being dragged; hover: 100 + band, 200 + chip, 300 the switch
     bool lyricMoving = false;
     std::chrono::steady_clock::time_point lyricLast{}, lyricChange{};
     std::vector<LyricLine> lyrics;
@@ -957,6 +971,11 @@ struct DriveInfo {
     std::string dev, parent, name, fstype, mount, icon;  // one entry per physical disk: dev is the disk, mount the first mount point of its partitions
     std::vector<std::string> parts, unmounted;     // the partitions with a file system, and the ones not mounted
     unsigned long long size = 0, biggest = 0;
+};
+struct PrivacyBar {
+    std::string mic, cam, screen;  // the apps using each (empty: none)
+    bool test = false;             // a preview made by hand (end4pC privacy test)
+    std::chrono::steady_clock::time_point nextPoll{}, nextRead{};
 };
 struct DrivesBar {
     std::vector<DriveInfo> list;
@@ -1372,6 +1391,22 @@ struct OskState {  // the on-screen keyboard
     bool onOther = false;                            // while dragging, the pointer is over another surface of the shell (it moved faster than the keyboard)
     double otherX = 0, otherY = 0, accDx = 0, accDy = 0;
 };
+struct CfItem { std::string comm, name, kind; };
+struct CfState {  // the card that lists the programs that conflict with the shell
+    wl_surface* surface = nullptr;
+    zwlr_layer_surface_v1* layer = nullptr;
+    bool configured = false;
+    int hover = -1;  // 100 not now / 101 never ask / 102 close them
+    std::vector<CfItem> items;
+};
+struct FqWin { std::string address, cls, title; int pid = 0, ws = 0; };
+struct FqState {  // the force quit card: the open windows to pick from
+    wl_surface* surface = nullptr;
+    zwlr_layer_surface_v1* layer = nullptr;
+    bool configured = false;
+    int hover = -1, sel = -1, scroll = 0;  // hover: a row, or 100 cancel / 101 close / 102 force quit
+    std::vector<FqWin> wins;
+};
 struct ConfirmState {  // the Android-style card that asks before clearing the cache
     wl_surface* surface = nullptr;
     zwlr_layer_surface_v1* layer = nullptr;
@@ -1641,6 +1676,7 @@ struct App {
     NotifPanel panel;
     bool onPanel = false;
     MediaPanel media;
+    EqState eq;
     cairo_surface_t* avatar = nullptr;
     bool avatarTried = false;
     bool onMedia = false;
@@ -1651,9 +1687,10 @@ struct App {
     BtBar btBar;
     BtMenu btMenu;
     DrivesBar drives;
+    PrivacyBar privacy;
     DrivesMenu drivesMenu;
     bool onBtMenu = false;
-    bool onOsk = false, onQr = false, onConfirm = false, onDrives = false, onGame = false, onViz = false;
+    bool onOsk = false, onQr = false, onConfirm = false, onFq = false, onCf = false, onDrives = false, onGame = false, onViz = false;
     IslandCard ic;
     bool onIsland = false;
     int screenH = 0;
@@ -1672,6 +1709,9 @@ struct App {
     OskState osk;
     QrState qr;
     ConfirmState confirm;
+    FqState fq;
+    CfState cf;
+    std::chrono::steady_clock::time_point conflictCheckAt{};
     GameOverlay game;
     DeskViz dv;
     bool onDock = false;
@@ -1775,6 +1815,13 @@ void btSidePaint(cairo_t* cr, App& app, Rect r, bool hot);
 void drivesBarPaint(cairo_t* cr, App& app, const Bar& bar);
 void drivesSidePaint(cairo_t* cr, App& app, Rect r, bool hot);
 bool drivesVisible(const App& app);
+void privacyBarPaint(cairo_t* cr, App& app, const Bar& bar);
+void privacySidePaint(cairo_t* cr, App& app, Rect r);
+bool privacyVisible(const App& app);
+double privacyBarW(const App& app);
+double privacySideH(const App& app);
+void privacyTick(App& app, std::chrono::steady_clock::time_point now);
+std::chrono::steady_clock::time_point privacyWake(const App& app);
 void drivesTick(App& app, std::chrono::steady_clock::time_point now);
 std::chrono::steady_clock::time_point drivesWake(const App& app);
 void toggleDrivesMenu(App& app, Bar* bar);
@@ -1873,7 +1920,7 @@ constexpr const char* kArtistFont = "Sans 8";
 constexpr const char* kTitleFont = "Sans Bold 10";
 
 using Hit = int;
-constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitDrives = 26, HitIsland = 25, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600, kHitDtp = 800;
+constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitDrives = 26, HitPrivacy = 27, HitIsland = 25, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600, kHitDtp = 800;
 
 std::string widgetStyle(const App& app, const std::string& mod);
 double roundBtnW(const App& app, const char* mod) { return kQuickBox + (!sideBar(app) && widgetStyle(app, mod) == "m3" ? kM3Box - kQuickBox : 0); }

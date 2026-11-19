@@ -1,3 +1,4 @@
+#include <random>
 #include <cairo.h>
 #include "bubble.h"
 #include "elastic.h"
@@ -422,6 +423,7 @@ private:
 #include "tools/page_units.inc"
 #include "tools/keybinds_store.inc"
 #include "tools/page_keybinds.inc"
+#include "tools/page_phone.inc"
 
 void buildPages() {
     g.pages.push_back(std::make_unique<TranslatorPage>());
@@ -433,6 +435,7 @@ void buildPages() {
     g.pages.push_back(std::make_unique<TimersPage>(1));
     g.pages.push_back(std::make_unique<TimersPage>(2));
     g.pages.push_back(std::make_unique<KeybindsPage>());
+    g.pages.push_back(std::make_unique<PhonePage>());
     for (auto& p : g.pages) p->init();
 }
 
@@ -604,12 +607,28 @@ void updateCursor() {
     wp_cursor_shape_device_v1_set_shape(g.cursorDev, g.enterSerial, shape);
 }
 
+// The page the window was left on is remembered by its name, so it survives new pages being added.
+std::string lastPagePath() { return stateDir() + "/tools-page.txt"; }
+void rememberPage() {
+    mkdir(stateDir().c_str(), 0755);
+    std::ofstream f(lastPagePath(), std::ios::trunc);
+    f << g.pages[g.page]->name() << "\n";
+}
+int rememberedPage() {
+    std::ifstream f(lastPagePath());
+    std::string name;
+    std::getline(f, name);
+    for (int i = 0; i < pageCount(); i++) if (name == g.pages[i]->name()) return i;
+    return 0;
+}
+
 void switchTo(int index) {
     index = ((index % pageCount()) + pageCount()) % pageCount();
     if (index == g.page) return;
     cur().leave();
     g.prevPage = g.page;
     g.page = index;
+    rememberPage();
     g.switchT = 0;
     g.switchStart = Clock::now();
     g.dirty = true;
@@ -873,6 +892,7 @@ int main() {
     g_measure = pango_cairo_create_layout(dcr);
     loadConfig();
     buildPages();
+    g.page = g.prevPage = rememberedPage();
     if (const char* p = std::getenv("TOOLS_PAGE")) g.page = g.prevPage = std::clamp(std::atoi(p), 0, pageCount() - 1);
 
     std::signal(SIGTERM, onTermSignal);

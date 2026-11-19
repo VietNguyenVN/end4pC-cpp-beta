@@ -117,6 +117,7 @@ namespace {
 #include "parts/10c_polkit.inc"
 #include "parts/11_osd_notifications.inc"
 #include "parts/12_notif_panel.inc"
+#include "parts/13d_eq_backend.inc"
 #include "parts/13_media_panel.inc"
 #include "parts/14_tray_desktop_menu.inc"
 #include "parts/14a_weather_service.inc"
@@ -147,7 +148,10 @@ namespace {
 #include "parts/14v_osk.inc"
 #include "parts/14w_qr_card.inc"
 #include "parts/14wc_confirm_card.inc"
+#include "parts/14wf_forcequit.inc"
+#include "parts/14wg_conflicts.inc"
 #include "parts/14x_drives.inc"
+#include "parts/14xa_privacy.inc"
 #include "parts/14y_game_overlay.inc"
 #include "parts/14z_desk_viz.inc"
 #include "parts/14zb_text_widget.inc"
@@ -352,6 +356,7 @@ int main(int argc, char** argv) {
     }
     wl_display_roundtrip(app.display);
     app.ready = true;
+    app.conflictCheckAt = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     startNotifications(app);
     startPolkit(app);
     if (app.cfg.lockOnStart) {
@@ -459,6 +464,10 @@ int main(int argc, char** argv) {
             const int ms = std::max<int>(1, std::chrono::duration_cast<std::chrono::milliseconds>(when - before).count());
             timeoutMs = timeoutMs < 0 ? ms : std::min(timeoutMs, ms);
         };
+        if (app.conflictCheckAt != std::chrono::steady_clock::time_point{}) {
+            if (before >= app.conflictCheckAt) { app.conflictCheckAt = {}; conflictsStartupCheck(app); }
+            else wakeIn(app.conflictCheckAt);
+        }
         if (app.cfg.wallpaperAuto) {
             const auto every = std::chrono::minutes(app.cfg.wallpaperAutoMin);
             if (app.wallpaperAutoFor != app.cfg.wallpaperAutoMin || app.wallpaperAutoNext == std::chrono::steady_clock::time_point{}) {
@@ -677,6 +686,7 @@ int main(int argc, char** argv) {
         if (const auto tw = timersWake(app); tw != std::chrono::steady_clock::time_point::max()) wakeIn(tw);
         if (const auto iw = islandCardWake(app); iw != std::chrono::steady_clock::time_point::max()) wakeIn(iw);
         if (const auto gw = gameWake(app); gw != std::chrono::steady_clock::time_point::max()) wakeIn(gw);
+        if (const auto pw = privacyWake(app); pw != std::chrono::steady_clock::time_point::max()) wakeIn(pw);
         if (const auto vw = drivesWake(app); vw != std::chrono::steady_clock::time_point::max()) wakeIn(vw);
         if (const auto bw = btWake(app); bw != std::chrono::steady_clock::time_point::max()) wakeIn(bw);
         if (const auto dw = desktopMenuWake(app); dw != std::chrono::steady_clock::time_point::max()) wakeIn(dw);
@@ -880,6 +890,7 @@ int main(int argc, char** argv) {
             tickDesktopMenu(app, now);
             btTick(app, now);
             drivesTick(app, now);
+            privacyTick(app, now);
             tickGame(app, now);
             if (app.launcher.sliding) { if (app.launcher.open()) drawLauncher(app); else app.launcher.sliding = false; }
             if (app.repeatKey && now >= app.repeatAt) {

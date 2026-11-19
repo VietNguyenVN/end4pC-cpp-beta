@@ -420,6 +420,10 @@ std::vector<Page> makePages() {
         {Toggle, "batteryPercent", "Show the percentage", "The battery level next to the battery icon in the bar.", {}},
         {Toggle, "networkAlways", "Always show the icon", "Show the network icon even when it is connected. Off: it only appears while there is no connection.", {}},
         {Toggle, "networkSpeed", "Show the speed", "Upload and download speed next to the icon, two small lines.", {}},
+        {Toggle, "privacyAlways", "Always show the indicators", "Show the privacy icons even when nothing is using them. Off: they only appear while an app uses the microphone, a camera or the screen.", {}},
+        {Toggle, "privacyMic", "Microphone", "Show when an app is listening to the microphone.", {}},
+        {Toggle, "privacyCam", "Camera", "Show when an app is using a camera.", {}},
+        {Toggle, "privacyScreen", "Screen", "Show when the screen is being shared or recorded.", {}},
         {Toggle, "quick:picker", "Color picker", "Pick any color on the screen and copy it to the clipboard. A right click picks the accent color instead."},
         {Toggle, "quick:record", "Screen recording", "Choose the area, the sound and the frame rate, then record. Click again to stop."},
         {Toggle, "quick:screenshot", "Screenshot", "Select an area, draw on it, then copy or save it."},
@@ -539,6 +543,7 @@ std::vector<Page> makePages() {
         {Choice, "notificationPosition", "Popup position", "Where the notification popups appear.",
          {{"top_left", "Top left"}, {"top_center", "Top center"}, {"top_right", "Top right"}, {"bottom_left", "Bottom left"}, {"bottom_center", "Bottom center"}, {"bottom_right", "Bottom right"}}},
         {Toggle, "notificationAppIcons", "App icons", "A notification without a picture shows the icon of the app that sent it, instead of a symbol."},
+        {Toggle, "conflictCheck", "Look for conflicting programs", "At the first start of a session, look for other bars, notification daemons or wallpaper programs that fight with end4pC, and offer to close them. You can also run it by hand with: end4pC conflicts", {}},
         {Info, "periphSummary", "Device batteries", "Mouse, keyboard and headset batteries, from upower."},
         {Toggle, "peripheralNotify", "Low battery alerts", "Notify when the battery of a mouse, keyboard or headset runs low, and again when it is critical."},
         {Slider, "peripheralLow", "Low at", "A device is low at this charge. It also shows in the bar.", {}, 5, 50, 5, "%"},
@@ -625,7 +630,7 @@ std::vector<Page> makePages() {
     for (auto& pg : p) {
         if (pg.name == "General") sections(pg, {{"language", "Language"}, {"preferredPlayer", "Apps"}, {"clock24", "Time"}, {"volumeMax", "Audio"}, {"batteryLow", "Battery"}});
         else if (pg.name == "Appearance") sections(pg, {{"colorMode", "Colors"}, {"fontFamily", "Font & Icons"}, {"theme", "Themes"}, {"presetSave", "Presets"}, {"templateKitty", "Templates"}});
-        else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"dividerStyle", "Divider"}, {"aiClaude", "AI usage"}});
+        else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"privacyAlways", "Privacy"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"dividerStyle", "Divider"}, {"aiClaude", "AI usage"}});
         else if (pg.name == "Hyprland") sections(pg, {{"mon:map", "Displays"}, {"hypr:general:layout", "Layout"}, {"hypr:input:kb_layout", "Keyboard"}, {"hypr:input:sensitivity", "Mouse"}, {"hypr:input:touchpad:natural_scroll", "Touchpad"}, {"idle:lock", "Idle"}, {"hypr:decoration:rounding", "Look"}, {"borderColor", "Borders"}, {"hypr:animations:enabled", "Animations"}, {"hypr:general:resize_on_border", "Windows"}, {"hypr:misc:focus_on_activate", "Misc"}});
         else if (pg.name == "Niri") sections(pg, {{"niri:gaps", "Layout"}, {"niri:radius", "Windows"}, {"niri:follow", "Behavior"}, {"niri:repeatDelay", "Input"}, {"niriReset", "Reset"}});
         else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}, {"deskVizStyle", "Visualizer"}, {"customTextFont", "Text"}});
@@ -650,7 +655,7 @@ std::vector<Page> makePages() {
 
 struct ModInfo { const char* id; const char* label; const char* icon; };
 const ModInfo kMods[] = {{"workspaces", "Workspaces", "widget-4"}, {"media", "Player", "music-note"}, {"quickactions", "Quick actions", "bolt"},
-                         {"network", "Network", "wi-fi-router"}, {"volume", "Volume", "volume-loud"}, {"bluetooth", "Bluetooth", "bluetooth"}, {"drives", "Removable drives", "flash-drive"}, {"clock", "Clock", "clock-circle"},
+                         {"network", "Network", "wi-fi-router"}, {"volume", "Volume", "volume-loud"}, {"bluetooth", "Bluetooth", "bluetooth"}, {"drives", "Removable drives", "flash-drive"}, {"privacy", "Privacy indicators", "shield-check"}, {"clock", "Clock", "clock-circle"},
                          {"notifications", "Notifications", "bell"}, {"settings", "Settings", "settings"}, {"avatar", "Avatar", "user-circle"}, {"battery", "Battery", "battery-full"}, {"systray", "System tray", "widget-2"}, {"resources", "Resources", "cpu"}, {"launcher", "Launcher", "magnifer"}, {"power", "Power", "power"}, {"tools", "Tools", "ruler-pen/list"}, {"updates", "Updates", "download-square"},
                          {"weather", "Weather", "cloud-sun"}, {"aiusage", "AI usage", "magic-stick-3"}, {"keyboard", "Keyboard layout", "keyboard"}, {"activewindow", "Active window", "window-frame"}, {"divider", "Divider", "menu-dots"},
                          {"visualizer", "Visualizer", "soundwave"}, {"docktopanel", "Dock to panel", "layers-minimalistic"}};
@@ -803,7 +808,7 @@ bool loadWidgetStates() {
 
 void loadConfig() {
     const std::string t = readFile(configPath());
-    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"fontWeightText", "450"}, {"fontWeightTitle", "550"}, {"launcherFiles", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"notificationAppIcons", "0"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
+    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"privacyMic", "1"}, {"privacyCam", "1"}, {"privacyScreen", "1"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"fontWeightText", "450"}, {"fontWeightTitle", "550"}, {"launcherFiles", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"notificationAppIcons", "0"}, {"conflictCheck", "1"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
         g.val.insert(d);
     if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
     g.val.insert({"lyricsProvider", "auto"});
@@ -2438,6 +2443,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "workspaceApps") return moduleUsed("workspaces") && g.val["workspaceStyle"] != "gnome" && g.val["workspaceStyle"] != "bar";
     if (r.key == "trayPinDefault" || r.key == "trayTint") return moduleUsed("systray");
     if (r.key == "networkAlways" || r.key == "networkSpeed") return moduleUsed("network");
+    if (r.key.compare(0, 7, "privacy") == 0) return moduleUsed("privacy");
     if (r.key.compare(0, 6, "quick:") == 0) return moduleUsed("quickactions");
     if (r.key == "resStyle") {  // the full list, or without Bars in the group styles
         const bool grp = (g.val["barPosition"] == "top" || g.val["barPosition"] == "bottom") && g.val["groupStyle"] != "free";

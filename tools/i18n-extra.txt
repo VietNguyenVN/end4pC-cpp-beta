@@ -321,3 +321,4 @@ Zoom in
 Zoom in (keypad +)
 Zoom out
 Zoom out (keypad -)
+Force quit

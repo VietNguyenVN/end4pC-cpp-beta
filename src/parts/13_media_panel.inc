@@ -1,8 +1,8 @@
 
 
 constexpr double kMediaCardW = 420, kMediaCardH = 140, kMediaRoom = 20;
-constexpr double kMediaLyricsH = 269, kMediaLyricsArea = 150;
-constexpr int kMediaSurfW = static_cast<int>(kMediaCardW + 2 * kMediaRoom), kMediaSurfH = static_cast<int>(kMediaLyricsH + 50 + 2 * kMediaRoom);
+constexpr double kMediaLyricsH = 269, kMediaLyricsArea = 150, kMediaEqH = 400;
+constexpr int kMediaSurfW = static_cast<int>(kMediaCardW + 2 * kMediaRoom), kMediaSurfH = static_cast<int>(kMediaEqH + 50 + 2 * kMediaRoom);
 constexpr double kMediaPad = 13, kMediaArt = 114, kMediaGap = 15, kMediaRadius = 19;
 constexpr double kMediaBtn = 24, kMediaPlay = 44, kMediaRowGap = 5;
 constexpr int kMediaPollMs = 500, kMediaFrameMs = 33;
@@ -379,7 +379,7 @@ double mediaEaseOutBack(double t) {
 }
 
 void mediaStepLyricSpring(MediaPanel& M, std::chrono::steady_clock::time_point now) {
-    const double target = M.lyricsMode ? 1.0 : 0.0;
+    const double target = M.lyricsMode || M.eqMode ? 1.0 : 0.0;
     const double dt = M.lyricLast == std::chrono::steady_clock::time_point{} ? 0.016 : std::min(0.05, std::chrono::duration<double>(now - M.lyricLast).count());
     M.lyricLast = now;
     constexpr double kStiffness = 180, kDamping = 12;
@@ -387,6 +387,17 @@ void mediaStepLyricSpring(MediaPanel& M, std::chrono::steady_clock::time_point n
     M.lyricT += M.lyricV * dt;
     M.lyricMoving = std::fabs(target - M.lyricT) > 0.001 || std::fabs(M.lyricV) > 0.01;
     if (!M.lyricMoving) { M.lyricT = target; M.lyricV = 0; }
+}
+
+void mediaStepEqSpring(MediaPanel& M, std::chrono::steady_clock::time_point now) {
+    const double target = M.eqMode ? 1.0 : 0.0;
+    const double dt = M.eqLast == std::chrono::steady_clock::time_point{} ? 0.016 : std::min(0.05, std::chrono::duration<double>(now - M.eqLast).count());
+    M.eqLast = now;
+    constexpr double kStiffness = 180, kDamping = 12;
+    M.eqV += (kStiffness * (target - M.eqT) - kDamping * M.eqV) * dt;
+    M.eqT += M.eqV * dt;
+    M.eqMoving = std::fabs(target - M.eqT) > 0.001 || std::fabs(M.eqV) > 0.01;
+    if (!M.eqMoving) { M.eqT = target; M.eqV = 0; }
 }
 
 void mediaUpdateLyrics(App& app, std::chrono::steady_clock::time_point now) {
@@ -507,14 +518,108 @@ void mediaApplyInput(App& app, double cardTop) {
     M.inputH = h;
 }
 
+int eqMatchPreset(const EqState& E) {
+    for (int i = 0; i < kEqPresetCount; i++) {
+        bool same = true;
+        for (int b = 0; b < kEqBands; b++) same = same && std::fabs(E.gain[b] - kEqPresets[i].gain[b]) < 0.01;
+        if (same) return i;
+    }
+    return -1;
+}
+
+// The EQ page, drawn over the art and the lyrics: a switch, the presets, and a slider for the preamp and for each band.
+void mediaDrawEq(App& app, cairo_t* cr, PangoLayout* layout, const MediaColors& C, double cw, double ch, double a) {
+    MediaPanel& M = app.media;
+    EqState& E = app.eq;
+    eqLoad(E);
+    const double x0 = kMediaPad, w = cw - 2 * kMediaPad, top = kMediaPad, bottom = ch - 100;
+    roundedRect(cr, 6, 6, cw - 12, bottom - 6, kMediaRadius - 4);
+    setSource(cr, C.layer0, 0.985 * a);
+    cairo_fill(cr);
+    auto text = [&](const std::string& s, double px, bool bold, double x, double y, const Color& c, double alpha, double boxW = 0, int align = 0) {
+        mediaFont(layout, px, bold);
+        pango_layout_set_text(layout, s.c_str(), -1);
+        int tw = 0, th = 0;
+        pango_layout_get_pixel_size(layout, &tw, &th);
+        setSource(cr, c, alpha);
+        cairo_move_to(cr, align == 1 ? x + (boxW - tw) / 2 : align == 2 ? x + boxW - tw : x, y - th / 2.0);
+        pango_cairo_show_layout(cr, layout);
+    };
+    text(i18n::tr("Equalizer"), 16, true, x0 + 2, top + 12, C.onLayer0, a);
+    for (Rect& r : M.eqBand) r = {};
+    for (Rect& r : M.eqChip) r = {};
+    M.rEqToggle = {};
+    if (!eqAvailable()) {
+        pango_layout_set_width(layout, static_cast<int>((w - 20) * PANGO_SCALE));
+        pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
+        text(i18n::tr("Install EasyEffects to use the equalizer"), 14, false, x0 + 10, (top + bottom) / 2, C.subtext, a);
+        pango_layout_set_width(layout, -1);
+        pango_layout_set_alignment(layout, PANGO_ALIGN_LEFT);
+        return;
+    }
+    const Rect sw{x0 + w - 46, top, 46, 24};
+    M.rEqToggle = sw;
+    roundedRect(cr, sw.x, sw.y, sw.w, sw.h, 12);
+    setSource(cr, E.enabled ? C.primary : C.secondaryContainer, a);
+    cairo_fill(cr);
+    const double kx = E.enabled ? sw.x + sw.w - 12 - 3 : sw.x + 12 + 3;
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, kx, sw.y + sw.h / 2, M.eqHover == 300 ? 8.5 : 7.5, 0, 2 * M_PI);
+    setSource(cr, E.enabled ? C.onPrimary : C.onSecondaryContainer, a);
+    cairo_fill(cr);
+
+    const double gap = 6, chipW = (w - 3 * gap) / 4, chipH = 26, chipTop = top + 34;
+    for (int i = 0; i < kEqPresetCount; i++) {
+        const Rect r{x0 + (i % 4) * (chipW + gap), chipTop + (i / 4) * (chipH + gap), chipW, chipH};
+        M.eqChip[i] = r;
+        const bool on = E.preset == i && E.enabled, hot = M.eqHover == 200 + i;
+        roundedRect(cr, r.x, r.y, r.w, r.h, chipH / 2);
+        setSource(cr, on ? (hot ? C.primaryHover : C.primary) : (hot ? C.secondaryContainerHover : C.secondaryContainer), a);
+        cairo_fill(cr);
+        text(i18n::tr(kEqPresets[i].name), 12, true, r.x, r.y + r.h / 2, on ? C.onPrimary : C.onSecondaryContainer, a, r.w, 1);
+    }
+
+    const double sTop = chipTop + 2 * chipH + gap + 18, sBottom = bottom - 22, mid = (sTop + sBottom) / 2, half = (sBottom - sTop) / 2;
+    const double colW = w / (kEqBands + 1);
+    for (int k = 0; k <= kEqBands; k++) {
+        const int id = k == 0 ? kEqBands : k - 1;
+        const double v = id == kEqBands ? E.preamp : E.gain[id], cx = x0 + colW * (k + 0.5);
+        M.eqBand[id] = {cx - colW / 2, sTop - 10, colW, sBottom - sTop + 20};
+        const bool hot = M.eqHover == 100 + id || M.eqDrag == id;
+        const double hy = mid - v / kEqRange * half;
+        roundedRect(cr, cx - 2, sTop, 4, sBottom - sTop, 2);
+        setSource(cr, C.secondaryContainer, a);
+        cairo_fill(cr);
+        setSource(cr, C.onLayer0, 0.3 * a);
+        cairo_rectangle(cr, cx - 7, mid - 0.5, 14, 1);
+        cairo_fill(cr);
+        if (std::fabs(v) > 0.01) {
+            roundedRect(cr, cx - 2, std::min(mid, hy), 4, std::fabs(hy - mid), 2);
+            setSource(cr, C.primary, (E.enabled ? 1.0 : 0.5) * a);
+            cairo_fill(cr);
+        }
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, cx, hy, hot ? 8 : 6.5, 0, 2 * M_PI);
+        setSource(cr, E.enabled ? C.primary : C.subtext, a);
+        cairo_fill(cr);
+        text(id == kEqBands ? i18n::tr("Pre") : kEqFreqLabel[id], 10, false, cx - colW / 2, sBottom + 14, hot ? C.onLayer0 : C.subtext, a, colW, 1);
+        if (hot) {
+            char buf[16];
+            std::snprintf(buf, sizeof buf, "%+.1f", v);
+            text(buf, 11, true, cx - colW / 2, std::max(sTop - 10.0, hy - 17), C.onLayer0, a, colW, 1);
+        }
+    }
+}
+
 void drawMediaPanel(App& app) {
     MediaPanel& M = app.media;
     if (!M.open() || !M.configured) return;
     refreshMediaCoverIfNeeded(app);
     const auto now = std::chrono::steady_clock::now();
     mediaStepLyricSpring(M, now);
+    mediaStepEqSpring(M, now);
     mediaUpdateLyrics(app, now);
-    const double t = std::clamp(M.lyricT, -0.08, 1.35);
+    const double t = std::clamp(M.lyricT, -0.08, 1.35), eqT = std::clamp(M.eqT, -0.08, 1.35), eqA = std::clamp(M.eqT, 0.0, 1.0);
     const auto lerp = [&](double a, double b) { return a + (b - a) * t; };
     const int W = kMediaSurfW, H = kMediaSurfH;
     const int stride = W * 4, size = stride * H;
@@ -529,7 +634,7 @@ void drawMediaPanel(App& app) {
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
     popGroupBegin(cr);
 
-    const double cw = kMediaCardW, ch = std::max(110.0, lerp(kMediaCardH, kMediaLyricsH));
+    const double cw = kMediaCardW, ch = std::max(110.0, lerp(kMediaCardH, kMediaLyricsH) + eqT * (kMediaEqH - kMediaLyricsH));
     M.cardH = ch;
     const double cx = M.cardX, cy = M.anchoredBottom ? H - kMediaRoom - ch : kMediaRoom;
     if (M.shadow && M.shadowH != static_cast<int>(ch)) { cairo_surface_destroy(M.shadow); M.shadow = nullptr; }
@@ -561,7 +666,7 @@ void drawMediaPanel(App& app) {
         setSource(cr, app.color("outline"));
         cairo_move_to(cr, 20, 36 + th + 6);
         pango_cairo_show_layout(cr, layout);
-        M.rPrev = M.rPlay = M.rNext = M.rArt = M.rSlider = M.rPin = M.rLyrics = M.rLyricsRetry = {};
+        M.rPrev = M.rPlay = M.rNext = M.rArt = M.rSlider = M.rPin = M.rLyrics = M.rLyricsRetry = M.rEq = M.rEqToggle = {};
     } else {
         const MediaColors& C = M.col;
         roundedRect(cr, 0, 0, cw, ch, kMediaRadius);
@@ -645,13 +750,15 @@ void drawMediaPanel(App& app) {
             drawIcon(cr, vicon, dcx - 8, dcy - 8, 16, C.onLayer0, true);
         }
 
-        const double lyricAlpha = std::clamp((t - 0.35) / 0.65, 0.0, 1.0);
+        const double lyricAlpha = std::clamp((t - 0.35) / 0.65, 0.0, 1.0) * (1 - eqA);
         if (lyricAlpha > 0.01) {
             const double lx = kMediaPad + artS + kMediaGap;
             mediaPaintLyrics(cr, layout, app, M, C, lx, kMediaPad, cw - lx - kMediaPad, kMediaLyricsArea, lyricAlpha, now);
         } else {
             M.rLyricsRetry = {};
         }
+        if (eqA > 0.01) mediaDrawEq(app, cr, layout, C, cw, ch, eqA);
+        else { M.rEqToggle = {}; for (Rect& r : M.eqBand) r = {}; for (Rect& r : M.eqChip) r = {}; }
 
         const double rowH = std::max(kMediaBtn, 24.0), rowY = ch - lerp(13, 12) - rowH;
         const double textX = lerp(kMediaPad + kMediaArt + kMediaGap, kMediaPad), textW = cw - textX - kMediaPad - lerp(0, kMediaPlay + 8);
@@ -699,7 +806,7 @@ void drawMediaPanel(App& app) {
             drawIcon(cr, icon, bx + (kMediaBtn - 20) / 2, by + (kMediaBtn - 20) / 2, 20, on ? C.primary : C.onSecondaryContainer, true);
         };
         const double by = rowY + (rowH - kMediaBtn) / 2;
-        const double lyricsX = cw - kMediaPad - kMediaBtn, pinX = lyricsX - kMediaRowGap - kMediaBtn, nextX = pinX - kMediaRowGap - kMediaBtn, prevX = textX;
+        const double lyricsX = cw - kMediaPad - kMediaBtn, pinX = lyricsX - kMediaRowGap - kMediaBtn, nextX = pinX - kMediaRowGap - kMediaBtn, prevX = textX + kMediaBtn + kMediaRowGap;
         M.rPrev = {prevX, by, kMediaBtn, kMediaBtn};
         M.rNext = {nextX, by, kMediaBtn, kMediaBtn};
         M.rPin = {pinX, by, kMediaBtn, kMediaBtn};
@@ -708,6 +815,8 @@ void drawMediaPanel(App& app) {
         flatButton(nextX, by, M.hover == 3, false, "skip_next");
         flatButton(pinX, by, M.hover == 6, app.mediaPinned, "push_pin");
         flatButton(lyricsX, by, M.hover == 7, M.lyricsMode, "boombox/lyrics");
+        M.rEq = {textX, by, kMediaBtn, kMediaBtn};
+        flatButton(textX, by, M.hover == 8, M.eqMode, "tuning-2/tune");
 
         const double sx = prevX + kMediaBtn + kMediaRowGap, sw = std::max(0.0, nextX - kMediaRowGap - sx), sy = rowY, sh = rowH;
         M.rSlider = {sx, sy, sw, sh};
@@ -947,22 +1056,61 @@ void mediaSeekAt(App& app, double lx, bool final) {
     }
 }
 
+// What of the EQ page is under the pointer: 100 + band (10: the preamp), 200 + preset, 300 the switch; -1 nothing.
+int mediaEqHit(const MediaPanel& M, double lx, double ly) {
+    if (!M.eqMode || M.eqT < 0.6) return -1;
+    if (M.rEqToggle.contains(lx, ly)) return 300;
+    for (int i = 0; i < kEqPresetCount; i++) if (M.eqChip[i].contains(lx, ly)) return 200 + i;
+    for (int i = 0; i <= kEqBands; i++) if (M.eqBand[i].contains(lx, ly)) return 100 + i;
+    return -1;
+}
+
+void mediaEqChanged(App& app, bool final) {
+    MediaPanel& M = app.media;
+    EqState& E = app.eq;
+    E.enabled = true;
+    E.preset = eqMatchPreset(E);
+    const auto now = std::chrono::steady_clock::now();
+    if (final || now - M.eqApplied > std::chrono::milliseconds(150)) {
+        M.eqApplied = now;
+        eqApply(E);
+    }
+    if (final) eqSave(E);
+}
+
+void mediaEqDragTo(App& app, double ly, bool final) {
+    MediaPanel& M = app.media;
+    EqState& E = app.eq;
+    const int id = M.eqDrag;
+    if (id < 0 || id > kEqBands) return;
+    const Rect& r = M.eqBand[id];
+    const double top = r.y + 10, bottom = r.y + r.h - 10, mid = (top + bottom) / 2, half = (bottom - top) / 2;
+    const double v = std::clamp(std::round((mid - ly) / half * kEqRange * 2) / 2, -kEqRange, kEqRange);
+    (id == kEqBands ? E.preamp : E.gain[id]) = v;
+    mediaEqChanged(app, final);
+}
+
 void mediaPanelMotion(App& app) {
     MediaPanel& M = app.media;
     if (popIsOut(M.anim)) return;
     const double lx = app.pointerX - M.originX, ly = app.pointerY - M.originY;
     if (M.drag == 1) { mediaSeekAt(app, lx, false); drawMediaPanel(app); return; }
     if (M.drag == 2) { mediaDialAt(app, lx, ly); drawMediaPanel(app); return; }
+    if (M.eqDrag >= 0) { mediaEqDragTo(app, ly, false); drawMediaPanel(app); return; }
+    const int eqHover = mediaEqHit(M, lx, ly);
     int hover = 0;
     if (M.rPrev.contains(lx, ly)) hover = 1;
     else if (M.rPlay.contains(lx, ly)) hover = 2;
     else if (M.rNext.contains(lx, ly)) hover = 3;
     else if (M.rPin.contains(lx, ly)) hover = 6;
     else if (M.rLyrics.contains(lx, ly)) hover = 7;
+    else if (M.rEq.contains(lx, ly)) hover = 8;
+    else if (eqHover >= 0) hover = 0;
     else if (M.rArt.contains(lx, ly)) hover = 4;
     else if (M.rSlider.contains(lx, ly)) hover = 5;
-    if (hover == M.hover) return;
+    if (hover == M.hover && eqHover == M.eqHover) return;
     M.hover = hover;
+    M.eqHover = eqHover;
     drawMediaPanel(app);
     updateCursor(app);
 }
@@ -972,9 +1120,31 @@ void mediaPanelClick(App& app) {
     const double lx = app.pointerX - M.originX, ly = app.pointerY - M.originY;
     if (popIsOut(M.anim)) return;
     if (!Rect{0, 0, kMediaCardW, M.cardH}.contains(lx, ly)) { retractMediaPanel(app); return; }
-    if (M.rPin.contains(lx, ly)) {
+    if (const int eqHit = mediaEqHit(M, lx, ly); eqHit >= 0) {
+        EqState& E = app.eq;
+        if (eqHit == 300) {
+            E.enabled = !E.enabled;
+            eqSave(E);
+            eqApply(E);
+        } else if (eqHit >= 200) {
+            for (int b = 0; b < kEqBands; b++) E.gain[b] = kEqPresets[eqHit - 200].gain[b];
+            mediaEqChanged(app, true);
+        } else {
+            M.eqDrag = eqHit - 100;
+            mediaEqDragTo(app, ly, false);
+        }
+    } else if (M.rEq.contains(lx, ly)) {
+        M.eqMode = !M.eqMode;
+        M.eqLast = std::chrono::steady_clock::now();
+        M.eqMoving = true;
+        M.eqHover = -1;
+    } else if (M.rPin.contains(lx, ly)) {
         app.mediaPinned = !app.mediaPinned;
         mediaApplyInput(app, M.originY);
+    } else if (M.rLyrics.contains(lx, ly) && M.eqMode) {
+        M.eqMode = false;
+        M.eqLast = std::chrono::steady_clock::now();
+        M.eqMoving = true;
     } else if (M.rLyrics.contains(lx, ly)) {
         M.lyricsMode = !M.lyricsMode;
         mediaLyricsSave(M.lyricsMode);
@@ -997,6 +1167,12 @@ void mediaPanelClick(App& app) {
 
 void mediaPanelRelease(App& app) {
     MediaPanel& M = app.media;
+    if (M.eqDrag >= 0) {
+        mediaEqDragTo(app, app.pointerY - M.originY, true);
+        M.eqDrag = -1;
+        drawMediaPanel(app);
+        return;
+    }
     if (M.drag == 1) {
         mediaSeekAt(app, app.pointerX - M.originX, true);
         M.drag = 0;
@@ -1014,6 +1190,15 @@ void mediaPanelRelease(App& app) {
 void mediaPanelScroll(App& app, int dir) {
     MediaPanel& M = app.media;
     const double lx = app.pointerX - M.originX, ly = app.pointerY - M.originY;
+    if (const int eqHit = mediaEqHit(M, lx, ly); eqHit >= 100 && eqHit < 200) {
+        EqState& E = app.eq;
+        const int id = eqHit - 100;
+        double& v = id == kEqBands ? E.preamp : E.gain[id];
+        v = std::clamp(v + (dir > 0 ? -1.0 : 1.0), -kEqRange, kEqRange);
+        mediaEqChanged(app, true);
+        drawMediaPanel(app);
+        return;
+    }
     if (!M.rArt.contains(lx, ly)) return;
     M.volume = std::clamp(M.volume + (dir > 0 ? -0.05 : 0.05), 0.0, 1.0);
     char buf[16];
@@ -1067,7 +1252,7 @@ void vizFrame(App& app, std::chrono::steady_clock::time_point now) {
 
 bool mediaAnimating(const App& app) {
     const MediaPanel& M = app.media;
-    return M.open() && M.configured && (M.status == "Playing" || M.drag != 0 || M.lyricMoving || (M.lyricsMode && M.lyricStatus != "ok"));
+    return M.open() && M.configured && (M.status == "Playing" || M.drag != 0 || M.lyricMoving || M.eqMoving || M.eqDrag >= 0 || (M.lyricsMode && M.lyricStatus != "ok"));
 }
 
 std::chrono::steady_clock::time_point mediaWake(const App& app) {

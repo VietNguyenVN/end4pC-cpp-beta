@@ -256,6 +256,7 @@ double moduleWidth(const App& app, const std::string& m) {
     if (m == "volume") return volumeW(app);
     if (m == "bluetooth") return btBarW(app);
     if (m == "drives") return drivesVisible(app) ? kQuickBox + softExtra(app, "drives") : 0;
+    if (m == "privacy") return privacyBarW(app);
     if (m == "docktopanel") return dtpWidth(app);
     if (m == "clock") return app.clockW;
     if (m == "notifications") return notifW(app);

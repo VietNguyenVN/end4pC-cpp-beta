@@ -258,6 +258,8 @@ void handleClient(App& app, int listenFd) {
         else if (a.rfind("set ", 0) == 0) changeBrightness(app, 0, std::atoi(a.c_str() + 4), output);
         reply = app.brightness < 0 ? "unknown (asking the monitor)" : std::to_string(app.brightness);
     }
+    else if (cmd == "conflicts") { const size_t n = openConflicts(app, true); reply = n ? std::to_string(n) + " conflicting program(s)" : "none"; }
+    else if (cmd == "forcequit") { openForceQuit(app); reply = app.fq.surface ? "open" : "closed"; }
     else if (cmd == "osd volume") { showOsd(app, OsdVolume); reply = "ok"; }
     else if (cmd == "osd brightness") { showOsd(app, OsdBrightness); reply = "ok"; }
     else if (cmd == "notifs") {
@@ -394,6 +396,19 @@ void handleClient(App& app, int listenFd) {
         reply = app.osk.surface ? "open" : "closed";
     }
     else if (cmd.rfind("qr ", 0) == 0) { openQrCard(app, cmd.substr(3)); reply = app.qr.surface ? "open" : "failed"; }
+    else if (cmd.rfind("privacy", 0) == 0) {  // privacy [mic|cam|screen ...|off]: preview the indicators by hand (no argument: the state now)
+        PrivacyBar& P = app.privacy;
+        std::string arg = cmd.size() > 8 ? cmd.substr(8) : "";
+        if (!arg.empty()) {
+            P.test = arg != "off";
+            P.mic = P.test && arg.find("mic") != std::string::npos ? "preview" : "";
+            P.cam = P.test && arg.find("cam") != std::string::npos ? "preview" : "";
+            P.screen = P.test && arg.find("screen") != std::string::npos ? "preview" : "";
+            drawAll(app);
+        }
+        reply = (P.mic.empty() ? "" : "mic: " + P.mic + "\n") + (P.cam.empty() ? "" : "cam: " + P.cam + "\n") + (P.screen.empty() ? "" : "screen: " + P.screen + "\n");
+        if (reply.empty()) reply = "nothing in use";
+    }
     else if (cmd == "drives") {  // opens the removable drives popup at its bar button (for a key bind or a test)
         Bar* bar = mainBar(app);
         if (bar && !sideBar(app) && hasSlot(*bar, "drives") && drivesVisible(app)) {

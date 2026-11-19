@@ -173,7 +173,7 @@ std::vector<const AppEntry*> searchApps(const App& app, const std::string& query
 }
 
 std::vector<std::string> launcherActions() {
-    std::vector<std::string> out = {"dark", "light", "wallpaper", "wipeclipboard", "clearcache"};
+    std::vector<std::string> out = {"dark", "light", "wallpaper", "wipeclipboard", "clearcache", "forcequit"};
     const std::string dir = configDir() + "/actions";
     if (DIR* d = opendir(dir.c_str())) {
         while (const dirent* e = readdir(d)) {
@@ -188,6 +188,7 @@ std::vector<std::string> launcherActions() {
 }
 
 void openClearCacheConfirm(App& app);
+void openForceQuit(App& app);
 
 void runLauncherAction(App& app, const std::string& name, const std::string& args) {
     if (name == "dark" || name == "light") {
@@ -198,6 +199,9 @@ void runLauncherAction(App& app, const std::string& name, const std::string& arg
     } else if (name == "wallpaper") {
         closeLauncher(app);
         openSelector(app);
+    } else if (name == "forcequit") {
+        closeLauncher(app);
+        openForceQuit(app);
     } else if (name == "clearcache") {
         closeLauncher(app);
         openClearCacheConfirm(app);
