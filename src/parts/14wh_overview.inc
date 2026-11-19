@@ -212,9 +212,34 @@ void ovSetGaps(const int g[4]) {
     const std::string cmd = "hl.config({ general = { gaps_out = { top = " + std::to_string(g[0]) + ", right = " + std::to_string(g[1]) + ", bottom = " + std::to_string(g[2]) + ", left = " + std::to_string(g[3]) + " } } })";
     captureArgv({"hyprctl", "eval", cmd});
 }
+// The room for the strip is reserved by a tiny invisible layer surface on that screen only (the gaps_out of Hyprland are global: every screen moved).
+void onResConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t, uint32_t) {
+    App& app = *static_cast<App*>(d);
+    OverviewState& O = app.ov;
+    zwlr_layer_surface_v1_ack_configure(layer, serial);
+    if (!O.resSurface || O.resBuf) return;
+    const int fd = memfd_create("end4pC-ov-res", MFD_CLOEXEC);
+    if (fd < 0 || ftruncate(fd, 4) != 0) { if (fd >= 0) close(fd); return; }
+    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, 4);
+    O.resBuf = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
+    wl_shm_pool_destroy(pool);
+    close(fd);
+    wl_surface_attach(O.resSurface, O.resBuf, 0, 0);
+    wl_surface_damage_buffer(O.resSurface, 0, 0, 1, 1);
+    wl_surface_commit(O.resSurface);
+}
+void onResClosed(void*, zwlr_layer_surface_v1*) {}
+const zwlr_layer_surface_v1_listener kResListener = {onResConfigure, onResClosed};
+
+void ovDropReserve(OverviewState& O) {
+    if (O.resLayer) zwlr_layer_surface_v1_destroy(O.resLayer);
+    if (O.resSurface) wl_surface_destroy(O.resSurface);
+    if (O.resBuf) wl_buffer_destroy(O.resBuf);
+    O.resLayer = nullptr; O.resSurface = nullptr; O.resBuf = nullptr;
+}
 void ovRestoreGaps(App& app) {
     OverviewState& O = app.ov;
-    if (O.gapsSet) ovSetGaps(O.gapOrig);
+    ovDropReserve(O);
     ovEscapeKey(false);
     O.gapsSet = false;
     O.gapsPending = false;
@@ -256,13 +281,23 @@ std::string ovSafeName(const std::string& n) {
     return s;
 }
 
+// The windows of every screen, each one placed in the space of the strip's screen (same proportions inside its own screen); the ones of the
+// other screens count as fixed (the room for the strip does not move them).
+std::string ovClientsJq(const std::string& m, const std::string& mx, const std::string& my, const std::string& mw, const std::string& mh) {
+    return "hyprctl clients -j | jq -r --argjson ms \"$(hyprctl monitors -j)\" --argjson m " + m + " --argjson MX " + mx + " --argjson MY " + my + " --argjson MW " + mw + " --argjson MH " + mh +
+           " '.[]|select(.mapped and (.hidden|not) and .workspace.id>0) | . as $c | ($ms[]|select(.id==$c.monitor)) as $cm | "
+           "($cm.width/$cm.scale) as $cw | ($cm.height/$cm.scale) as $ch | "
+           "[.address,.workspace.id,(if .monitor==$m then .at[0] else $MX+(.at[0]-$cm.x)*$MW/$cw end),(if .monitor==$m then .at[1] else $MY+(.at[1]-$cm.y)*$MH/$ch end),"
+           "(if .monitor==$m then .size[0] else .size[0]*$MW/$cw end),(if .monitor==$m then .size[1] else .size[1]*$MH/$ch end),.class,.title,.stableId,(.floating or (.fullscreen>0) or .monitor!=$m)]|@tsv'";
+}
+
 void ovLoad(App& app) {
     OverviewState& O = app.ov;
     O.wins.clear();
     const std::string tsv = captureArgv({"bash", "-c",
         "mon=$(hyprctl monitors -j | jq -r --arg n \"" + ovSafeName(O.monName) + "\" '.[]|select(.name==$n or ($n==\"\" and .focused))|[.id,.x,.y,(.width/.scale),(.height/.scale),.reserved[0],.reserved[1],.reserved[2],.reserved[3]]|@tsv'); echo \"$mon\"; "
         "hyprctl getoption general:gaps_out -j | jq -r '.css'; "
-        "hyprctl clients -j | jq -r --argjson m \"$(echo \"$mon\" | cut -f1)\" '.[]|select(.mapped and (.hidden|not) and .monitor==$m and .workspace.id>0)|[.address,.workspace.id,.at[0],.at[1],.size[0],.size[1],.class,.title,.stableId,(.floating or (.fullscreen>0))]|@tsv'"});
+        "read -r mid mx my mw mh _ <<< \"$(echo \"$mon\" | tr '\\t' ' ')\"; " + ovClientsJq("\"${mid:-0}\"", "\"${mx:-0}\"", "\"${my:-0}\"", "\"${mw:-1}\"", "\"${mh:-1}\"")});
     std::istringstream in(tsv);
     std::string first, gaps;
     std::getline(in, first);
@@ -312,7 +347,7 @@ void ovRefresh(App& app) {
     OverviewState& O = app.ov;
     if (!O.surface || O.carrying) return;
     const std::string tsv = captureArgv({"bash", "-c",
-        "hyprctl clients -j | jq -r --argjson m " + std::to_string(O.monId) + " '.[]|select(.mapped and (.hidden|not) and .monitor==$m and .workspace.id>0)|[.address,.workspace.id,.at[0],.at[1],.size[0],.size[1],.class,.title,.stableId,(.floating or (.fullscreen>0))]|@tsv'"});
+        ovClientsJq(std::to_string(O.monId), std::to_string(O.monX), std::to_string(O.monY), std::to_string(O.monW), std::to_string(O.monH))});
     std::vector<std::unique_ptr<OvWin>> now;
     std::istringstream in(tsv);
     for (std::string line; std::getline(in, line);)
@@ -566,13 +601,28 @@ const zwlr_layer_surface_v1_listener kOvListener = {onOvConfigure, onOvClosed};
 void ovApplyGaps(App& app) {
     OverviewState& O = app.ov;
     O.gapsPending = false;
-    std::ofstream(ovGapsFile()) << O.gapOrig[0] << " " << O.gapOrig[1] << " " << O.gapOrig[2] << " " << O.gapOrig[3] << "\n";
-    int g[4] = {O.gapOrig[0], O.gapOrig[1], O.gapOrig[2], O.gapOrig[3]};
+    if (O.gapsSet) return;
     const int slotIdx[4] = {0, 2, 3, 1};  // top, bottom, left, right -> index in gapOrig (top, right, bottom, left)
-    g[slotIdx[O.edge]] = std::max(g[slotIdx[O.edge]], static_cast<int>(O.thick + kOvWindowGap - O.edgeReserved));
-    ovSetGaps(g);
-    for (int i = 0; i < 4; i++) O.gapNow[i] = g[i];
+    const int want = static_cast<int>(O.thick + kOvWindowGap - O.edgeReserved);
+    const int extra = std::max(0, want - O.gapOrig[slotIdx[O.edge]]);
+    for (int i = 0; i < 4; i++) O.gapNow[i] = O.gapOrig[i];
+    O.gapNow[slotIdx[O.edge]] += extra;
+    O.resZone = extra;
     O.gapsSet = true;
+    if (extra <= 0) return;
+    O.resSurface = wl_compositor_create_surface(app.compositor);
+    wl_region* none = wl_compositor_create_region(app.compositor);
+    wl_surface_set_input_region(O.resSurface, none);
+    wl_region_destroy(none);
+    wl_output* out = nullptr;
+    for (auto& b : app.bars) if (b->surface && b->connector == O.monName) { out = b->output; break; }
+    O.resLayer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, O.resSurface, out, ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM, "end4pC-overview-room");
+    const uint32_t anchors[4] = {ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT};
+    zwlr_layer_surface_v1_set_anchor(O.resLayer, anchors[O.edge]);
+    zwlr_layer_surface_v1_set_size(O.resLayer, 1, 1);
+    zwlr_layer_surface_v1_set_exclusive_zone(O.resLayer, extra);
+    zwlr_layer_surface_v1_add_listener(O.resLayer, &kResListener, &app);
+    wl_surface_commit(O.resSurface);
 }
 
 void openOverview(App& app) {

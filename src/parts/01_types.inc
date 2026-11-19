@@ -1460,6 +1460,10 @@ struct OverviewState {  // the overview (SUPER + O): a strip with every workspac
     int gapNow[4] = {5, 5, 5, 5};              // the gaps while the overview is open
     int gapOrig[4] = {5, 5, 5, 5};             // gaps_out before the overview: top, right, bottom, left
     std::chrono::steady_clock::time_point nextDraw{}, switchedAt{}, nextPoll{}, reloadAt{}, nextRefresh{};
+    wl_surface* resSurface = nullptr;          // invisible 1 px surface that reserves the room for the strip on this screen only
+    zwlr_layer_surface_v1* resLayer = nullptr;
+    wl_buffer* resBuf = nullptr;
+    int resZone = 0;
     bool gapsPending = false;                  // the gaps wait for the first frames (they resize the windows, and a capture of a window that is resizing fails)
     std::chrono::steady_clock::time_point gapsAt{};
     bool closing = false;                      // sliding out; it goes when it is out
