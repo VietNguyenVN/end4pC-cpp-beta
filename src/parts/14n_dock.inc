@@ -24,6 +24,9 @@ int dockEdgeOf(const std::string& s) { return s == "left" ? kDockLeft : s == "ri
 bool dockVertical(const DockState& D) { return D.pos == kDockLeft || D.pos == kDockRight; }
 int dockLW(const DockState& D) { return dockVertical(D) ? D.h : D.w; }
 int dockLH(const DockState& D) { return dockVertical(D) ? D.w : D.h; }
+// How far the pill travels to hide: just enough to be off the edge of the screen (the surface is much taller than the pill, so the whole
+// height made the slide a pop: only its last stretch was on screen).
+double dockSlideDist(const DockState& D) { return std::max(1.0, dockLH(D) - D.pill.y + 24); }
 cairo_matrix_t dockFrame(const DockState& D) {
     cairo_matrix_t m;
     switch (D.pos) {
@@ -54,7 +57,7 @@ Rect dockRectToPhys(const DockState& D, const Rect& r) {
 DockPt dockPointer(const App& app) { return dockToLogical(app.dock, app.pointerX, app.pointerY); }
 DockPt dockSlideOffset(const DockState& D) {
     const cairo_matrix_t m = dockFrame(D);
-    DockPt d{0, D.slide * dockLH(D)};
+    DockPt d{0, D.slide * dockSlideDist(D)};
     cairo_matrix_transform_distance(&m, &d.x, &d.y);
     return d;
 }
@@ -405,6 +408,20 @@ bool dockSpring(double& x, double& v, double target, double dt) {
     return std::abs(target - x) > 0.0005 || std::abs(v) > 0.002;
 }
 
+// The slide of the autohide: critically damped (no bounce) and never past either end.
+// Small steps: one big step from rest (dt = 1/30 with this stiffness) went straight past the target, which was the pop and the bounce.
+constexpr double kDockSlideStiffness = 520;
+bool dockSlideSpring(double& x, double& v, double target, double dt) {
+    const int n = std::max(1, static_cast<int>(std::ceil(dt / 0.004)));
+    const double h = dt / n, c = 2 * std::sqrt(kDockSlideStiffness);
+    for (int i = 0; i < n; i++) {
+        v += (kDockSlideStiffness * (target - x) - c * v) * h;
+        x += v * h;
+        if (x < 0 || x > 1) { x = std::clamp(x, 0.0, 1.0); v = 0; }
+    }
+    return std::abs(target - x) > 0.0005 || std::abs(v) > 0.002;
+}
+
 void dockStep(App& app, std::chrono::steady_clock::time_point now) {
     DockState& D = app.dock;
     if (!D.open()) return;
@@ -419,7 +436,7 @@ void dockStep(App& app, std::chrono::steady_clock::time_point now) {
             moving = true;
         }
     }
-    moving = dockSpring(D.slide, D.slideVel, D.slideTarget, dt) || moving;
+    moving = dockSlideSpring(D.slide, D.slideVel, D.slideTarget, dt) || moving;
     moving = dockGridTick(app, now) || moving;
     D.moving = moving;
     dockRedraw(app);

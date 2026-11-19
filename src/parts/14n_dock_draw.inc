@@ -160,7 +160,7 @@ void dockPaintTrack(cairo_t* cr, App& app, double x, double midY, double width) 
     g_object_unref(layout);
     DockState& D = app.dock;
     const DockPt lp = dockPointer(app);
-    const double bx = x + width + 8, by = midY - kDockCtlSize / 2, py = lp.y - D.slide * dockLH(D);
+    const double bx = x + width + 8, by = midY - kDockCtlSize / 2, py = lp.y - D.slide * dockSlideDist(D);
     D.mediaPlay = Rect{bx, by, kDockCtlSize, kDockCtlSize};
     D.mediaNext = Rect{bx + kDockCtlSize + kDockCtlGap, by, kDockCtlSize, kDockCtlSize};
     const bool playing = app.musicStatus == "Playing";
@@ -284,7 +284,7 @@ void dockPaint(App& app, cairo_t* cr) {
     cairo_save(cr);
     const cairo_matrix_t frame = dockFrame(D);
     cairo_transform(cr, &frame);
-    cairo_translate(cr, 0, D.slide * dockLH(D));
+    cairo_translate(cr, 0, D.slide * dockSlideDist(D));
     dockPaintPill(cr, app);
     dockPaintItems(cr, app);
     cairo_restore(cr);
@@ -309,7 +309,7 @@ void dockSetInput(App& app) {
     };
     const int LW = dockLW(D), LH = dockLH(D);
     add(Rect{0, static_cast<double>(LH - kDockStrip), static_cast<double>(LW), static_cast<double>(kDockStrip)});
-    const double dy = D.slide * LH, top = D.pill.y + dy;
+    const double dy = D.slide * dockSlideDist(D), top = D.pill.y + dy;
     const int pad = app.cfg.dockHug ? 22 : 6;
     if (top < LH) add(Rect{static_cast<double>(static_cast<int>(D.pill.x) - pad), static_cast<double>(static_cast<int>(top) - dockPopPx(app) - 6), static_cast<double>(static_cast<int>(D.pill.w) + 2 * pad), static_cast<double>(LH - static_cast<int>(top) + dockPopPx(app) + 6)});
     if (!D.menuRects.empty()) {
@@ -357,7 +357,7 @@ void dockRedraw(App& app) {
         cairo_save(m);
         const cairo_matrix_t frame = dockFrame(D);
         cairo_transform(m, &frame);
-        cairo_translate(m, 0, D.slide * dockLH(D));
+        cairo_translate(m, 0, D.slide * dockSlideDist(D));
         dockPillPath(m, app, D.pill);
         cairo_fill(m);
         cairo_restore(m);

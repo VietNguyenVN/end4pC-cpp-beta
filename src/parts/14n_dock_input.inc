@@ -56,6 +56,7 @@ void dockShow(App& app) {
     D.hideArmed = false;
     if (D.slideTarget < 0.5) return;
     D.slideTarget = 0;
+    if (!D.moving) D.lastStep = std::chrono::steady_clock::now();  // (the clock of the slide starts now, not at the last time something moved)
     dockRebuild(app);
 }
 
@@ -63,6 +64,7 @@ void dockHide(App& app) {
     DockState& D = app.dock;
     if (!app.cfg.dockAutoHide || app.onDock || D.menuOpen || D.gridOpen) return;
     D.slideTarget = 1;
+    if (!D.moving) D.lastStep = std::chrono::steady_clock::now();
     D.moving = true;
 }
 
@@ -189,7 +191,7 @@ void dockActivate(App& app, int idx) {
     }
     if (it.special == 2) {
         const DockPt lp = dockPointer(app);
-        const double py = lp.y - app.dock.slide * dockLH(app.dock);
+        const double py = lp.y - app.dock.slide * dockSlideDist(app.dock);
         const char* cmd = app.dock.mediaNext.contains(lp.x, py) ? "next" : "play-pause";
         mediaSend(app, {cmd});
         return;
