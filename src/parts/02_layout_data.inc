@@ -111,8 +111,8 @@ constexpr double kVizDot = 3, kVizGap = 3;
 struct ResItem { int kind; const char* label; const char* icon; double pct; int warn; };
 std::vector<ResItem> resItems(const App& app) {
     std::vector<ResItem> v;
-    if (app.cfg.resRam) v.push_back({0, "RAM", "server-square", app.res.ram, app.cfg.resWarnMem});
     if (app.cfg.resCpu) v.push_back({1, "CPU", "cpu", app.res.cpu, app.cfg.resWarnCpu});
+    if (app.cfg.resRam) v.push_back({0, "RAM", "server-square", app.res.ram, app.cfg.resWarnMem});
     if (app.cfg.resTemp) v.push_back({2, "TMP", "bonfire", app.res.temp, 100});
     if (app.cfg.resDisk) v.push_back({3, "DSK", "database", app.res.disk, 100});
     if (app.cfg.resSwap) v.push_back({4, "SWP", "transfer-horizontal", app.res.swap, app.cfg.resWarnSwap});
