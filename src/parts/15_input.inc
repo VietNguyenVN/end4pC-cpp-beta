@@ -118,6 +118,8 @@ void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, 
     app->onQr = app->qr.surface && surface == app->qr.surface;
     app->onConfirm = app->confirm.surface && surface == app->confirm.surface;
     app->onFq = app->fq.surface && surface == app->fq.surface;
+    app->onOv = app->ov.surface && surface == app->ov.surface;
+    if (app->onOv) ovPointerEntered(*app);
     app->onCf = app->cf.surface && surface == app->cf.surface;
     app->onGame = app->game.surface && surface == app->game.surface;
     app->onViz = app->dv.surface && surface == app->dv.surface;
@@ -215,6 +217,7 @@ void onPointerLeave(void* d, wl_pointer*, uint32_t, wl_surface*) {
     if (app->onQr) { app->onQr = false; app->qr.hover = -1; drawQrCard(*app); }
     if (app->onCf) { app->onCf = false; app->cf.hover = -1; drawConflicts(*app); }
     if (app->onFq) { app->onFq = false; app->fq.hover = -1; drawForceQuit(*app); }
+    if (app->onOv) { app->onOv = false; app->ov.hoverWs = 0; app->ov.hoverPlus = false; app->ov.dirty = true; }
     if (app->onConfirm) { app->onConfirm = false; app->confirm.hover = -1; drawConfirmCard(*app); }
     if (app->onGame && app->game.dragW < 0 && !app->game.volDrag) { app->onGame = false; app->game.hover = 0; drawGame(*app); }
     if (app->onOsk && !app->osk.dragging) { app->onOsk = false; app->osk.hover = -1; drawOsk(*app); }
@@ -354,6 +357,12 @@ void onPointerMotion(void* d, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y)
         cfMotion(*app);
         return;
     }
+    if (app->onOv) {
+        app->pointerX = wl_fixed_to_double(x);
+        app->pointerY = wl_fixed_to_double(y);
+        ovMotion(*app);
+        return;
+    }
     if (app->onFq) {
         app->pointerX = wl_fixed_to_double(x);
         app->pointerY = wl_fixed_to_double(y);
@@ -463,6 +472,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     if (app->onViz) { deskVizButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onGame) { gameButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onCf) { cfButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
+    if (app->onOv) { ovButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onFq) { fqButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onConfirm) { confirmButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onQr) { qrButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
@@ -599,6 +609,7 @@ void pointerAxisStep(App* app, bool down) {
         else if (app->hotCorner == 1) runDetached({"wpctl", "set-volume", "-l", volLimit(*app).c_str(), "@DEFAULT_AUDIO_SINK@", volStep(*app, value > 0).c_str()});
         return;
     }
+    if (app->onOv) { ovScroll(*app, down ? 1 : -1); return; }
     if (app->onFq) { fqScroll(*app, down ? 1 : -1); return; }
     if (app->onGame) { if (app->game.open[GwNotes] && g_gn.panel.contains(app->pointerX, app->pointerY)) gameNotesScroll(*app, value > 0 ? 1 : -1); return; }
     if (app->onAmenu) { audioMenuScroll(*app, value > 0 ? 1 : -1); return; }
@@ -739,6 +750,7 @@ void onKbKey(void* d, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t s
     if (app->cc.open() && app->cc.page != CcPageNone && ccRadioKey(*app, key)) return;
     if (key == kKeyEsc && app->sel.open() && !app->sel.confirmPath.empty()) { app->sel.confirmPath.clear(); selectorMotion(*app); drawSelector(*app); return; }
     if (app->ic.open() && g_icPowerMode) { islandPowerKey(*app, key); return; }
+    if (app->ov.surface && !app->launcher.open()) { ovKey(*app, key); return; }  // (an open launcher gets the keys)
     if (app->cf.surface) {
         if (key == kKeyEsc) { closeConflicts(*app); return; }
         if (key == kKeyEnter || key == kKeyKpEnter) { cfCloseThem(*app); return; }

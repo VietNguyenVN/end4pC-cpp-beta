@@ -342,6 +342,11 @@ struct Config {
     int doNotDisturb = 0;
     int notificationTimeout = 4000;
     int privacyAlways = 0, privacyMic = 1, privacyCam = 1, privacyScreen = 1;  // privacy indicators: show them even when idle; which of the three to watch
+    std::string overviewPosition = "top";  // the overview strip: top, bottom, left or right
+    std::string switcherStyle = "grid";   // Alt + Tab: "grid" of cards, or a "row" across the middle
+    int overviewLauncher = 0;            // the overview also opens the launcher (and closes with it)
+    int overviewLive = 1;                // the overview shows live windows (0: a box with the app icon)
+    std::string overviewIcon = "right";  // where the app icon sits on a window of the overview: left, center or right
     int conflictCheck = 1;  // 1: at the first start of a session, look for programs that conflict with the shell
     int notificationAppIcons = 0;  // 1: a notification without a picture shows its app's icon instead of a symbol
     std::string osdPosition = "right";
@@ -599,6 +604,7 @@ struct Switcher {
     int w = 0, h = 0;
     std::vector<SwitcherWin> wins;
     int sel = 0, hover = -1;
+    bool rowMode = false;  // the "row" style: one row of cards across the middle
     bool holdFlavour = false;
     bool sawHeld = false;
     std::string cacheDir;
@@ -1407,6 +1413,56 @@ struct FqState {  // the force quit card: the open windows to pick from
     int hover = -1, sel = -1, scroll = 0;  // hover: a row, or 100 cancel / 101 close / 102 force quit
     std::vector<FqWin> wins;
 };
+struct OverviewState;
+struct OvWin {  // a window of the overview and the live capture of it (ext-image-copy-capture)
+    std::string address, cls, title, handleId;
+    int ws = 0;
+    double x = 0, y = 0, w = 1, h = 1;  // where the window really is on its monitor
+    ext_image_copy_capture_session_v1* ses = nullptr;
+    ext_image_copy_capture_frame_v1* frame = nullptr;
+    wl_shm_pool* pool = nullptr;
+    wl_buffer* buf = nullptr;
+    void* map = nullptr;
+    size_t mapSize = 0;
+    int bw = 0, bh = 0, fails = 0, lastReason = -1;
+    long frames = 0;  // frames received
+    uint32_t fmt = 0;
+    cairo_surface_t* surf = nullptr;
+    bool sized = false, inFlight = false, hasFrame = false, dead = false, realloc = false;
+    bool fixed = false;  // floating or fullscreen: the gaps do not move it
+    std::chrono::steady_clock::time_point next{};
+    OverviewState* ov = nullptr;
+    struct App* app = nullptr;
+};
+struct OverviewState {  // the overview (SUPER + O): a strip with every workspace, live, on one edge of the screen; the real windows are pushed away from it
+    wl_surface* surface = nullptr;
+    zwlr_layer_surface_v1* layer = nullptr;
+    bool configured = false, dirty = false, gapsSet = false, hoverPlus = false;
+    int width = 0, height = 0, monId = 0;      // (the strip's surface)
+    int edge = 0;                              // 0 top, 1 bottom, 2 left, 3 right
+    double monW = 1, monH = 1, thick = 0, edgeReserved = 0;  // the monitor, how thick the strip is, and what the bar already takes on its edge
+    std::vector<std::unique_ptr<OvWin>> wins;
+    int sel = 1, extra = 0, hoverWs = 0;       // the workspace in use; workspaces added with +; the one under the pointer
+    double stripScroll = 0, monX = 0, monY = 0, dragX = 0, dragY = 0;
+    int pressWin = -1;                         // a window of a thumbnail under the pressed button; dragging: it is being carried
+    bool carrying = false;
+    double pressX = 0, pressY = 0;
+    int dragSeen = 0;                          // polls in a row with the cursor over the strip and no events: a window is being dragged over it
+    bool dragArmed = false;
+    std::string dragWin;                       // the window being dragged (the one in focus when it began)
+    double resv[4] = {0, 0, 0, 0};             // what the bar and the like reserve: left, top, right, bottom
+    int gapNow[4] = {5, 5, 5, 5};              // the gaps while the overview is open
+    int gapOrig[4] = {5, 5, 5, 5};             // gaps_out before the overview: top, right, bottom, left
+    std::chrono::steady_clock::time_point nextDraw{}, switchedAt{}, nextPoll{}, reloadAt{}, nextRefresh{};
+    bool closing = false;                      // sliding out; it goes when it is out
+    std::chrono::steady_clock::time_point openT0{}, closeT0{};
+    bool withLauncher = false;                 // opened together with the launcher: each closes the other
+    bool reloadAgain = false;                  // a second look a moment later: the windows resize after they move
+    struct Slot { wl_buffer* buf = nullptr; void* map = nullptr; bool busy = false; } slot[2];  // two buffers that take turns
+    size_t slotSize = 0;
+    int slotW = 0, slotH = 0;
+};
+struct FtHandle { ext_foreign_toplevel_handle_v1* h = nullptr; std::string id; };  // a toplevel the compositor lists (its id is hyprctl's stableId)
 struct ConfirmState {  // the Android-style card that asks before clearing the cache
     wl_surface* surface = nullptr;
     zwlr_layer_surface_v1* layer = nullptr;
@@ -1548,6 +1604,12 @@ struct App {
     int cursorShape = -1;
     zwlr_layer_shell_v1* layerShell = nullptr;
     ext_background_effect_manager_v1* bgEffectManager = nullptr;
+    ext_foreign_toplevel_list_v1* ftList = nullptr;
+    ext_foreign_toplevel_image_capture_source_manager_v1* ftSrcMgr = nullptr;
+    ext_image_copy_capture_manager_v1* copyCapMgr = nullptr;
+    std::vector<FtHandle> ftHandles;
+    OverviewState ov;
+    OverviewState swLive;  // the live captures of the window switcher (the same machinery as the overview)
     bool blurCapable = false;
     std::vector<std::unique_ptr<Bar>> bars;
     std::vector<std::pair<wl_output*, uint32_t>> pendingOutputs;
@@ -1690,7 +1752,7 @@ struct App {
     PrivacyBar privacy;
     DrivesMenu drivesMenu;
     bool onBtMenu = false;
-    bool onOsk = false, onQr = false, onConfirm = false, onFq = false, onCf = false, onDrives = false, onGame = false, onViz = false;
+    bool onOsk = false, onQr = false, onConfirm = false, onFq = false, onCf = false, onOv = false, onDrives = false, onGame = false, onViz = false;
     IslandCard ic;
     bool onIsland = false;
     int screenH = 0;

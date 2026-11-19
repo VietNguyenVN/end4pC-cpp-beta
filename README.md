@@ -77,7 +77,7 @@ cairo pango gdk-pixbuf2 librsvg
 libxkbcommon pam systemd-libs
 ```
 
-The build looks for the protocol XML files in `/usr/share/wayland-protocols` and `/usr/share/wlr-protocols`.
+The build looks for the protocol XML files in `/usr/share/wayland-protocols` and `/usr/share/wlr-protocols`. It needs `wayland-protocols` 1.37 or newer: the overview and the window switcher use `ext-image-copy-capture`.
 
 ### To run
 

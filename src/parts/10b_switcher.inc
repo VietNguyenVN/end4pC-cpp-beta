@@ -1,16 +1,54 @@
 
 constexpr int kSwCardW = 296, kSwThumbH = 150, kSwHead = 34, kSwPad = 12, kSwGap = 12, kSwPanelPad = 18, kSwRadius = 36;
 
+// The windows of the switcher are captured live (ext-image-copy-capture, the code of the overview); the grim picture is what shows until the first
+// frame arrives, or when a window cannot be captured.
+void ovCaptureStart(App& app, OvWin& w);
+void ovCaptureStop(OvWin& w);
+void ovRequestFrame(OvWin& w);
+constexpr int kSwLiveMs = 66;  // the switcher is redrawn whole each time: not faster than this
+
+void swLiveStop(App& app) {
+    for (auto& c : app.swLive.wins) ovCaptureStop(*c);
+    app.swLive.wins.clear();
+    app.swLive.dirty = false;
+}
+void swLiveStart(App& app, const std::vector<SwitcherWin>& wins) {
+    swLiveStop(app);
+    if (wmKind() != Wm::Hyprland) return;
+    OverviewState& L = app.swLive;
+    L.sel = 0;
+    for (size_t i = 0; i < wins.size() && i < 40; i++) {
+        auto c = std::make_unique<OvWin>();
+        c->address = wins[i].address;
+        c->handleId = wins[i].stable;
+        c->ws = 0;  // (= L.sel: asked at the live rate)
+        c->ov = &L;
+        c->app = &app;
+        L.wins.push_back(std::move(c));
+        ovCaptureStart(app, *L.wins.back());
+    }
+}
+// What a card shows: the live frame if there is one, else the grim picture.
+cairo_surface_t* swImage(const App& app, const SwitcherWin& w) {
+    for (const auto& c : app.swLive.wins)
+        if (c->address == w.address && c->hasFrame && c->surf) return c->surf;
+    return w.thumb;
+}
+
 std::string swCacheDir() { return homeDir() + "/.cache/end4pC/switcher"; }
 
 struct SwLayout {
     int cols = 1, rows = 1, visRows = 1, firstRow = 0;
+    bool row = false;           // the row style: one row, a window of it (firstCol, visCols) shown
+    int firstCol = 0, visCols = 1;
     double s = 1;
     double px = 0, py = 0, pw = 0, ph = 0;
     double cardH = 0;
-    bool visible(int i) const { const int r = i / cols; return r >= firstRow && r < firstRow + visRows; }
+    bool visible(int i) const { if (row) return i >= firstCol && i < firstCol + visCols; const int r = i / cols; return r >= firstRow && r < firstRow + visRows; }
     Rect card(int i) const {
         if (!visible(i)) return {0, 0, 0, 0};
+        if (row) return {px + s * (kSwPanelPad + (i - firstCol) * (kSwCardW + kSwGap)), py + s * kSwPanelPad, kSwCardW * s, cardH * s};
         return {px + s * (kSwPanelPad + (i % cols) * (kSwCardW + kSwGap)), py + s * (kSwPanelPad + (i / cols - firstRow) * (cardH + kSwGap)), kSwCardW * s, cardH * s};
     }
 };
@@ -18,6 +56,21 @@ SwLayout swLayout(const Switcher& S) {
     SwLayout l;
     const int n = std::max<int>(1, S.wins.size());
     l.cardH = kSwPad + kSwHead + 6 + kSwThumbH + kSwPad;
+    if (S.rowMode) {  // as many cards as fit in a wide rectangle in the middle; the row slides with the selection
+        const double availW = S.w * 0.8;
+        l.row = true;
+        l.cols = n;
+        l.rows = l.visRows = 1;
+        l.s = std::min(1.0, availW / (kSwCardW + 2 * kSwPanelPad));
+        l.visCols = std::clamp(static_cast<int>((availW / l.s - 2 * kSwPanelPad + kSwGap) / (kSwCardW + kSwGap)), 1, n);
+        l.s = std::clamp(availW / (l.visCols * kSwCardW + (l.visCols - 1) * kSwGap + 2 * kSwPanelPad), l.s, 1.3);  // (the cards grow a little to fill the rectangle)
+        l.firstCol = std::clamp(std::clamp(S.sel, 0, n - 1) - l.visCols / 2, 0, n - l.visCols);
+        l.pw = l.s * (l.visCols * kSwCardW + (l.visCols - 1) * kSwGap + 2 * kSwPanelPad);
+        l.ph = l.s * (l.cardH + 2 * kSwPanelPad);
+        l.px = (S.w - l.pw) / 2;
+        l.py = (S.h - l.ph) / 2;
+        return l;
+    }
     const double availW = S.w * 0.94, availH = S.h * 0.88, minScale = 0.55;
     double best = -1;
     for (int cols = 1; cols <= n; cols++) {
@@ -137,15 +190,15 @@ void drawSwitcher(App& app) {
         roundedRect(cr, bx, by, bw, bh, 16);
         setSource(cr, app.color(on ? "primary" : "surface_container_highest"), on ? 0.16 : 0.9);
         cairo_fill(cr);
-        if (w.thumb) {
-            const double iw = cairo_image_surface_get_width(w.thumb), ih = cairo_image_surface_get_height(w.thumb);
+        if (cairo_surface_t* img = swImage(app, w)) {
+            const double iw = cairo_image_surface_get_width(img), ih = cairo_image_surface_get_height(img);
             const double sc = std::min(bw / iw, bh / ih), dw = iw * sc, dh = ih * sc;
             cairo_save(cr);
             roundedRect(cr, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh, 12);
             cairo_clip(cr);
             cairo_translate(cr, bx + (bw - dw) / 2, by + (bh - dh) / 2);
             cairo_scale(cr, sc, sc);
-            cairo_set_source_surface(cr, w.thumb, 0, 0);
+            cairo_set_source_surface(cr, img, 0, 0);
             cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
             cairo_paint(cr);
             cairo_restore(cr);
@@ -189,6 +242,7 @@ void drawSwitcher(App& app) {
 void closeSwitcher(App& app) {
     Switcher& S = app.sw;
     if (!S.open()) return;
+    swLiveStop(app);
     if (S.layer) zwlr_layer_surface_v1_destroy(S.layer);
     releaseBlurSurface(S.blur);
     wl_surface_destroy(S.surface);
@@ -215,6 +269,9 @@ void tickSwitcher(App& app, std::chrono::steady_clock::time_point now) {
     if (!S.open() || !S.configured) return;
     bool moving = false;
     if (popTick(S.anim, now, moving)) { closeSwitcher(app); return; }
+    for (auto& c : app.swLive.wins)
+        if (!c->dead && c->sized && !c->inFlight && now >= c->next) ovRequestFrame(*c);
+    if (app.swLive.dirty && now >= app.swLive.nextDraw) { moving = true; app.swLive.dirty = false; app.swLive.nextDraw = now + std::chrono::milliseconds(kSwLiveMs); }
     if (moving) drawSwitcher(app);
 }
 std::chrono::steady_clock::time_point switcherWake(const App& app) {
@@ -287,7 +344,9 @@ void swStep(App& app, int dir, bool sticky) {
     S.wins = std::move(wins);
     S.sel = dir >= 0 ? (S.wins.size() > 1 ? 1 : 0) : static_cast<int>(S.wins.size()) - 1;
     S.holdFlavour = !sticky;
+    S.rowMode = app.cfg.switcherStyle == "row";
     S.openedAt = std::chrono::steady_clock::now();
+    swLiveStart(app, S.wins);
     S.cacheDir = swCacheDir();
     std::filesystem::remove_all(S.cacheDir);
     std::filesystem::create_directories(S.cacheDir);

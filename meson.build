@@ -22,10 +22,13 @@ cursor_xml = '/usr/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.
 tablet_xml = '/usr/share/wayland-protocols/stable/tablet/tablet-v2.xml'
 lock_xml = '/usr/share/wayland-protocols/staging/ext-session-lock/ext-session-lock-v1.xml'  # cursor-shape refers to its types
 idle_xml = '/usr/share/wayland-protocols/unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'
+ftl_xml = '/usr/share/wayland-protocols/staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml'  # the overview: live windows
+capsrc_xml = '/usr/share/wayland-protocols/staging/ext-image-capture-source/ext-image-capture-source-v1.xml'
+copycap_xml = '/usr/share/wayland-protocols/staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml'
 blur_xml = '/usr/share/wayland-protocols/staging/ext-background-effect/ext-background-effect-v1.xml'  # blur behind translucent shell surfaces (niri)
 
 generated = []
-foreach xml : [xdg_xml, layer_xml, cursor_xml, tablet_xml, lock_xml, idle_xml, blur_xml]
+foreach xml : [xdg_xml, layer_xml, cursor_xml, tablet_xml, lock_xml, idle_xml, blur_xml, ftl_xml, capsrc_xml, copycap_xml]
   name = fs.stem(xml)
   generated += custom_target(name + '-header',
     input: xml,

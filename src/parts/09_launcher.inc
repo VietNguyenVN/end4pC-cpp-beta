@@ -11,6 +11,18 @@ constexpr const char* kLaunNameFont = "Sans 11";
 constexpr const char* kLaunSmallFont = "Sans 9";
 
 void closeLauncher(App& app);
+void closeOverview(App& app);
+void openOverview(App& app);
+// With the overview strip at the top, the launcher sits below it.
+double launcherTopMargin(const App& app) {
+    const double normal = app.cfg.frame + (app.cfg.barPosition == "top" ? kBarHeight : 0) + 30 - kLaunPadTop;
+    return app.ov.surface && app.ov.edge == 0 ? std::max(normal, app.ov.thick + 18 - kLaunPadTop) : normal;
+}
+void launcherApplyMargin(App& app) {
+    if (!app.launcher.layer || !app.launcher.surface) return;
+    zwlr_layer_surface_v1_set_margin(app.launcher.layer, static_cast<int>(launcherTopMargin(app)), 0, 0, 0);
+    wl_surface_commit(app.launcher.surface);
+}
 void drawLauncher(App& app);
 void retractLauncher(App& app);
 
@@ -1321,6 +1333,7 @@ void closeLauncher(App& app) {
     L = Launcher{};
     app.onLauncher = false;
     app.repeatKey = 0;
+    if (app.ov.surface && app.ov.withLauncher) { app.ov.withLauncher = false; closeOverview(app); }  // (it came with the overview: it goes with it)
     updateCursor(app);
     malloc_trim(0);
 }
@@ -1350,10 +1363,11 @@ void openLauncher(App& app) {
     L.surface = wl_compositor_create_surface(app.compositor);
     L.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, L.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-launcher");
     zwlr_layer_surface_v1_set_anchor(L.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
-    zwlr_layer_surface_v1_set_margin(L.layer, app.cfg.frame + (app.cfg.barPosition == "top" ? kBarHeight : 0) + 30 - kLaunPadTop, 0, 0, 0);
+    zwlr_layer_surface_v1_set_margin(L.layer, static_cast<int>(launcherTopMargin(app)), 0, 0, 0);
     zwlr_layer_surface_v1_set_size(L.layer, kLaunW, kLaunH);
     zwlr_layer_surface_v1_set_exclusive_zone(L.layer, -1);
-    zwlr_layer_surface_v1_set_keyboard_interactivity(L.layer, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND);
+    // (with the overview open its strip may hold the keyboard: the launcher takes it for itself)
+    zwlr_layer_surface_v1_set_keyboard_interactivity(L.layer, app.ov.surface ? ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE : ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND);
     zwlr_layer_surface_v1_add_listener(L.layer, &kLauncherListener, &app);
     wl_surface_commit(L.surface);
 }
@@ -1367,9 +1381,14 @@ void retractLauncher(App& app) {
     L.btnHover = -1;
     drawLauncher(app);
 }
+// Opens the launcher; with "Include the launcher" on, the overview opens with it (it opens the launcher itself).
+void openLauncherOrOverview(App& app) {
+    if (app.cfg.overviewLauncher && wmKind() == Wm::Hyprland && !app.ov.surface && !app.launcher.open()) { openOverview(app); if (app.launcher.open()) return; }
+    openLauncher(app);
+}
 void toggleLauncher(App& app) {
     Launcher& L = app.launcher;
-    if (!L.open()) { openLauncher(app); return; }
+    if (!L.open()) { openLauncherOrOverview(app); return; }
     if (popIsOut(L.anim)) {
         popReverse(L.anim, std::chrono::steady_clock::now());
         drawLauncher(app);

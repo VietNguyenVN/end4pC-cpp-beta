@@ -49,6 +49,11 @@ hl.layer_rule({match = {namespace = "end4pC-clock"}, no_anim = true})
 hl.layer_rule({match = {namespace = "end4pC-clock"}, blur = true, xray = false, ignore_alpha = 0.35})
 
 -- Dock (the bottom pill): it slides itself when it auto-hides, so no Hyprland animation; the same blur as the bar's cards.
+-- Overview strip (SUPER + O): the dark band and the thumbnails are translucent, so what is behind (wallpaper, widgets) is blurred like the
+-- bar. No animation: the strip is drawn at once and the windows slide by themselves with the gap.
+hl.layer_rule({match = {namespace = "end4pC-overview"}, blur = true, xray = false, ignore_alpha = 0.2})
+hl.layer_rule({match = {namespace = "end4pC-overview"}, no_anim = true})
+
 hl.layer_rule({match = {namespace = "end4pC-dock"}, no_anim = true})
 hl.layer_rule({match = {namespace = "end4pC-dock"}, blur = true, xray = false, ignore_alpha = 0.35})
 

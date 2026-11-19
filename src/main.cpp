@@ -75,6 +75,9 @@
 #include "cursor-shape-v1-client-protocol.h"
 #include "idle-inhibit-unstable-v1-client-protocol.h"
 #include "ext-background-effect-v1-client-protocol.h"
+#include "ext-foreign-toplevel-list-v1-client-protocol.h"
+#include "ext-image-capture-source-v1-client-protocol.h"
+#include "ext-image-copy-capture-v1-client-protocol.h"
 #include "notify_dbus.h"
 #include "polkit_dbus.h"
 #include "tray_dbus.h"
@@ -150,6 +153,7 @@ namespace {
 #include "parts/14wc_confirm_card.inc"
 #include "parts/14wf_forcequit.inc"
 #include "parts/14wg_conflicts.inc"
+#include "parts/14wh_overview.inc"
 #include "parts/14x_drives.inc"
 #include "parts/14xa_privacy.inc"
 #include "parts/14y_game_overlay.inc"
@@ -356,6 +360,7 @@ int main(int argc, char** argv) {
     }
     wl_display_roundtrip(app.display);
     app.ready = true;
+    if (wmKind() == Wm::Hyprland) ovRecoverGaps();  // (the shell may have ended with the overview open: its gaps go back)
     app.conflictCheckAt = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     startNotifications(app);
     startPolkit(app);
@@ -636,6 +641,7 @@ int main(int argc, char** argv) {
             if (C.ticking) { drawControlCenter(app); timeoutMs = 33; }
         }
         if (app.sw.open() && swPoll(app)) timeoutMs = timeoutMs < 0 ? 30 : std::min(timeoutMs, 30);
+        if (app.sw.open() && !app.swLive.wins.empty()) timeoutMs = timeoutMs < 0 ? 16 : std::min(timeoutMs, 16);
         if (app.cap.open() && app.cap.configured && app.cap.bubbleMoving) { captureRedraw(app); timeoutMs = 16; }
         if (app.sel.open() && app.sel.configured && app.sel.bubbleMoving) { drawSelector(app); timeoutMs = 16; }
         if (app.sel.open() && app.sel.configured && !app.sel.msgShown.empty()) {
@@ -686,6 +692,7 @@ int main(int argc, char** argv) {
         if (const auto tw = timersWake(app); tw != std::chrono::steady_clock::time_point::max()) wakeIn(tw);
         if (const auto iw = islandCardWake(app); iw != std::chrono::steady_clock::time_point::max()) wakeIn(iw);
         if (const auto gw = gameWake(app); gw != std::chrono::steady_clock::time_point::max()) wakeIn(gw);
+        if (const auto ow = ovWake(app); ow != std::chrono::steady_clock::time_point::max()) wakeIn(ow);
         if (const auto pw = privacyWake(app); pw != std::chrono::steady_clock::time_point::max()) wakeIn(pw);
         if (const auto vw = drivesWake(app); vw != std::chrono::steady_clock::time_point::max()) wakeIn(vw);
         if (const auto bw = btWake(app); bw != std::chrono::steady_clock::time_point::max()) wakeIn(bw);
@@ -891,6 +898,7 @@ int main(int argc, char** argv) {
             btTick(app, now);
             drivesTick(app, now);
             privacyTick(app, now);
+            ovTick(app, now);
             tickGame(app, now);
             if (app.launcher.sliding) { if (app.launcher.open()) drawLauncher(app); else app.launcher.sliding = false; }
             if (app.repeatKey && now >= app.repeatAt) {

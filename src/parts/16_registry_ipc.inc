@@ -21,6 +21,27 @@ const wl_output_listener kOutputListener = {
 void onBlurCapabilities(void* d, ext_background_effect_manager_v1*, uint32_t flags) {
     static_cast<App*>(d)->blurCapable = (flags & EXT_BACKGROUND_EFFECT_MANAGER_V1_CAPABILITY_BLUR) != 0;
 }
+// The toplevels the compositor lists, with their ids: the overview needs them to capture a window.
+void onFtHandleClosed(void* d, ext_foreign_toplevel_handle_v1* h) {
+    auto* app = static_cast<App*>(d);
+    app->ftHandles.erase(std::remove_if(app->ftHandles.begin(), app->ftHandles.end(), [&](const FtHandle& f) { return f.h == h; }), app->ftHandles.end());
+    ext_foreign_toplevel_handle_v1_destroy(h);
+}
+void onFtHandleDone(void*, ext_foreign_toplevel_handle_v1*) {}
+void onFtHandleText(void*, ext_foreign_toplevel_handle_v1*, const char*) {}
+void onFtHandleId(void* d, ext_foreign_toplevel_handle_v1* h, const char* id) {
+    for (FtHandle& f : static_cast<App*>(d)->ftHandles)
+        if (f.h == h) f.id = id;
+}
+const ext_foreign_toplevel_handle_v1_listener kFtHandleListener = {onFtHandleClosed, onFtHandleDone, onFtHandleText, onFtHandleText, onFtHandleId};
+void onFtToplevel(void* d, ext_foreign_toplevel_list_v1*, ext_foreign_toplevel_handle_v1* h) {
+    auto* app = static_cast<App*>(d);
+    app->ftHandles.push_back({h, ""});
+    ext_foreign_toplevel_handle_v1_add_listener(h, &kFtHandleListener, app);
+}
+void onFtFinished(void*, ext_foreign_toplevel_list_v1*) {}
+const ext_foreign_toplevel_list_v1_listener kFtListListener = {onFtToplevel, onFtFinished};
+
 const ext_background_effect_manager_v1_listener kBlurManagerListener = {onBlurCapabilities};
 
 void onGlobal(void* d, wl_registry* registry, uint32_t name, const char* interface, uint32_t version) {
@@ -41,6 +62,13 @@ void onGlobal(void* d, wl_registry* registry, uint32_t name, const char* interfa
         app->bgEffectManager = static_cast<ext_background_effect_manager_v1*>(
             wl_registry_bind(registry, name, &ext_background_effect_manager_v1_interface, std::min(version, 1u)));
         ext_background_effect_manager_v1_add_listener(app->bgEffectManager, &kBlurManagerListener, app);
+    } else if (std::strcmp(interface, ext_foreign_toplevel_list_v1_interface.name) == 0) {
+        app->ftList = static_cast<ext_foreign_toplevel_list_v1*>(wl_registry_bind(registry, name, &ext_foreign_toplevel_list_v1_interface, 1));
+        ext_foreign_toplevel_list_v1_add_listener(app->ftList, &kFtListListener, app);
+    } else if (std::strcmp(interface, ext_foreign_toplevel_image_capture_source_manager_v1_interface.name) == 0) {
+        app->ftSrcMgr = static_cast<ext_foreign_toplevel_image_capture_source_manager_v1*>(wl_registry_bind(registry, name, &ext_foreign_toplevel_image_capture_source_manager_v1_interface, 1));
+    } else if (std::strcmp(interface, ext_image_copy_capture_manager_v1_interface.name) == 0) {
+        app->copyCapMgr = static_cast<ext_image_copy_capture_manager_v1*>(wl_registry_bind(registry, name, &ext_image_copy_capture_manager_v1_interface, 1));
     } else if (std::strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
         app->layerShell = static_cast<zwlr_layer_shell_v1*>(
             wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, std::min(version, 4u)));
@@ -217,10 +245,10 @@ void handleClient(App& app, int listenFd) {
     }
     else if (cmd == "launcher" || cmd.rfind("launcher ", 0) == 0) {
         const std::string a = cmd.size() > 9 ? cmd.substr(9) : "toggle";
-        if (a == "open") openLauncher(app);
+        if (a == "open") openLauncherOrOverview(app);
         else if (a == "close") retractLauncher(app);
         else if (a.rfind("query ", 0) == 0) {
-            openLauncher(app);
+            openLauncherOrOverview(app);
             app.launcher.text = a.substr(6);
             app.launcher.cursor = app.launcher.anchor = app.launcher.text.size();
             updateLauncherResults(app);
@@ -230,7 +258,7 @@ void handleClient(App& app, int listenFd) {
             Launcher& L = app.launcher;
             if (L.open() && !popIsOut(L.anim) && !L.text.empty() && L.text[0] == pfx) retractLauncher(app);
             else {
-                openLauncher(app);
+                openLauncherOrOverview(app);
                 L.text = std::string(1, pfx);
                 L.cursor = L.anchor = L.text.size();
                 launcherTextChanged(app);
@@ -357,7 +385,15 @@ void handleClient(App& app, int listenFd) {
         else if (a == "open") swStep(app, 1, true);
         else if (a == "commit") swCommit(app);
         else if (a == "close") retractSwitcher(app);
-        reply = app.sw.open() && !popIsOut(app.sw.anim) ? "open" : "closed";
+        else if (a == "status") {  // how many of the windows are captured and how many frames came (for a test)
+            long frames = 0;
+            int live = 0;
+            for (const auto& c : app.swLive.wins) { frames += c->frames; live += c->hasFrame ? 1 : 0; }
+            const SwLayout l = swLayout(app.sw);
+            reply = "panel=" + std::to_string(static_cast<int>(l.px)) + "," + std::to_string(static_cast<int>(l.py)) + " " + std::to_string(static_cast<int>(l.pw)) + "x" + std::to_string(static_cast<int>(l.ph)) + " cols=" + std::to_string(l.cols) + " visCols=" + std::to_string(l.visCols) + " row=" + (l.row ? "y" : "n") + " ";
+            reply += "windows=" + std::to_string(app.swLive.wins.size()) + " live=" + std::to_string(live) + " frames=" + std::to_string(frames) + " ";
+        }
+        reply += app.sw.open() && !popIsOut(app.sw.anim) ? "open" : "closed";
     }
     else if (cmd == "power" || cmd.rfind("power ", 0) == 0) {
         const std::string a = cmd.size() > 6 ? cmd.substr(6) : "toggle";
@@ -396,6 +432,13 @@ void handleClient(App& app, int listenFd) {
         reply = app.osk.surface ? "open" : "closed";
     }
     else if (cmd.rfind("qr ", 0) == 0) { openQrCard(app, cmd.substr(3)); reply = app.qr.surface ? "open" : "failed"; }
+    else if (cmd == "overview status") {
+        reply = "hoverPlus=" + std::string(app.ov.hoverPlus ? "y" : "n") + " hoverWs=" + std::to_string(app.ov.hoverWs) + " seen=" + std::to_string(app.ov.dragSeen) + " armed=" + (app.ov.dragArmed ? "y" : "n") + " onOv=" + (app.onOv ? "y" : "n") + " win=" + app.ov.dragWin + " drag=" + std::to_string(static_cast<int>(app.ov.dragX)) + "," + std::to_string(static_cast<int>(app.ov.dragY)) + " ptr=" + std::to_string(static_cast<int>(app.pointerX)) + "," + std::to_string(static_cast<int>(app.pointerY)) + "\n" + "handles=" + std::to_string(app.ftHandles.size()) + " src=" + (app.ftSrcMgr ? "y" : "n") + " cap=" + (app.copyCapMgr ? "y" : "n") + "\n";
+        for (const auto& w : app.ov.wins) reply += "win id=" + w->handleId + " ses=" + (w->ses ? "y" : "n") + " sized=" + (w->sized ? "y" : "n") + " dead=" + (w->dead ? "y" : "n") + " frame=" + (w->hasFrame ? "y" : "n") + " fails=" + std::to_string(w->fails) + " reason=" + std::to_string(w->lastReason) + " buf=" + std::to_string(w->bw) + "x" + std::to_string(w->bh) + " fmt=" + std::to_string(w->fmt) + "\n";
+        for (const FtHandle& f : app.ftHandles) reply += "  handle " + f.id + "\n";
+    }
+    else if (cmd == "overview close") { closeOverview(app); reply = "closed"; }
+    else if (cmd == "overview") { openOverview(app); reply = app.ov.surface && !app.ov.closing ? "open" : "closed"; }
     else if (cmd.rfind("privacy", 0) == 0) {  // privacy [mic|cam|screen ...|off]: preview the indicators by hand (no argument: the state now)
         PrivacyBar& P = app.privacy;
         std::string arg = cmd.size() > 8 ? cmd.substr(8) : "";
@@ -552,6 +595,8 @@ bool readWmEvents(App& app, int fd, std::string& pending) {
         wmClassifyEvent(line, ev);
     }
     if (ev.workspace > 0 && ev.workspace != app.workspace) { app.workspace = ev.workspace; changed = true; }
+    if (app.ov.surface && changed) ovWorkspaceChanged(app);
+    if (app.ov.surface && (ev.occupied || ev.window)) ovSoon(app);
     if (ev.covered && app.dv.surface) deskVizCheckCovered(app);
     if (ev.reread) {
         const int id = wmActiveWorkspace();

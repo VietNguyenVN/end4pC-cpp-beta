@@ -180,7 +180,7 @@ std::string jsonString(const std::string& text, const std::string& key, const st
 }
 constexpr const char* kCollageDefaultTree = R"({"t":"leaf","id":1,"img":""})";
 
-enum Kind { Toggle, Choice, Slider, Text, Info, Action, Webapp, Chip, Widgets, Gallery, Accent, Swatch, Split, Scheme, WCards, ThemeCards, CollageLayout, IconStyle, PresetCards, DisplayMap };
+enum Kind { Toggle, Choice, Slider, Text, Info, Action, Webapp, Chip, Widgets, Gallery, Accent, Swatch, Split, Scheme, WCards, ThemeCards, CollageLayout, IconStyle, PresetCards, DisplayMap, StyleCards };
 std::vector<std::pair<std::string, std::string>> cwpShapeOpts();
 using Opts = std::vector<std::pair<std::string, std::string>>;
 
@@ -363,7 +363,7 @@ std::vector<Row> niriRows() {
 std::vector<Page> makePages() {
     std::vector<Page> p;
     p.push_back({"Appearance", "palette", {
-        {Choice, "colorMode", "Color mode", "Light or dark colors for the whole shell.", {{"dark", "Dark"}, {"light", "Light"}}},
+        {StyleCards, "colorMode", "Color mode", "Light or dark colors for the whole shell.", {{"dark", "Dark"}, {"light", "Light"}}},
         {Scheme, "colorScheme", "Color scheme", "How colors are generated from the wallpaper.",
          {{"scheme-tonal-spot", "Tonal Spot"}, {"scheme-neutral", "Neutral"}, {"scheme-content", "Content"}, {"scheme-expressive", "Expressive"},
           {"scheme-fidelity", "Fidelity"}, {"scheme-fruit-salad", "Fruit Salad"}, {"scheme-monochrome", "Monochrome"},
@@ -486,6 +486,11 @@ std::vector<Page> makePages() {
         {Text, "dockPinned", "Pinned apps", "Desktop ids or window classes, separated by commas. You can also pin from the right click menu of an icon. Type - for none."},
         {Choice, "osdPosition", "OSD position", "Where the volume and brightness bar appears.", {{"right", "Right"}, {"left", "Left"}, {"top", "Top"}, {"bottom", "Bottom"}}},
         {Slider, "osdTimeout", "OSD time", "How long the volume and brightness bar stays on screen.", {}, 500, 6000, 250, "ms"},
+        {Toggle, "overviewLive", "Live windows", "The overview shows the windows moving, as they are. Off: a box with the app icon instead, which is lighter.", {}},
+        {Toggle, "overviewLauncher", "Include the launcher", "Opening the overview also opens the launcher, a little lower so it does not cover the strip when this is at the top. Closing one closes the other.", {}},
+        {Choice, "overviewPosition", "Strip position", "The edge of the screen where the overview shows every workspace, live.", {{"top", "Top"}, {"bottom", "Bottom"}, {"left", "Left"}, {"right", "Right"}}},
+        {Choice, "overviewIcon", "App icon position", "Where the app icon sits on every window of the overview.", {{"left", "Left"}, {"center", "Center"}, {"right", "Right"}}},
+        {StyleCards, "switcherStyle", "Window switcher", "How Alt + Tab shows the windows: cards in a grid, or in a row across the middle of the screen.", {{"grid", "Grid"}, {"row", "Row"}}},
         {Choice, "magnifier", "Screen magnifier", "Zoom the whole screen around the pointer. SUPER + = and SUPER + - do the same, one step at a time. It needs Hyprland.", {{"1.0", "Off"}, {"1.3", "1.3x"}, {"1.6", "1.6x"}, {"1.9", "1.9x"}, {"2.2", "2.2x"}, {"2.5", "2.5x"}, {"3.0", "3x"}}},
         {Slider, "sys:cursorSize", "Cursor size", "Make the mouse pointer bigger. It is the same setting as System > Cursor. Applies when you let go of the slider.", {}, 16, 64, 4, "px"},
         {Action, "oskToggle", "On-screen keyboard", "A keyboard on the screen that does not take the focus from the app you type into. Drag it by its top bar. It needs wtype.", {}, 0, 100, 1, "Show or hide"},
@@ -635,7 +640,7 @@ std::vector<Page> makePages() {
         else if (pg.name == "Niri") sections(pg, {{"niri:gaps", "Layout"}, {"niri:radius", "Windows"}, {"niri:follow", "Behavior"}, {"niri:repeatDelay", "Input"}, {"niriReset", "Reset"}});
         else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}, {"deskVizStyle", "Visualizer"}, {"customTextFont", "Text"}});
         else if (pg.name == "System") sections(pg, {{"sys:cursor", "Cursor"}, {"sys:icons", "Icons"}, {"sys:font", "Fonts"}, {"sys:app:browser", "Default Apps"}, {"screenshotDir", "Capture"}, {"doNotDisturb", "Notifications"}, {"periphSummary", "Devices"}});
-        else if (pg.name == "Interface") sections(pg, {{"animEnabled", "Animations"}, {"hotCorners", "Hot Corners"}, {"lockOnStart", "Lock screen"}, {"dock", "Dock"}, {"osdPosition", "OSD"}, {"magnifier", "Accessibility"}});
+        else if (pg.name == "Interface") sections(pg, {{"animEnabled", "Animations"}, {"hotCorners", "Hot Corners"}, {"lockOnStart", "Lock screen"}, {"dock", "Dock"}, {"osdPosition", "OSD"}, {"overviewLive", "Overview"}, {"switcherStyle", "Window switcher"}, {"magnifier", "Accessibility"}});
         else if (pg.name == "Services") sections(pg, {{"weatherUnit", "Weather"}, {"updatesEnable", "Updates"}, {"lyricsProvider", "Lyrics"}, {"webappAdd", "Webapps"}, {"searchEngine", "Search"}});
         if (pg.name == "System")
             for (auto& r : pg.rows) if (r.key.compare(0, 8, "sys:app:") == 0) r.splitW = 280;
@@ -808,7 +813,7 @@ bool loadWidgetStates() {
 
 void loadConfig() {
     const std::string t = readFile(configPath());
-    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"privacyMic", "1"}, {"privacyCam", "1"}, {"privacyScreen", "1"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"fontWeightText", "450"}, {"fontWeightTitle", "550"}, {"launcherFiles", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"notificationAppIcons", "0"}, {"conflictCheck", "1"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
+    for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"overviewLive", "1"}, {"switcherStyle", "grid"}, {"overviewLauncher", "0"}, {"overviewIcon", "right"}, {"overviewPosition", "top"}, {"privacyMic", "1"}, {"privacyCam", "1"}, {"privacyScreen", "1"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"fontWeightText", "450"}, {"fontWeightTitle", "550"}, {"launcherFiles", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"notificationAppIcons", "0"}, {"conflictCheck", "1"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
         g.val.insert(d);
     if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
     g.val.insert({"lyricsProvider", "auto"});
@@ -1648,6 +1653,82 @@ void icon(cairo_t* cr, const std::string& name, double x, double y, int size, co
 
 void shapePath(cairo_t* cr, const std::string& name, double x, double y, double size);
 
+void rgbToHsl(const Color& c, double& h, double& s, double& l) {
+    const double mx = std::max({c.r, c.g, c.b}), mn = std::min({c.r, c.g, c.b}), d = mx - mn;
+    l = (mx + mn) / 2;
+    s = d < 1e-9 ? 0 : d / (1 - std::fabs(2 * l - 1));
+    if (d < 1e-9) h = 0;
+    else if (mx == c.r) h = std::fmod((c.g - c.b) / d + 6, 6);
+    else if (mx == c.g) h = (c.b - c.r) / d + 2;
+    else h = (c.r - c.g) / d + 4;
+    h /= 6;
+}
+Color hslToRgb(double h, double s, double l) {
+    const double q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    auto f = [&](double t) {
+        t = t - std::floor(t);
+        if (t < 1.0 / 6) return p + (q - p) * 6 * t;
+        if (t < 0.5) return q;
+        if (t < 2.0 / 3) return p + (q - p) * (2.0 / 3 - t) * 6;
+        return p;
+    };
+    return {f(h + 1.0 / 3), f(h), f(h - 1.0 / 3)};
+}
+
+// The small fake picture of a style card: a window in the dark or light colors, or the shape of the window switcher.
+void drawStyleMock(cairo_t* cr, const std::string& key, const std::string& value, double x, double y, double w, double h) {
+    const Color prim = g.color("primary"), onS = g.color("on_surface");
+    auto bar = [&](double bx, double by, double bw, double bh, const Color& c, double a) { rrect(cr, bx, by, bw, bh, bh / 2); src(cr, c, a); cairo_fill(cr); };
+    cairo_save(cr);
+    if (key == "colorMode") {
+        const bool dark = value == "dark";
+        // The mode in use shows the real palette; the other one is the same palette (the same hues) turned light or dark.
+        const bool inUse = value == g.val["colorMode"];
+        Color bg = g.color("background"), side = g.color("surface_container"), ink = g.color("on_surface"), acc = prim;
+        if (!inUse) {
+            double hb, sb, lb, hp, sp, lp;
+            rgbToHsl(bg, hb, sb, lb);
+            rgbToHsl(prim, hp, sp, lp);
+            sb = std::max(sb, 0.06);
+            bg = hslToRgb(hb, sb, dark ? 0.08 : 0.975);
+            side = hslToRgb(hb, sb, dark ? 0.14 : 0.92);
+            ink = hslToRgb(hb, sb * 0.6, dark ? 0.90 : 0.12);
+            acc = hslToRgb(hp, sp, dark ? 0.78 : 0.40);
+        }
+        rrect(cr, x, y, w, h, 10); src(cr, bg); cairo_fill(cr);
+        cairo_save(cr);
+        rrect(cr, x, y, w, h, 10); cairo_clip(cr);
+        cairo_rectangle(cr, x, y, w * 0.3, h); src(cr, side); cairo_fill(cr);
+        cairo_restore(cr);
+        for (int k = 0; k < 3; k++) { cairo_new_sub_path(cr); cairo_arc(cr, x + 8 + k * 7, y + 7, 2.2, 0, 2 * M_PI); src(cr, ink, 0.45); cairo_fill(cr); }
+        bar(x + w * 0.38, y + h * 0.28, w * 0.45, 5, ink, 0.8);
+        bar(x + w * 0.38, y + h * 0.28 + 11, w * 0.3, 5, ink, 0.4);
+        bar(x + w * 0.38, y + h - 18, w * 0.28, 10, acc, 1);
+        bar(x + w * 0.06, y + h * 0.36, w * 0.18, 5, ink, 0.5);
+        bar(x + w * 0.06, y + h * 0.36 + 11, w * 0.14, 5, ink, 0.3);
+    } else {  // the window switcher: a panel of fake cards over a dimmed screen
+        rrect(cr, x, y, w, h, 10); src(cr, g.color("surface_container_lowest")); cairo_fill(cr);
+        const bool row = value == "row";
+        auto card = [&](double cx, double cy, double cw, double ch, bool on) {
+            rrect(cr, cx, cy, cw, ch, 4); src(cr, on ? mix(prim, g.color("surface_container_high"), 0.3) : g.color("surface_container_high")); cairo_fill(cr);
+            bar(cx + 3, cy + 3, cw * 0.5, 2.5, onS, 0.7);
+            rrect(cr, cx + 3, cy + 8, cw - 6, ch - 11, 2); src(cr, g.color("surface_container_highest")); cairo_fill(cr);
+        };
+        if (row) {
+            const double pw = w * 0.9, ph = h * 0.58, px = x + (w - pw) / 2, py = y + (h - ph) / 2;
+            rrect(cr, px, py, pw, ph, 6); src(cr, g.color("surface_container")); cairo_fill(cr);
+            const double cw = (pw - 8 - 3 * 4) / 4;
+            for (int k = 0; k < 4; k++) card(px + 4 + k * (cw + 4), py + 4, cw, ph - 8, k == 1);
+        } else {
+            const double pw = w * 0.5, ph = h * 0.86, px = x + (w - pw) / 2, py = y + (h - ph) / 2;
+            rrect(cr, px, py, pw, ph, 6); src(cr, g.color("surface_container")); cairo_fill(cr);
+            const double cw = (pw - 8 - 4) / 2, ch = (ph - 8 - 4) / 2;
+            for (int k = 0; k < 4; k++) card(px + 4 + (k % 2) * (cw + 4), py + 4 + (k / 2) * (ch + 4), cw, ch, k == 1);
+        }
+    }
+    cairo_restore(cr);
+}
+
 void drawWidgetPreview(cairo_t* cr, const std::string& id, double x, double y, double w, double h) {
     auto bar = [&](double bx, double by, double bw, double bh, const Color& c, double a) { rrect(cr, bx, by, bw, bh, bh / 2); src(cr, c, a); cairo_fill(cr); };
     auto disc = [&](double cx, double cy, double r, const Color& c, double a) { cairo_new_sub_path(cr); cairo_arc(cr, cx, cy, r, 0, 2 * M_PI); src(cr, c, a); cairo_fill(cr); };
@@ -2443,6 +2524,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "workspaceApps") return moduleUsed("workspaces") && g.val["workspaceStyle"] != "gnome" && g.val["workspaceStyle"] != "bar";
     if (r.key == "trayPinDefault" || r.key == "trayTint") return moduleUsed("systray");
     if (r.key == "networkAlways" || r.key == "networkSpeed") return moduleUsed("network");
+    if (r.key == "overviewLive" || r.key == "overviewLauncher" || r.key == "overviewIcon" || r.key == "overviewPosition") return compositorName() == "Hyprland";
     if (r.key.compare(0, 7, "privacy") == 0) return moduleUsed("privacy");
     if (r.key.compare(0, 6, "quick:") == 0) return moduleUsed("quickactions");
     if (r.key == "resStyle") {  // the full list, or without Bars in the group styles
@@ -2973,6 +3055,12 @@ Layout layoutPage(int pi) {
                 x += cwid + 8;
             }
             ch = ly + 40;
+        } else if (r.kind == StyleCards) {  // small fake cards that share the width of the control
+            const double gap = 10;
+            const int n = std::max<int>(1, r.opts.size());
+            const double cwid = std::min(190.0, (ctrlW - (n - 1) * gap) / n), chh = std::round(cwid * 0.56) + 30;
+            for (int o = 0; o < n; o++) chips.push_back({o * (cwid + gap), 0, cwid, chh});
+            ch = chh;
         } else if (r.kind == IconStyle) {
             const double cwid = (ctrlW - 8) / 2;
             for (size_t o = 0; o < r.opts.size(); o++) chips.push_back({(o % 2) * (cwid + 8), (o / 2) * (74.0 + 8), cwid, 74});
@@ -3632,6 +3720,26 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
                 text(cr, r.opts[o].second, c.x + (c.w - tw) / 2, c.y + (c.h - h2) / 2, 14, false, ink);
                 g_face.clear();
             }
+        } else if (r.kind == StyleCards) {
+            const std::string cur = valStr(r);
+            for (size_t o = 0; o < r.opts.size(); o++) {
+                Rect c = rl.chips[o];
+                const bool active = r.opts[o].first == cur;
+                bool hot = false;
+                if (live) {
+                    g.hits.push_back({c, static_cast<int>(i), static_cast<int>(o), StyleCards});
+                    hot = g.hoverHit == static_cast<int>(g.hits.size()) - 1;
+                }
+                c.y += oy;
+                rrect(cr, c.x, c.y, c.w, c.h, 16);
+                src(cr, active ? mix(g.color("secondary_container"), chip, 0.55) : hot ? mix(primary, chip, 0.12) : chip);
+                cairo_fill(cr);
+                if (active) { rrect(cr, c.x + 1, c.y + 1, c.w - 2, c.h - 2, 15); src(cr, primary); cairo_set_line_width(cr, 2); cairo_stroke(cr); }
+                drawStyleMock(cr, r.key, r.opts[o].first, c.x + 8, c.y + 8, c.w - 16, c.h - 38);
+                double tw = 0, h2 = 0;
+                measure(r.opts[o].second, 13, active, 0, tw, h2);
+                text(cr, r.opts[o].second, c.x + (c.w - tw) / 2, c.y + c.h - 15 - h2 / 2, 13, active, onSurface);
+            }
         } else if (r.kind == Split) {
             const bool open = g_splitOpen == r.key;
             const std::string cur = valStr(r);
@@ -4118,7 +4226,7 @@ void searchGo(int index) {
     if (index < 0 || index >= static_cast<int>(g_searchHits.size())) return;
     const SearchHit h = g_searchHits[index];
     searchClose();
-    if (h.secIdx >= 0) g.secSel[h.page] = h.secIdx;
+    if (h.secIdx >= 0) { g.secSel[h.page] = h.secIdx; savePage(); }
     if (h.page != g.page) switchPage(h.page);
     else { g.secAnim.snap(chipIndex(h.page)); g_splitOpen.clear(); }
     const Layout L = layoutPage(h.page);
@@ -4770,6 +4878,7 @@ void click() {
             g.secPrevScroll = g.scroll;
         }
         g.secSel[g.page] = h.opt;
+        savePage();
         g.scroll = 0;
     g_scrollEl.over = 0;
         g.hoverHit = -1;
@@ -4873,7 +4982,7 @@ void click() {
     const Row& r = g.pages[g.page].rows[h.row];
     if (h.kind != Text && g.focusRow >= 0) commitText();
     if (h.kind == Toggle) sendSet(r.key, valInt(r) ? "0" : "1");
-    else if (h.kind == Choice || h.kind == Scheme || h.kind == IconStyle) sendSet(r.key, r.opts[h.opt].first);
+    else if (h.kind == Choice || h.kind == Scheme || h.kind == IconStyle || h.kind == StyleCards) sendSet(r.key, r.opts[h.opt].first);
     else if (h.kind == Slider) { g.dragHit = g.hoverHit; setSliderFrom(g.dragHit, false); }
     else if (h.kind == Action) {
         if (r.key == "avatarReset") sendSet("avatarPicture", "");
@@ -5179,8 +5288,13 @@ void onGlobal(void*, wl_registry* reg, uint32_t name, const char* iface, uint32_
 void onGlobalRemove(void*, wl_registry*, uint32_t) {}
 const wl_registry_listener kRegistryListener = {onGlobal, onGlobalRemove};
 
-void savePage() {
-    if (FILE* f = std::fopen(pageFile().c_str(), "w")) { std::fprintf(f, "%d\n", g.page); std::fclose(f); }
+void savePage() {  // the page, then the chip each page was on
+    if (FILE* f = std::fopen(pageFile().c_str(), "w")) {
+        std::fprintf(f, "%d\n", g.page);
+        for (int c : g.secSel) std::fprintf(f, "%d ", c);
+        std::fprintf(f, "\n");
+        std::fclose(f);
+    }
 }
 }
 
@@ -5189,9 +5303,11 @@ int main() {
         const int lock = open((runtimeDir() + "/end4pC-settings.lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
         if (lock >= 0 && flock(lock, LOCK_EX | LOCK_NB) != 0) return 0;
     }
+    std::vector<int> savedChips;
     if (FILE* f = std::fopen(pageFile().c_str(), "r")) {
         int p = 0;
         if (std::fscanf(f, "%d", &p) == 1 && p >= 0 && p < static_cast<int>(g.pages.size())) g.page = g.prevPage = p;
+        for (int c = 0; std::fscanf(f, "%d", &c) == 1;) savedChips.push_back(std::max(0, c));
         std::fclose(f);
     }
     matsym::assetsDir() = assetsDir();
@@ -5213,6 +5329,7 @@ int main() {
     loadProfile();
     refreshUptime();
     g.secSel.assign(g.pages.size(), 0);
+    for (size_t i = 0; i < savedChips.size() && i < g.secSel.size(); i++) g.secSel[i] = savedChips[i];  // (chipIndex keeps it inside the page's chips)
     loadUpdates();
     loadPeripherals();
     loadWebapps();
