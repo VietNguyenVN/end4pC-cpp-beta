@@ -109,6 +109,16 @@ hl.window_rule({
     decorate    = false,
 })
 
+-- scrcpy (the phone mirror that Tools > Phone starts): the window is always floating and centred, so it keeps the shape of the phone's screen
+-- instead of being tiled.
+hl.window_rule({
+    name  = "end4pC-scrcpy",
+    match = { class = "^scrcpy$" },
+
+    float  = true,
+    center = true,
+})
+
 -- Start the shell with the session.
 hl.on("hyprland.start", function()
     hl.exec_cmd(os.getenv("HOME") .. "/.config/end4pC/build/end4pC")

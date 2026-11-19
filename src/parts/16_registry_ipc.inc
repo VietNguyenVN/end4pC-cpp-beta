@@ -21,6 +21,45 @@ const wl_output_listener kOutputListener = {
 void onBlurCapabilities(void* d, ext_background_effect_manager_v1*, uint32_t flags) {
     static_cast<App*>(d)->blurCapable = (flags & EXT_BACKGROUND_EFFECT_MANAGER_V1_CAPABILITY_BLUR) != 0;
 }
+// Ctrl + Tab / Ctrl + Shift + Tab: the next / previous tab of the popup that is open (the clock, weather, AI usage and resources popups, and the audio
+// menu). The keys are bound in Hyprland only while one of them is open, and they are taken (the app below does not get them): always bound, they
+// would break Ctrl + Tab in every browser and editor.
+bool popupHasTabs(const App& app) {
+    const ClockPanel& P = app.clockP;
+    if (P.open() && P.phase < 2 && !(P.kind == 4 || P.kind == 5 || (P.kind == 2 && aiShown(app).size() < 2))) return true;
+    return app.amenu.open() && app.amenu.configured;
+}
+void popupTabStep(App& app, int dir) {
+    ClockPanel& P = app.clockP;
+    const bool clockTabs = P.open() && P.phase < 2 && !(P.kind == 4 || P.kind == 5 || (P.kind == 2 && aiShown(app).size() < 2));
+    if (clockTabs) {
+        const int count = P.kind == 0 ? 3 : P.kind == 3 ? 4 : 2;
+        clkSelectTab(P, (P.tab + dir + count) % count);
+        P.adding = false;
+        P.query.clear();
+        drawClockPanel(app);
+    } else if (app.amenu.open() && app.amenu.configured) {
+        amSetTab(app, (app.amenu.tab + dir + 3) % 3);
+    }
+}
+void popupKeysSync(App& app) {
+    const bool want = wmKind() == Wm::Hyprland && popupHasTabs(app);
+    if (want == app.popupKeysBound) return;
+    app.popupKeysBound = want;
+    char exe[512];
+    const ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (n <= 0) return;
+    exe[n] = 0;
+    const std::string e(exe);
+    if (want) {
+        captureArgv({"hyprctl", "eval", "hl.bind(\"CTRL + Tab\", hl.dsp.exec_cmd(\"" + e + " 'popuptab next'\"))"});
+        captureArgv({"hyprctl", "eval", "hl.bind(\"CTRL + SHIFT + Tab\", hl.dsp.exec_cmd(\"" + e + " 'popuptab prev'\"))"});
+    } else {
+        captureArgv({"hyprctl", "eval", "hl.unbind(\"CTRL + Tab\")"});
+        captureArgv({"hyprctl", "eval", "hl.unbind(\"CTRL + SHIFT + Tab\")"});
+    }
+}
+
 // The toplevels the compositor lists, with their ids: the overview needs them to capture a window.
 void onFtHandleClosed(void* d, ext_foreign_toplevel_handle_v1* h) {
     auto* app = static_cast<App*>(d);
@@ -437,6 +476,7 @@ void handleClient(App& app, int listenFd) {
         for (const auto& w : app.ov.wins) reply += "win id=" + w->handleId + " ses=" + (w->ses ? "y" : "n") + " sized=" + (w->sized ? "y" : "n") + " dead=" + (w->dead ? "y" : "n") + " frame=" + (w->hasFrame ? "y" : "n") + " fails=" + std::to_string(w->fails) + " reason=" + std::to_string(w->lastReason) + " buf=" + std::to_string(w->bw) + "x" + std::to_string(w->bh) + " fmt=" + std::to_string(w->fmt) + "\n";
         for (const FtHandle& f : app.ftHandles) reply += "  handle " + f.id + "\n";
     }
+    else if (cmd == "popuptab next" || cmd == "popuptab prev") { popupTabStep(app, cmd == "popuptab next" ? 1 : -1); reply = "ok"; }
     else if (cmd == "overview close") { closeOverview(app); reply = "closed"; }
     else if (cmd == "overview") { openOverview(app); reply = app.ov.surface && !app.ov.closing ? "open" : "closed"; }
     else if (cmd.rfind("privacy", 0) == 0) {  // privacy [mic|cam|screen ...|off]: preview the indicators by hand (no argument: the state now)

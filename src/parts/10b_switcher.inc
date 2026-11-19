@@ -32,7 +32,7 @@ void swLiveStart(App& app, const std::vector<SwitcherWin>& wins) {
 // What a card shows: the live frame if there is one, else the grim picture.
 cairo_surface_t* swImage(const App& app, const SwitcherWin& w) {
     for (const auto& c : app.swLive.wins)
-        if (c->address == w.address && c->hasFrame && c->surf) return c->surf;
+        if (c->address == w.address && ovImage(*c)) return ovImage(*c);
     return w.thumb;
 }
 

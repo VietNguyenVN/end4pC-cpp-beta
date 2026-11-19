@@ -899,6 +899,7 @@ int main(int argc, char** argv) {
             drivesTick(app, now);
             privacyTick(app, now);
             ovTick(app, now);
+            popupKeysSync(app);
             tickGame(app, now);
             if (app.launcher.sliding) { if (app.launcher.open()) drawLauncher(app); else app.launcher.sliding = false; }
             if (app.repeatKey && now >= app.repeatAt) {

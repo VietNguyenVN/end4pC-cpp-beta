@@ -151,7 +151,7 @@ int g_iconScale = 100;  // % of the size every icon is asked for (Settings > App
 
 const std::vector<std::string> kSchemes = {"scheme-tonal-spot", "scheme-neutral", "scheme-content", "scheme-expressive", "scheme-fidelity",
                                            "scheme-fruit-salad", "scheme-monochrome", "scheme-rainbow", "scheme-vibrant", "scheme-smart"};
-const std::vector<std::string> kCornerActions = {"none", "controlcenter", "media", "wallpapers", "launcher", "notifications", "power", "lock", "settings"};
+const std::vector<std::string> kCornerActions = {"none", "controlcenter", "media", "wallpapers", "launcher", "overview", "notifications", "power", "lock", "settings"};
 const std::vector<std::string> kModules = {"workspaces", "media", "quickactions", "network", "volume", "clock", "notifications", "settings", "avatar", "battery", "systray", "resources", "launcher", "power", "tools", "weather", "aiusage", "keyboard", "activewindow", "divider", "visualizer", "updates", "bluetooth", "docktopanel", "drives", "privacy"};
 
 inline bool validNotifPosition(const std::string& p) {
@@ -1430,15 +1430,21 @@ struct OvWin {  // a window of the overview and the live capture of it (ext-imag
     cairo_surface_t* surf = nullptr;
     bool sized = false, inFlight = false, hasFrame = false, dead = false, realloc = false;
     bool fixed = false;  // floating or fullscreen: the gaps do not move it
+    cairo_surface_t* last = nullptr;  // the last frame, small: it shows while the next one is not there (a resized window, or just opened)
     std::chrono::steady_clock::time_point next{};
     OverviewState* ov = nullptr;
     struct App* app = nullptr;
+    OvWin() = default;
+    OvWin(const OvWin&) = delete;
+    ~OvWin() { if (last) cairo_surface_destroy(last); }
 };
+inline cairo_surface_t* ovImage(const OvWin& w) { return w.hasFrame && w.surf ? w.surf : w.last; }
 struct OverviewState {  // the overview (SUPER + O): a strip with every workspace, live, on one edge of the screen; the real windows are pushed away from it
     wl_surface* surface = nullptr;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false, dirty = false, gapsSet = false, hoverPlus = false;
     int width = 0, height = 0, monId = 0;      // (the strip's surface)
+    std::string monName;                       // the monitor it is on: the one in focus, where the pointer is
     int edge = 0;                              // 0 top, 1 bottom, 2 left, 3 right
     double monW = 1, monH = 1, thick = 0, edgeReserved = 0;  // the monitor, how thick the strip is, and what the bar already takes on its edge
     std::vector<std::unique_ptr<OvWin>> wins;
@@ -1454,6 +1460,8 @@ struct OverviewState {  // the overview (SUPER + O): a strip with every workspac
     int gapNow[4] = {5, 5, 5, 5};              // the gaps while the overview is open
     int gapOrig[4] = {5, 5, 5, 5};             // gaps_out before the overview: top, right, bottom, left
     std::chrono::steady_clock::time_point nextDraw{}, switchedAt{}, nextPoll{}, reloadAt{}, nextRefresh{};
+    bool gapsPending = false;                  // the gaps wait for the first frames (they resize the windows, and a capture of a window that is resizing fails)
+    std::chrono::steady_clock::time_point gapsAt{};
     bool closing = false;                      // sliding out; it goes when it is out
     std::chrono::steady_clock::time_point openT0{}, closeT0{};
     bool withLauncher = false;                 // opened together with the launcher: each closes the other
@@ -1609,6 +1617,8 @@ struct App {
     ext_image_copy_capture_manager_v1* copyCapMgr = nullptr;
     std::vector<FtHandle> ftHandles;
     OverviewState ov;
+    std::map<std::string, cairo_surface_t*> ovCache;  // a small last picture of each window, from the last time the overview was open
+    bool popupKeysBound = false;  // Ctrl + Tab is bound while a popup with tabs is open
     OverviewState swLive;  // the live captures of the window switcher (the same machinery as the overview)
     bool blurCapable = false;
     std::vector<std::unique_ptr<Bar>> bars;

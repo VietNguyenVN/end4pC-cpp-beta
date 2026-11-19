@@ -646,7 +646,8 @@ void runSystemUpdate(const App& app) {
     runDetached({app.cfg.terminal.c_str(), "-e", "bash", script.c_str(), app.cfg.updatesAur ? "1" : "0", app.cfg.updatesFlatpak ? "1" : "0"});
 }
 
-void openControlCenter(App& app, bool fromAvatar = false) {
+// forceSide: 1 opens it at the left of the screen, 2 at the right (a hot corner: on the side of the corner); 0 as usual (the right, or under the avatar).
+void openControlCenter(App& app, bool fromAvatar = false, int forceSide = 0) {
     if (app.cc.open()) return;
     closeSelector(app);
     closeLauncher(app);
@@ -661,7 +662,7 @@ void openControlCenter(App& app, bool fromAvatar = false) {
     const bool vert = sideBar(app), atBottom = app.cfg.barPosition == "bottom";
     constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
     const auto& ll = app.cfg.layoutLeft;
-    const bool leftSide = !vert && fromAvatar && std::find(ll.begin(), ll.end(), "avatar") != ll.end();
+    const bool leftSide = !vert && (forceSide == 1 || (forceSide == 0 && fromAvatar && std::find(ll.begin(), ll.end(), "avatar") != ll.end()));
     const bool underAvatar = !vert && fromAvatar && app.hoverBar && hasSlot(*app.hoverBar, "avatar");  // (opens under the avatar wherever it sits in the bar)
     const bool avatarLow = vert && sideModuleAtBottom(app, "avatar", false);
     zwlr_layer_surface_v1_set_anchor(C.layer, vert ? ((avatarLow ? kB : kT) | (app.cfg.barPosition == "right" ? kR : kL)) : ((atBottom ? kB : kT) | (leftSide || underAvatar ? kL : kR)));
@@ -715,9 +716,9 @@ void retractControlCenter(App& app) {
     drawControlCenter(app);
 }
 
-void toggleControlCenter(App& app, bool fromAvatar = false) {
+void toggleControlCenter(App& app, bool fromAvatar = false, int forceSide = 0) {
     ControlCenter& C = app.cc;
-    if (!C.open()) { openControlCenter(app, fromAvatar); return; }
+    if (!C.open()) { openControlCenter(app, fromAvatar, forceSide); return; }
     if (popIsOut(C.anim)) {
         popReverse(C.anim, std::chrono::steady_clock::now());
         drawControlCenter(app);

@@ -68,7 +68,24 @@ int ovThumbAt(const App& app, double x, double y) {
 }
 
 // ---- live capture ----
+// The picture of a window, small, kept when its buffer goes (the window changed its size, or the overview closes).
+void ovKeepThumb(OvWin& w) {
+    if (!w.hasFrame || !w.surf) return;
+    const double iw = cairo_image_surface_get_width(w.surf), ih = cairo_image_surface_get_height(w.surf);
+    if (iw < 1 || ih < 1) return;
+    const int tw = 320, th = std::max(1, static_cast<int>(std::lround(tw * ih / iw)));
+    cairo_surface_t* t = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, tw, th);
+    cairo_t* c = cairo_create(t);
+    cairo_scale(c, tw / iw, th / ih);
+    cairo_set_source_surface(c, w.surf, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(c), CAIRO_FILTER_GOOD);
+    cairo_paint(c);
+    cairo_destroy(c);
+    if (w.last) cairo_surface_destroy(w.last);
+    w.last = t;
+}
 void ovFreeBuffer(OvWin& w) {
+    ovKeepThumb(w);
     if (w.surf) cairo_surface_destroy(w.surf);
     if (w.buf) wl_buffer_destroy(w.buf);
     if (w.pool) wl_shm_pool_destroy(w.pool);
@@ -197,8 +214,10 @@ void ovSetGaps(const int g[4]) {
 }
 void ovRestoreGaps(App& app) {
     OverviewState& O = app.ov;
-    if (O.gapsSet) { ovSetGaps(O.gapOrig); ovEscapeKey(false); }
+    if (O.gapsSet) ovSetGaps(O.gapOrig);
+    ovEscapeKey(false);
     O.gapsSet = false;
+    O.gapsPending = false;
     unlink(ovGapsFile().c_str());
 }
 void ovRecoverGaps() {
@@ -230,11 +249,18 @@ std::unique_ptr<OvWin> ovParseClient(const std::string& line, double mx, double 
     return w;
 }
 
+// A monitor name goes into a command: only the characters a connector name has.
+std::string ovSafeName(const std::string& n) {
+    std::string s;
+    for (char c : n) if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == ':') s += c;
+    return s;
+}
+
 void ovLoad(App& app) {
     OverviewState& O = app.ov;
     O.wins.clear();
     const std::string tsv = captureArgv({"bash", "-c",
-        "mon=$(hyprctl monitors -j | jq -r '.[]|select(.focused)|[.id,.x,.y,(.width/.scale),(.height/.scale),.reserved[0],.reserved[1],.reserved[2],.reserved[3]]|@tsv'); echo \"$mon\"; "
+        "mon=$(hyprctl monitors -j | jq -r --arg n \"" + ovSafeName(O.monName) + "\" '.[]|select(.name==$n or ($n==\"\" and .focused))|[.id,.x,.y,(.width/.scale),(.height/.scale),.reserved[0],.reserved[1],.reserved[2],.reserved[3]]|@tsv'); echo \"$mon\"; "
         "hyprctl getoption general:gaps_out -j | jq -r '.css'; "
         "hyprctl clients -j | jq -r --argjson m \"$(echo \"$mon\" | cut -f1)\" '.[]|select(.mapped and (.hidden|not) and .monitor==$m and .workspace.id>0)|[.address,.workspace.id,.at[0],.at[1],.size[0],.size[1],.class,.title,.stableId,(.floating or (.fullscreen>0))]|@tsv'"});
     std::istringstream in(tsv);
@@ -259,6 +285,7 @@ void ovLoad(App& app) {
         if (auto w = ovParseClient(line, mx, my)) {
             w->ov = &O;
             w->app = &app;
+            if (const auto c = app.ovCache.find(w->address); c != app.ovCache.end()) w->last = cairo_surface_reference(c->second);  // (the last picture shows at once)
             O.wins.push_back(std::move(w));
         }
     }
@@ -341,7 +368,13 @@ void destroyOverview(App& app) {
     ovRestoreGaps(app);
     const bool withLauncher = O.withLauncher;
     O.withLauncher = false;
-    for (auto& w : O.wins) ovCaptureStop(*w);
+    for (auto& w : O.wins) {
+        ovCaptureStop(*w);  // (the picture of each window is kept small: it shows at once the next time)
+        if (!w->last) continue;
+        cairo_surface_t*& slot = app.ovCache[w->address];
+        if (slot) cairo_surface_destroy(slot);
+        slot = cairo_surface_reference(w->last);
+    }
     O.wins.clear();
     ovFreeSlots(O);
     if (O.layer) zwlr_layer_surface_v1_destroy(O.layer);
@@ -401,7 +434,7 @@ void ovDrawThumb(App& app, cairo_t* cr, PangoLayout* L, int id, const Rect& t, b
         if (wp->ws != id) continue;
         const Rect r = ovMiniRect(app, *wp, t);
         if (O.carrying && static_cast<int>(k) == O.pressWin) cairo_push_group(cr);
-        if (app.cfg.overviewLive && wp->hasFrame && wp->surf) ovScaledPaint(cr, wp->surf, r, 3, CAIRO_FILTER_GOOD);
+        if (app.cfg.overviewLive && ovImage(*wp)) ovScaledPaint(cr, ovImage(*wp), r, 3, CAIRO_FILTER_GOOD);
         else {
             roundedRect(cr, r.x, r.y, r.w, r.h, 3);
             setSource(cr, app.color("surface_container_highest"), 0.95);
@@ -482,7 +515,7 @@ void drawOverview(App& app) {
         roundedRect(cr, r.x + 1, r.y + 4, r.w, r.h, 8);
         setSource(cr, Color{0, 0, 0}, 0.3);
         cairo_fill(cr);
-        if (app.cfg.overviewLive && w.hasFrame && w.surf) ovScaledPaint(cr, w.surf, r, 8, CAIRO_FILTER_GOOD);
+        if (app.cfg.overviewLive && ovImage(w)) ovScaledPaint(cr, ovImage(w), r, 8, CAIRO_FILTER_GOOD);
         else {
             roundedRect(cr, r.x, r.y, r.w, r.h, 8);
             setSource(cr, app.color("surface_container_highest"), 0.95);
@@ -528,13 +561,40 @@ void onOvConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint3
 void onOvClosed(void* d, zwlr_layer_surface_v1*) { destroyOverview(*static_cast<App*>(d)); }
 const zwlr_layer_surface_v1_listener kOvListener = {onOvConfigure, onOvClosed};
 
+// Make room: the gap of the strip's edge grows until the windows start below it. This resizes the windows (Hyprland animates it for about half a
+// second), and a capture of a window that is resizing fails: so the gaps wait until the first frames are in, 150 ms at most.
+void ovApplyGaps(App& app) {
+    OverviewState& O = app.ov;
+    O.gapsPending = false;
+    std::ofstream(ovGapsFile()) << O.gapOrig[0] << " " << O.gapOrig[1] << " " << O.gapOrig[2] << " " << O.gapOrig[3] << "\n";
+    int g[4] = {O.gapOrig[0], O.gapOrig[1], O.gapOrig[2], O.gapOrig[3]};
+    const int slotIdx[4] = {0, 2, 3, 1};  // top, bottom, left, right -> index in gapOrig (top, right, bottom, left)
+    g[slotIdx[O.edge]] = std::max(g[slotIdx[O.edge]], static_cast<int>(O.thick + kOvWindowGap - O.edgeReserved));
+    ovSetGaps(g);
+    for (int i = 0; i < 4; i++) O.gapNow[i] = g[i];
+    O.gapsSet = true;
+}
+
 void openOverview(App& app) {
     OverviewState& O = app.ov;
     if (O.surface) { closeOverview(app); return; }
     if (wmKind() != Wm::Hyprland || !app.compositor || !app.layerShell || !app.shm) return;
     const std::string pos = app.cfg.overviewPosition;
     O.edge = pos == "bottom" ? 1 : pos == "left" ? 2 : pos == "right" ? 3 : 0;
+    // The screen of the overview is the one in focus (where the pointer is), and so is the list of windows it shows.
+    const std::string focused = focusedOutputName();
+    Bar* bar = nullptr;
+    for (auto& b : app.bars)
+        if (b->surface && !focused.empty() && b->connector == focused) { bar = b.get(); break; }
+    if (!bar) bar = mainBar(app);  // (no bar on that screen: the one of the main bar)
+    O.monName = bar ? bar->connector : "";
     ovLoad(app);
+    for (auto it = app.ovCache.begin(); it != app.ovCache.end();) {  // (pictures of windows that are gone go)
+        const bool there = std::any_of(O.wins.begin(), O.wins.end(), [&](const auto& w) { return w->address == it->first; });
+        if (there) { ++it; continue; }
+        cairo_surface_destroy(it->second);
+        it = app.ovCache.erase(it);
+    }
     O.sel = std::max(1, app.workspace);
     O.extra = 0;
     O.stripScroll = 0;
@@ -543,7 +603,6 @@ void openOverview(App& app) {
     O.thick = std::ceil(ovStripThickness(app));
     if (app.cfg.overviewLive)
         for (size_t i = 0; i < O.wins.size() && static_cast<int>(i) < kOvMaxCaptures; i++) ovCaptureStart(app, *O.wins[i]);
-    const Bar* bar = mainBar(app);
     O.openT0 = std::chrono::steady_clock::now();
     O.closing = false;
     O.surface = wl_compositor_create_surface(app.compositor);
@@ -557,15 +616,12 @@ void openOverview(App& app) {
     zwlr_layer_surface_v1_set_keyboard_interactivity(O.layer, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND);  // (an exclusive one would stop the mouse binds that drag a window)
     zwlr_layer_surface_v1_add_listener(O.layer, &kOvListener, &app);
     wl_surface_commit(O.surface);
-    // make room: the gap of that edge grows until the windows start below the strip
-    std::ofstream(ovGapsFile()) << O.gapOrig[0] << " " << O.gapOrig[1] << " " << O.gapOrig[2] << " " << O.gapOrig[3] << "\n";
-    int g[4] = {O.gapOrig[0], O.gapOrig[1], O.gapOrig[2], O.gapOrig[3]};
-    const int slotIdx[4] = {0, 2, 3, 1};  // top, bottom, left, right -> index in gapOrig (top, right, bottom, left)
-    g[slotIdx[O.edge]] = std::max(g[slotIdx[O.edge]], static_cast<int>(O.thick + kOvWindowGap - O.edgeReserved));
-    ovSetGaps(g);
+    // the windows make room for the strip, but only once their first frames are in (see ovApplyGaps)
     ovEscapeKey(true);
-    for (int i = 0; i < 4; i++) O.gapNow[i] = g[i];
-    O.gapsSet = true;
+    O.gapsPending = true;
+    O.gapsAt = O.openT0 + std::chrono::milliseconds(150);
+    if (!app.cfg.overviewLive || O.wins.empty()) ovApplyGaps(app);
+    O.nextRefresh = O.openT0 + std::chrono::seconds(2);
     O.switchedAt = std::chrono::steady_clock::now();
     if (app.launcher.open()) launcherApplyMargin(app);  // (a launcher that was already open moves down)
     if (app.cfg.overviewLauncher && !app.launcher.open()) { O.withLauncher = true; openLauncher(app); }
@@ -704,6 +760,10 @@ void ovPointerEntered(App& app) { ovDrop(app); }
 void ovTick(App& app, std::chrono::steady_clock::time_point now) {
     OverviewState& O = app.ov;
     if (!O.surface) return;
+    if (O.gapsPending && !O.closing) {
+        const bool framed = std::all_of(O.wins.begin(), O.wins.end(), [](const auto& w) { return w->dead || !w->ses || w->hasFrame; });
+        if (framed || now >= O.gapsAt) ovApplyGaps(app);
+    }
     const bool sliding = O.closing || now - O.openT0 < std::chrono::milliseconds(kOvInMs + 40);
     if (O.closing && now - O.closeT0 >= std::chrono::milliseconds(kOvOutMs)) { destroyOverview(app); return; }
     if (sliding) O.dirty = true;
