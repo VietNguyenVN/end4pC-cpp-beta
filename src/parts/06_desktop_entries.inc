@@ -984,17 +984,10 @@ void refreshBarShadow(Bar& bar) {
         for (const Rect& r : islandRects(bar)) sig += ":" + std::to_string(static_cast<int>(r.x)) + "," + std::to_string(static_cast<int>(r.w));
     if (sig == bar.shSig) return;
     bar.shSig = sig;
-    const int w = static_cast<int>(bar.shW), h = static_cast<int>(bar.shH), stride = w * 4, size = stride * h;
-    const int fd = memfd_create("end4pC-bar-shadow", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (data == MAP_FAILED) { close(fd); return; }
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, w, h, stride);
-    cairo_t* cr = cairo_create(surface);
-    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_rgba(cr, 0, 0, 0, 0);
-    cairo_paint(cr);
-    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    const int w = static_cast<int>(bar.shW), h = static_cast<int>(bar.shH);
+    hidpi::Frame frame;
+    if (!hidpi::begin(frame, w, h, bar.shScale.factor(), "end4pC-bar-shadow")) return;
+    cairo_t* cr = cairo_create(frame.surface);
     if (sideBar(app)) {
         cairo_matrix_t m;
         cairo_matrix_init(&m, 0, 1, 1, 0, 0, 0);
@@ -1002,16 +995,10 @@ void refreshBarShadow(Bar& bar) {
     }
     if (app.cfg.barBackground) paintBarShadow(cr, bar);
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, w, h, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(frame, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
-    wl_surface_attach(bar.shSurface, buffer, 0, 0);
-    wl_surface_damage_buffer(bar.shSurface, 0, 0, w, h);
-    wl_surface_commit(bar.shSurface);
+    hidpi::present(bar.shSurface, buffer, frame, bar.shScale);
 }
 
 void loadAvatar(App& app) {
@@ -1727,12 +1714,9 @@ void drawSide(Bar& bar) {
     BarInkScope inkScope(app);
     if (!app.avatarTried) loadAvatar(app);
     const int W = kSideBarW + static_cast<int>(bar.extra), H = static_cast<int>(bar.width);
-    const int stride = W * 4, size = stride * H;
-    int fd = memfd_create("end4pC-buffer", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) { std::perror("shm"); std::exit(1); }
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
-    cairo_t* cr = mkcr(surface);
+    hidpi::Frame frame;
+    if (!hidpi::begin(frame, W, H, bar.scale.factor(), "end4pC-buffer")) { std::perror("shm"); std::exit(1); }
+    cairo_t* cr = mkcr(frame.surface);
 
     if (notchLike(app.cfg.barStyle)) { sideLayout(bar); setBarRegion(bar); }
     {
@@ -2133,13 +2117,9 @@ void drawSide(Bar& bar) {
     g_object_unref(layout);
     popWithShadow(cr, app);
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
 
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(frame, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, &bar);
     updateBlurRegion(app, bar.surface, bar.blur, W, H, [&](cairo_t* m) {
         cairo_matrix_t swap;
@@ -2147,9 +2127,7 @@ void drawSide(Bar& bar) {
         cairo_set_matrix(m, &swap);
         drawBarBackground(m, bar);
     });
-    wl_surface_attach(bar.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(bar.surface, 0, 0, W, H);
-    wl_surface_commit(bar.surface);
+    hidpi::present(bar.surface, buffer, frame, bar.scale);
     refreshBarShadow(bar);
 }
 
@@ -2640,19 +2618,12 @@ void draw(Bar& bar) {
     if (notchLike(app.cfg.barStyle)) setBarRegion(bar);
 
     const int totalH = static_cast<int>(bar.height + bar.extra);
-    const int stride = static_cast<int>(bar.width) * 4;
-    const int size = stride * totalH;
-
-    int fd = memfd_create("end4pC-buffer", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) {
+    hidpi::Frame frame;
+    if (!hidpi::begin(frame, static_cast<int>(bar.width), totalH, bar.scale.factor(), "end4pC-buffer")) {
         std::perror("shm");
         std::exit(1);
     }
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(
-        static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, bar.width, totalH, stride);
-    cairo_t* cr = mkcr(surface);
+    cairo_t* cr = mkcr(frame.surface);
 
     drawBarBackground(cr, bar);
     cairo_push_group(cr);
@@ -3293,20 +3264,14 @@ void draw(Bar& bar) {
     g_object_unref(layout);
     popWithShadow(cr, app);
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
 
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, bar.width, totalH, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(frame, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, &bar);
     bar.buffer = buffer;
     updateBlurRegion(app, bar.surface, bar.blur, bar.width, totalH, [&](cairo_t* m) { drawBarBackground(m, bar); });
 
-    wl_surface_attach(bar.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(bar.surface, 0, 0, bar.width, totalH);
-    wl_surface_commit(bar.surface);
+    hidpi::present(bar.surface, buffer, frame, bar.scale);
     refreshBarShadow(bar);
 }
 

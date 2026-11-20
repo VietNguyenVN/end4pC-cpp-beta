@@ -61,6 +61,7 @@ struct WpJob {
 struct Strip {
     Bar* bar = nullptr;
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     uint32_t w = 0, h = 0;
     int corner = -1;
@@ -81,6 +82,7 @@ struct Bar {
     wl_output* output = nullptr;
     uint32_t outputName = 0;
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layerSurface = nullptr;
     bool configured = false;
     uint32_t width = 0;
@@ -97,6 +99,7 @@ struct Bar {
     // The bar's shadow lives on a layer surface of its own, under the bar's: the compositor's blur rule for the bar (SwayFX blurs everything of
     // the surface that is not fully transparent) would otherwise blur the shadow too, and a dark band would show.
     wl_surface* shSurface = nullptr;
+    hidpi::SurfaceScale shScale;
     zwlr_layer_surface_v1* shLayer = nullptr;
     uint32_t shW = 0, shH = 0;
     std::string shSig;
@@ -1611,6 +1614,9 @@ struct App {
     wl_registry* registry = nullptr;
     wl_compositor* compositor = nullptr;
     wl_shm* shm = nullptr;
+    wp_viewporter* viewporter = nullptr;                 // these two: sharp drawing at fractional scales (src/hidpi.h)
+    wp_fractional_scale_manager_v1* fscaleMgr = nullptr;
+    bool scaleChanged = false;                           // a bar surface was given a new scale: the main loop redraws them
     wl_seat* seat = nullptr;
     wl_pointer* pointer = nullptr;
     wl_keyboard* keyboard = nullptr;

@@ -89,6 +89,10 @@ void onGlobal(void* d, wl_registry* registry, uint32_t name, const char* interfa
         app->compositor = static_cast<wl_compositor*>(wl_registry_bind(registry, name, &wl_compositor_interface, 4));
     } else if (std::strcmp(interface, wl_shm_interface.name) == 0) {
         app->shm = static_cast<wl_shm*>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
+    } else if (std::strcmp(interface, wp_viewporter_interface.name) == 0 && !hidpi::disabled()) {
+        app->viewporter = static_cast<wp_viewporter*>(wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
+    } else if (std::strcmp(interface, wp_fractional_scale_manager_v1_interface.name) == 0 && !hidpi::disabled()) {
+        app->fscaleMgr = static_cast<wp_fractional_scale_manager_v1*>(wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1));
     } else if (std::strcmp(interface, wl_seat_interface.name) == 0) {
         app->seat = static_cast<wl_seat*>(wl_registry_bind(registry, name, &wl_seat_interface, std::min(version, 5u)));
         wl_seat_add_listener(app->seat, &kSeatListener, app);

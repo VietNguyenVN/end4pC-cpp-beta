@@ -46,35 +46,39 @@ std::vector<std::string> iconCandidates(const std::string& name, bool filled) {
     return out;
 }
 
-cairo_surface_t* iconMask(const std::string& name, bool filled, int size) {
+// An icon of `size` logical px rendered with `px` real pixels (px > size on a fractionally scaled surface, src/hidpi.h). The mask
+// carries the ratio as its device scale, so it still paints `size` px wide in logical units, one mask pixel per buffer pixel.
+cairo_surface_t* iconMaskPx(const std::string& name, bool filled, int size, int px) {
     static std::map<std::string, cairo_surface_t*> cache;
-    const std::string key = name + (filled ? "|f|" : "|" + g_iconStyle + "|") + std::to_string(size) + (matsym::enabled() ? "|m" : "");
+    const std::string key = name + (filled ? "|f|" : "|" + g_iconStyle + "|") + std::to_string(size) + (px != size ? "@" + std::to_string(px) : "") + (matsym::enabled() ? "|m" : "");
     if (auto it = cache.find(key); it != cache.end()) return it->second;
 
-    cairo_surface_t* mask = matsym::makeMask(name, filled, size);
+    cairo_surface_t* mask = matsym::makeMask(name, filled, px);
     for (const auto& path : iconCandidates(matsym::baseName(name), filled)) {
         if (mask) break;
         if (access(path.c_str(), R_OK) != 0) continue;
         RsvgHandle* h = rsvg_handle_new_from_file(path.c_str(), nullptr);
         if (!h) continue;
-        mask = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, size, size);
+        mask = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, px, px);
         cairo_t* cr = mkcr(mask);
-        RsvgRectangle vp = {0, 0, double(size), double(size)};
+        RsvgRectangle vp = {0, 0, double(px), double(px)};
         rsvg_handle_render_document(h, cr, &vp, nullptr);
         cairo_destroy(cr);
         g_object_unref(h);
         break;
     }
     if (!mask) std::fprintf(stderr, "icon not found: %s\n", name.c_str());
+    else if (px != size) cairo_surface_set_device_scale(mask, double(px) / size, double(px) / size);
     cache[key] = mask;
     return mask;
 }
+cairo_surface_t* iconMask(const std::string& name, bool filled, int size) { return iconMaskPx(name, filled, size, size); }
 
 void drawIcon(cairo_t* cr, const std::string& name, double x, double y, int size, const Color& c, bool filled = false) {
     const int scaled = g_iconScale == 100 ? size : std::max(8, static_cast<int>(std::lround(size * g_iconScale / 100.0)));  // the icon keeps its centre
     x += (size - scaled) / 2.0;
     y += (size - scaled) / 2.0;
-    cairo_surface_t* mask = iconMask(name, filled, scaled);
+    cairo_surface_t* mask = iconMaskPx(name, filled, scaled, hidpi::bufferExtent(scaled, hidpi::scaleOf(cr)));
     if (!mask) return;
     cairo_set_source_rgba(cr, c.r, c.g, c.b, 1.0);
     cairo_mask_surface(cr, mask, x, y);

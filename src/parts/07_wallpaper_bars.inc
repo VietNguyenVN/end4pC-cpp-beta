@@ -252,6 +252,11 @@ void onConfigure(void* userData, zwlr_layer_surface_v1* layerSurface, uint32_t s
 
 void destroyStrip(Strip& st);
 
+// Gives a bar-related surface its fractional scale (src/hidpi.h). A new scale from the compositor redraws them all from the main loop.
+void attachBarScale(App& app, hidpi::SurfaceScale& s, wl_surface* surface) {
+    hidpi::attach(s, surface, app.viewporter, app.fscaleMgr, [&app] { app.scaleChanged = true; });
+}
+
 void destroyBar(Bar& bar) {
     for (auto& st : bar.strips) destroyStrip(st);
     for (auto& st : bar.rounds) destroyStrip(st);
@@ -264,8 +269,10 @@ void destroyBar(Bar& bar) {
     if (bar.bdPic) cairo_surface_destroy(bar.bdPic);
     if (bar.layerSurface) zwlr_layer_surface_v1_destroy(bar.layerSurface);
     releaseBlurSurface(bar.blur);
+    hidpi::detach(bar.scale);
     if (bar.surface) wl_surface_destroy(bar.surface);
     if (bar.shLayer) zwlr_layer_surface_v1_destroy(bar.shLayer);
+    hidpi::detach(bar.shScale);
     if (bar.shSurface) wl_surface_destroy(bar.shSurface);
     if (bar.output) wl_output_destroy(bar.output);
 }
@@ -464,6 +471,7 @@ const zwlr_layer_surface_v1_listener kStripListener = {onStripConfigure, onStrip
 
 void destroyStrip(Strip& st) {
     if (st.layer) zwlr_layer_surface_v1_destroy(st.layer);
+    hidpi::detach(st.scale);
     if (st.surface) wl_surface_destroy(st.surface);
     st = Strip{};
 }
@@ -475,16 +483,9 @@ void destroyStrip(Strip& st) {
 void drawRound(Strip* st) {
     const int W = st->w, H = st->h;
     if (!st->surface || W <= 0 || H <= 0) return;
-    const int stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-round", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
-    cairo_t* cr = mkcr(surf);
-    cairo_set_source_rgba(cr, 0, 0, 0, 0);
-    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-    cairo_paint(cr);
-    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    hidpi::Frame frame;
+    if (!hidpi::begin(frame, W, H, st->scale.factor(), "end4pC-round")) return;
+    cairo_t* cr = mkcr(frame.surface);
     const double cx = (st->corner == 0 || st->corner == 2) ? W : 0, cy = (st->corner == 0 || st->corner == 1) ? H : 0;
     cairo_rectangle(cr, 0, 0, W, H);
     cairo_arc(cr, cx, cy, W, 0, 2 * M_PI);
@@ -493,16 +494,10 @@ void drawRound(Strip* st) {
     cairo_set_source_rgba(cr, fc.r, fc.g, fc.b, 1);
     cairo_fill(cr);
     cairo_destroy(cr);
-    cairo_surface_destroy(surf);
-    munmap(data, size);
-    wl_shm_pool* pool = wl_shm_create_pool(st->bar->app->shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(frame, st->bar->app->shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kCornerBufferListener, nullptr);
-    wl_surface_attach(st->surface, buffer, 0, 0);
-    wl_surface_damage_buffer(st->surface, 0, 0, W, H);
-    wl_surface_commit(st->surface);
+    hidpi::present(st->surface, buffer, frame, st->scale);
 }
 void onRoundConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t w, uint32_t h) {
     auto* st = static_cast<Strip*>(d);
@@ -580,6 +575,7 @@ void createBarShadow(Bar& bar, bool side, bool atBottom) {
                        L = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, R = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
     const int gap = app.cfg.frame + ((app.cfg.barStyle == "float" || app.cfg.barStyle == "island") ? kBarGap : 0);
     bar.shSurface = wl_compositor_create_surface(app.compositor);
+    attachBarScale(app, bar.shScale, bar.shSurface);
     app.layerGen++;
     bar.shLayer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, bar.shSurface, bar.output, ZWLR_LAYER_SHELL_V1_LAYER_TOP, "end4pC-shadow-bar");
     zwlr_layer_surface_v1_set_anchor(bar.shLayer, side ? (T | B | (atBottom ? R : L)) : ((atBottom ? B : T) | L | R));
@@ -608,8 +604,10 @@ void applyFrame(Bar& bar) {
 
     if (bar.layerSurface) { zwlr_layer_surface_v1_destroy(bar.layerSurface); bar.layerSurface = nullptr; }
     releaseBlurSurface(bar.blur);
+    hidpi::detach(bar.scale);
     if (bar.surface) { wl_surface_destroy(bar.surface); bar.surface = nullptr; }
     if (bar.shLayer) { zwlr_layer_surface_v1_destroy(bar.shLayer); bar.shLayer = nullptr; }
+    hidpi::detach(bar.shScale);
     if (bar.shSurface) { wl_surface_destroy(bar.shSurface); bar.shSurface = nullptr; }
     bar.shW = bar.shH = 0;
     bar.shSig.clear();
@@ -648,6 +646,7 @@ void applyFrame(Bar& bar) {
     bar.contentY = atBottom ? static_cast<int>(bar.extra) : 0;
     if (app.cfg.barShadow && app.cfg.barBackground) createBarShadow(bar, side, atBottom);
     bar.surface = wl_compositor_create_surface(app.compositor);
+    attachBarScale(app, bar.scale, bar.surface);
     app.layerGen++;
     bar.layerSurface = zwlr_layer_shell_v1_get_layer_surface(
         app.layerShell, bar.surface, bar.output, ZWLR_LAYER_SHELL_V1_LAYER_TOP, "end4pC-bar");
@@ -683,6 +682,7 @@ void applyFrame(Bar& bar) {
             st.bar = &bar;
             st.corner = i;
             st.surface = wl_compositor_create_surface(app.compositor);
+            attachBarScale(app, st.scale, st.surface);
             st.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, st.surface, bar.output,
                 app.cfg.fakeRounding == 1 ? ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY : ZWLR_LAYER_SHELL_V1_LAYER_TOP, "end4pC-rounding");
             zwlr_layer_surface_v1_add_listener(st.layer, &kRoundListener, &st);
