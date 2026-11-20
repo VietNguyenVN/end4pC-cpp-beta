@@ -582,6 +582,8 @@ std::vector<Page> makePages() {
          {{"none", "None"}, {"fade", "Fade"}, {"wipe", "Wipe"}, {"circle", "Circle"}, {"slide", "Slide"}, {"blinds", "Blinds"}, {"diamond", "Diamond"}, {"split", "Split"}, {"random", "Random"}}},
         {Slider, "wallpaperTransitionMs", "Transition length", "How long the transition lasts.", {}, 100, 1500, 50, "ms"},
         {Text, "wallpaperDir", "Wallpaper folder", "Where the wallpaper selector looks for images."},
+        {Choice, "selectorFolders", "Show folders", "Where the wallpaper selector shows the folders inside the wallpaper folder: in its sidebar, or as tiles of the grid that open when clicked.",
+         {{"sidebar", "In the sidebar"}, {"first", "Tiles, first"}, {"last", "Tiles, last"}}},
         {Toggle, "wallpaperAuto", "Change automatically", "The wallpaper changes by itself to a random one of the folder, with the transition above."},
         {Toggle, "wallpaperAutoFavs", "Only favorites", "Pick only from your favorite wallpapers. With none (or none left in the folder) it picks from all of them."},
         {Slider, "wallpaperAutoMin", "Change every", "How long a wallpaper stays before the next one.", {}, 1, 180, 1, "min"},
@@ -828,6 +830,7 @@ void loadConfig() {
     g.val.insert({"cornerTR", "controlcenter"});
     g.val.insert({"cornerBL", "media"});
     g.val.insert({"cornerBR", "wallpapers"});
+    g.val.insert({"selectorFolders", "sidebar"});
     for (const char* n : {"picker", "record", "screenshot", "wallpaper"}) g.val.insert({std::string("quick:") + n, "1"});
     for (const char* n : {"mic", "darkmode", "perfprofile", "osk"}) g.val.insert({std::string("quick:") + n, "0"});
     g.val.insert({"recordFps", "0"});

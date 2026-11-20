@@ -587,7 +587,11 @@ bool selectorKey(App& app, uint32_t key) {
     }
     if (key == 111 && sel.onlineProvider.empty() && !sel.keyPanel) {
         const int idx = sel.kbFocus ? sel.focusIdx : sel.hoverTile;
-        if (idx >= 0 && idx < static_cast<int>(sel.files.size())) { askTrash(app, sel.files[idx]); drawSelector(app); }
+        if (idx >= 0 && idx < static_cast<int>(sel.files.size()) && !isFolderTile(sel.files[idx])) { askTrash(app, sel.files[idx]); drawSelector(app); }
+        return true;
+    }
+    if (key == kKeyBackspace && sel.query.empty() && !sel.browse.empty() && sel.onlineProvider.empty() && !sel.keyPanel) {
+        openFolderTile(app, "up:" + dirName(sel.browse));
         return true;
     }
     if (app.xkbState) {
@@ -671,6 +675,7 @@ bool selectorKey(App& app, uint32_t key) {
         case kKeyEnd: focusTile(app, static_cast<int>(sel.files.size()) - 1); return true;
         case kKeyEnter:
         case kKeyKpEnter:
+            if (isFolderTile(sel.files[cur])) { openFolderTile(app, sel.files[cur]); return true; }
             if (isOnlineTile(sel.files[cur])) { if (const OnlineItem* oi = onlineItemFor(sel, sel.files[cur])) onlineDownload(app, *oi, true); }
             else applyTheme(app, sel.files[cur]);
             sel.kbFocus = true;

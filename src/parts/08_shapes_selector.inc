@@ -35,7 +35,6 @@ constexpr int kSelW = 1400, kSelH = 812, kSelRadius = 32;
 constexpr int kMainX = 252, kMainW = kSelW - kMainX - 16;
 constexpr int kTileW = 216, kTileH = 122, kTileGap = 12, kCols = 5, kVisRows = 3;
 constexpr int kSearchY = 16, kSearchH = 44, kHeroY = 72, kHeroH = 282, kHeadY = 370, kGridTop = 406;
-constexpr int kMaxFolders = 6;
 constexpr double kModeSeconds = 0.18;
 constexpr const char* kSelTitleFont = "Sans Bold 15";
 constexpr const char* kSelChipFont = "Sans 9";
@@ -88,6 +87,9 @@ void saveOnlinePrefs(const Selector& sel) {
 }
 std::string onlineTileKey(const std::string& provider, const std::string& id) { return "online:" + provider + ":" + id; }
 bool isOnlineTile(const std::string& key) { return key.rfind("online:", 0) == 0; }
+// A folder in the grid: "folder:<path>" opens it, "up:<path>" is the tile that goes back to the parent.
+bool isFolderTile(const std::string& key) { return key.rfind("folder:", 0) == 0 || key.rfind("up:", 0) == 0; }
+std::string folderTilePath(const std::string& key) { return key.substr(key.find(':') + 1); }
 int totalRowsOf(size_t count) { return (static_cast<int>(count) + kCols - 1) / kCols; }
 const OnlineItem* onlineItemFor(const Selector& sel, const std::string& key) {
     for (const auto& it : sel.onlineItems) if (onlineTileKey(sel.onlineProvider, it.id) == key) return &it;
@@ -105,6 +107,30 @@ std::vector<std::string> collectWallpapers(const std::string& dir) {
             if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp") out.push_back(dir + "/" + name);
         }
         closedir(d);
+    }
+    return out;
+}
+// Every picture in dir and in all the folders under it. A folder already walked (a symlink that points back up) is skipped.
+constexpr int kMaxFolderDepth = 8;
+std::vector<std::string> collectWallpapersDeep(const std::string& dir, int depth = 0, std::set<std::string>* seen = nullptr) {
+    std::set<std::string> local;
+    if (!seen) seen = &local;
+    char real[PATH_MAX];
+    if (!realpath(dir.c_str(), real) || !seen->insert(real).second) return {};
+    std::vector<std::string> out = collectWallpapers(dir);
+    if (depth >= kMaxFolderDepth) return out;
+    if (DIR* d = opendir(dir.c_str())) {
+        std::vector<std::string> subs;
+        while (const dirent* e = readdir(d)) {
+            const std::string name = e->d_name;
+            if (name[0] == '.') continue;
+            struct stat st{};
+            const std::string full = dir + "/" + name;
+            if (stat(full.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) subs.push_back(full);
+        }
+        closedir(d);
+        for (const std::string& sub : subs)
+            for (std::string& f : collectWallpapersDeep(sub, depth + 1, seen)) out.push_back(std::move(f));
     }
     return out;
 }
@@ -136,7 +162,7 @@ std::vector<std::string> wallpaperFolders(const std::string& dir) {
             if (name[0] == '.') continue;
             struct stat st{};
             const std::string full = dir + "/" + name;
-            if (stat(full.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && !collectWallpapers(full).empty()) out.push_back(full);
+            if (stat(full.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && !collectWallpapersDeep(full).empty()) out.push_back(full);
         }
         closedir(d);
     }
@@ -516,9 +542,32 @@ void rebuildSelectorList(App& app) {
     if (key == "all") base = sel.allFiles;
     else if (key == "fav") { for (const auto& p : sel.favs) if (have.count(p)) base.push_back(p); }
     else if (key == "recent") { for (const auto& p : sel.recents) if (have.count(p)) base.push_back(p); }
-    else if (key.rfind("dir:", 0) == 0) { const std::string d = key.substr(4); for (const auto& p : sel.allFiles) if (dirName(p) == d) base.push_back(p); }
+    else if (key.rfind("dir:", 0) == 0) { const std::string d = key.substr(4); for (const auto& p : sel.allFiles) if (p.rfind(d + "/", 0) == 0) base.push_back(p); }  // (a folder shows what is in the folders under it too)
     sel.files.clear();
     const std::string q = lowerCopy(sel.query);
+    if (q.empty() && app.cfg.selectorFolders != "sidebar" && key == "all") {
+        const std::string top = key == "all" ? expandHome(app.cfg.wallpaperDir) : key.substr(4);
+        const std::string dir = sel.browse.empty() ? top : sel.browse;
+        std::vector<std::string> folders;
+        for (const std::string& f : wallpaperFolders(dir)) folders.push_back("folder:" + f);
+        const std::vector<std::string> pics = listWallpapers(dir);
+        if (dir != top) sel.files.push_back("up:" + dirName(dir));
+        sel.folderCount.clear();
+        for (const std::string& f : folders) {
+            const std::string path = folderTilePath(f) + "/";
+            int n = 0;
+            for (const std::string& p : sel.allFiles) if (p.rfind(path, 0) == 0) n++;
+            sel.folderCount[f] = n;
+        }
+        const bool first = app.cfg.selectorFolders == "first";
+        if (first) sel.files.insert(sel.files.end(), folders.begin(), folders.end());
+        sel.files.insert(sel.files.end(), pics.begin(), pics.end());
+        if (!first) sel.files.insert(sel.files.end(), folders.begin(), folders.end());
+        sel.scrollRow = 0;
+        sel.focusIdx = 0;
+        sel.hoverTile = -1;
+        return;
+    }
     for (const auto& p : base)
         if (q.empty() || lowerCopy(baseName(p, false)).find(q) != std::string::npos) sel.files.push_back(p);
     sel.scrollRow = 0;
@@ -534,6 +583,7 @@ struct SelGeom {
     std::vector<std::pair<double, std::string>> labels;
     std::vector<Rect> sortChips, resChips;
     double sortLabelX = 0, resLabelX = 0, chipLabelY = 0;
+    double navTop = 84, navBottom = 0, navMax = 0;  // the part of the sidebar that scrolls (the light/dark switch below it never moves)
 };
 SelGeom selGeom(const Selector& sel) {
     SelGeom g;
@@ -549,7 +599,8 @@ SelGeom selGeom(const Selector& sel) {
     g.shuffle = {g.hero.x + 28, by, 156, 46};
     g.fav = {g.shuffle.x + g.shuffle.w + 10, by, 46, 46};
     g.folder = {g.fav.x + 56, by, 46, 46};
-    double y = 92;
+    g.navBottom = my - 10;
+    double y = 92 - sel.navScroll;
     bool seenDir = false, seenOnline = false;
     for (size_t i = 0; i < sel.cats.size(); i++) {
         const std::string& k = sel.cats[i].second;
@@ -558,6 +609,7 @@ SelGeom selGeom(const Selector& sel) {
         g.nav.push_back({24, y, 192, 40});
         y += 44;
     }
+    g.navMax = std::max(0.0, y + sel.navScroll - g.navBottom);
     {
         auto chipW = [](const std::string& label) { return 28.0 + 7.4 * label.size(); };
         const double cy = g.hero.y + g.hero.h - 28 - 34;
@@ -630,7 +682,7 @@ SelHit selectorHit(const Selector& sel, double x, double y) {
     else if (!online && g.fav.contains(x, y)) h.btn = 1;
     else if (!online && g.folder.contains(x, y)) h.btn = 2;
     for (size_t i = 0; i < g.nav.size(); i++)
-        if (g.nav[i].contains(x, y)) h.nav = static_cast<int>(i);
+        if (g.nav[i].contains(x, y) && y >= g.navTop && y <= g.navBottom) h.nav = static_cast<int>(i);
     for (size_t i = 0; i < sel.chipRects.size(); i++)
         if (sel.chipRects[i].contains(x, y)) h.chip = static_cast<int>(i);
     for (int r = 0; r < kVisRows; r++)
@@ -640,7 +692,8 @@ SelHit selectorHit(const Selector& sel, double x, double y) {
             const Rect t = tileRect(sel, r, c);
             if (!t.contains(x, y)) continue;
             h.tile = idx;
-            if (isOnlineTile(sel.files[idx])) {
+            if (isFolderTile(sel.files[idx])) {}
+            else if (isOnlineTile(sel.files[idx])) {
                 if (tileDlBtn(t, 0).contains(x, y)) h.btn = 11;
                 else if (tileDlBtn(t, 1).contains(x, y)) h.btn = 12;
             } else if (Rect{t.x + t.w - 38, t.y + 8, 30, 30}.contains(x, y)) h.btn = 3;
@@ -735,6 +788,9 @@ void drawSelector(App& app) {
     drawIcon(cr, "gallery", 28 + (kShapeBox - 24) / 2.0, 26 + (kShapeBox - 24) / 2.0, 24, app.color("on_secondary_container"));
     text("Wallpapers", kSelTitleFont, 84, 27, app.color("on_surface"));
     text(std::to_string(sel.allFiles.size()) + " images", kSelSmallFont, 84, 50, app.color("on_surface_variant"));
+    cairo_save(cr);
+    cairo_rectangle(cr, 0, G.navTop, kMainX - 12, G.navBottom - G.navTop);
+    cairo_clip(cr);
     for (const auto& [ly, lt] : G.labels) text(lt, "Sans Bold 8", 38, ly, app.color("on_surface_variant"), 0.8);
     const bool navSliding = sel.navAnim.moving() && !G.nav.empty();
     if (navSliding) {
@@ -764,6 +820,13 @@ void drawSelector(App& app) {
         drawIcon(cr, ic, r.x + 14, r.y + 10, 20, ink, on);
         text(sel.cats[i].first, "Sans 10", r.x + 46, r.y + 11, app.color(on ? "on_secondary_container" : "on_surface"), 1.0, r.w - 58);
     }
+    if (G.navMax > 0) {  // a thin bar says the list goes on
+        const double trackH = G.navBottom - G.navTop, thumbH = std::max(24.0, trackH * trackH / (trackH + G.navMax));
+        roundedRect(cr, kMainX - 20, G.navTop + (trackH - thumbH) * sel.navScroll / G.navMax, 3, thumbH, 1.5);
+        setSource(cr, app.color("outline"), 0.5);
+        cairo_fill(cr);
+    }
+    cairo_restore(cr);
 
     roundedRect(cr, G.search.x, G.search.y, G.search.w, G.search.h, 22);
     setSource(cr, app.color("surface_container_high"));
@@ -787,7 +850,7 @@ void drawSelector(App& app) {
         cairo_fill(cr);
     }
     {
-        const std::string cnt = sel.onlineProvider.empty() || sel.onlineState != 1 ? std::to_string(sel.files.size()) + (sel.files.size() == 1 ? " result" : " results") : "Loading…";
+        const std::string cnt = sel.onlineProvider.empty() || sel.onlineState != 1 ? std::to_string(sel.files.size() - std::count_if(sel.files.begin(), sel.files.end(), isFolderTile)) + (sel.files.size() - std::count_if(sel.files.begin(), sel.files.end(), isFolderTile) == 1 ? " result" : " results") : "Loading…";
         const auto [cw, ch] = textW(cnt, kSelSmallFont);
         text(cnt, kSelSmallFont, G.search.x + G.search.w - 18 - cw, G.search.y + (G.search.h - ch) / 2.0, app.color("on_surface_variant"));
     }
@@ -923,7 +986,8 @@ void drawSelector(App& app) {
     {
         const std::string& kind = sel.cats[std::clamp(sel.cat, 0, static_cast<int>(sel.cats.size()) - 1)].second;
         const std::string name = kind == "all" ? "All wallpapers" : kind == "fav" ? "Favorites" : kind == "recent" ? "Recently used" : sel.cats[sel.cat].first;
-        text(name, "Sans Bold 13", kMainX + 4, kHeadY + 2, app.color("on_surface"));
+        const std::string shown = sel.browse.empty() ? name : baseName(sel.browse, false);
+        text(shown, "Sans Bold 13", kMainX + 4, kHeadY + 2, app.color("on_surface"));
         if (onlineList && providerNeedsKey(sel.onlineProvider) && !sel.keyPanel) {
             roundedRect(cr, G.change.x, G.change.y, G.change.w, G.change.h, 16);
             setSource(cr, app.color("surface_container_high"));
@@ -1052,7 +1116,22 @@ void drawSelector(App& app) {
             cairo_rectangle(cr, t.x, t.y, t.w, t.h);
             cairo_clip(cr);
             cairo_push_group(cr);
-            if (cairo_surface_t* th = thumbFor(app, sel.files[idx])) {
+            const bool folderTile = isFolderTile(sel.files[idx]);
+            if (folderTile) {
+                const bool up = sel.files[idx].rfind("up:", 0) == 0;
+                setSource(cr, app.color("surface_container_high"));
+                cairo_paint(cr);
+                drawIcon(cr, up ? "alt-arrow-left" : "folder-with-files", t.x + (t.w - 48) / 2.0, t.y + 22, 48, app.color(up ? "on_surface_variant" : "primary"));
+                const std::string name = up ? "Back" : baseName(folderTilePath(sel.files[idx]), false);
+                const auto cnt = sel.folderCount.find(sel.files[idx]);
+                const auto [nw, nh] = textW(name, "Sans Bold 10");
+                text(name, "Sans Bold 10", t.x + std::max(10.0, (t.w - nw) / 2.0), t.y + 78, app.color("on_surface"), 1.0, t.w - 20);
+                if (!up && cnt != sel.folderCount.end()) {
+                    const std::string n = std::to_string(cnt->second) + (cnt->second == 1 ? " image" : " images");
+                    const auto [cw, ch] = textW(n, kSelSmallFont);
+                    text(n, kSelSmallFont, t.x + (t.w - cw) / 2.0, t.y + 78 + nh + 4, app.color("on_surface_variant"));
+                }
+            } else if (cairo_surface_t* th = thumbFor(app, sel.files[idx])) {
                 cairo_set_source_surface(cr, th, t.x, t.y);
                 cairo_paint(cr);
             } else {
@@ -1061,7 +1140,10 @@ void drawSelector(App& app) {
                 drawIcon(cr, "gallery", t.x + (t.w - 28) / 2.0, t.y + (t.h - 28) / 2.0, 28, app.color("on_surface_variant"));
             }
             const bool hot = sel.hoverTile == idx;
-            if (hot) {
+            if (hot && folderTile) {
+                setSource(cr, app.color("on_surface"), 0.10);
+                cairo_paint(cr);
+            } else if (hot) {
                 setSource(cr, app.color("on_surface"), 0.10);
                 cairo_paint(cr);
                 cairo_pattern_t* fade = cairo_pattern_create_linear(0, t.y + t.h - 46, 0, t.y + t.h);
@@ -1106,8 +1188,8 @@ void drawSelector(App& app) {
             roundedRect(cr, t.x, t.y, t.w, t.h, 18);
             cairo_fill(cr);
             cairo_restore(cr);
-            const bool fav = !oit && isFavourite(sel, sel.files[idx]);
-            if (!oit && (hot || fav)) {
+            const bool fav = !oit && !folderTile && isFavourite(sel, sel.files[idx]);
+            if (!oit && !folderTile && (hot || fav)) {
                 const bool starHot = hot && sel.hoverBtn == 3;
                 cairo_arc(cr, t.x + t.w - 23, t.y + 23, 15, 0, 2 * M_PI);
                 setSource(cr, Color{0, 0, 0}, starHot ? 0.62 : 0.42);
@@ -1288,16 +1370,16 @@ void openSelector(App& app) {
     sel.cats.push_back({"All", "all"});
     sel.cats.push_back({"Favorites", "fav"});
     sel.cats.push_back({"Recent", "recent"});
-    int shown = 0;
     for (const std::string& dir : wallpaperFolders(root)) {
-        for (const auto& f : collectWallpapers(dir)) sel.allFiles.push_back(f);
-        if (shown++ < kMaxFolders) sel.cats.push_back({baseName(dir, false), "dir:" + dir});
+        for (const auto& f : collectWallpapersDeep(dir)) sel.allFiles.push_back(f);
+        if (app.cfg.selectorFolders == "sidebar") sel.cats.push_back({baseName(dir, false), "dir:" + dir});
     }
     for (const auto& [id, name] : kOnlineProviders) sel.cats.push_back({name, "online:" + id});
     sortNewestFirst(sel.allFiles);
     sel.favs = readPathList(wpListFile("wallpaper-favorites.txt"));
     sel.recents = readPathList(wpListFile("wallpaper-recent.txt"));
     sel.cat = 0;
+    sel.navScroll = 0;
     sel.navAnim.snap(0);
     sel.query.clear();
     loadOnlinePrefs(sel);
@@ -1420,11 +1502,30 @@ void doTrash(App& app) {
     sel.onlineNote = "Moved to trash: " + baseName(path, false);
 }
 
+void selectorMotion(App& app);
+// Opens a folder tile (or goes up with the "up:" one): the grid shows that folder.
+void openFolderTile(App& app, const std::string& key) {
+    Selector& sel = app.sel;
+    const std::string prev = sel.browse;
+    sel.browse = folderTilePath(key);
+    const std::string& cat = sel.cats[std::clamp(sel.cat, 0, static_cast<int>(sel.cats.size()) - 1)].second;
+    const std::string top = cat == "all" ? expandHome(app.cfg.wallpaperDir) : cat.rfind("dir:", 0) == 0 ? cat.substr(4) : "";
+    if (sel.browse == top) sel.browse.clear();
+    rebuildSelectorList(app);
+    if (key.rfind("up:", 0) == 0) {  // coming back: the folder we left is the one selected
+        for (size_t i = 0; i < sel.files.size(); i++)
+            if (sel.files[i] == "folder:" + prev) { sel.focusIdx = static_cast<int>(i); break; }
+    }
+    if (!sel.kbFocus) selectorMotion(app);  // (the pointer now rests over another tile: it gets the hover and the next click)
+    drawSelector(app);
+}
+
 void selectCategory(App& app, int idx) {
     Selector& sel = app.sel;
     if (idx < 0 || idx >= static_cast<int>(sel.cats.size())) return;
     if (idx != sel.cat) sel.navAnim.select(idx);
     sel.cat = idx;
+    sel.browse.clear();
     sel.onlineError.clear();
     sel.onlineNote.clear();
     const std::string& kind = sel.cats[idx].second;
@@ -1480,6 +1581,8 @@ void selectorClick(App& app) {
         toggleFavourite(app, sel.files[sel.hoverTile]);
     } else if ((sel.hoverBtn == 11 || sel.hoverBtn == 12) && sel.hoverTile >= 0) {
         if (const OnlineItem* oi = onlineItemFor(sel, sel.files[sel.hoverTile])) onlineDownload(app, *oi, sel.hoverBtn == 12);
+    } else if (sel.hoverTile >= 0 && isFolderTile(sel.files[sel.hoverTile])) {
+        openFolderTile(app, sel.files[sel.hoverTile]);
     } else if (sel.hoverTile >= 0) {
         if (isOnlineTile(sel.files[sel.hoverTile])) { if (const OnlineItem* oi = onlineItemFor(sel, sel.files[sel.hoverTile])) onlineDownload(app, *oi, true); }
         else applyTheme(app, sel.files[sel.hoverTile]);
@@ -1561,6 +1664,12 @@ void selectorMotion(App& app) {
 void selectorScroll(App& app, int rows) {
     Selector& sel = app.sel;
     if (sel.anim.phase != kPopOpen) return;
+    const SelGeom sg = selGeom(sel);
+    if (app.pointerX < kMainX - 8 && app.pointerY >= sg.navTop && app.pointerY <= sg.navBottom) {  // over the sidebar: scrolls its list
+        const double next = std::clamp(sel.navScroll + rows * 44.0, 0.0, sg.navMax);
+        if (next != sel.navScroll) { sel.navScroll = next; selectorMotion(app); drawSelector(app); }
+        return;
+    }
     const int next = std::clamp(sel.scrollRow + rows, 0, maxScrollRow(sel));
     if (next == sel.scrollRow) { if (rows > 0) onlineMaybeMore(app); return; }
     sel.scrollRow = next;

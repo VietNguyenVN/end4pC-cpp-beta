@@ -367,6 +367,7 @@ struct Config {
     std::string colorMode = "dark";
     std::string wallpaperDir = "~/Pictures/Wallpapers";
     std::string wallpaperTransition = "fade";
+    std::string selectorFolders = "sidebar";  // where the wallpaper selector shows the folders: sidebar, or tiles of the grid (first / last)
     int wallpaperTransitionMs = 700;
     int wallpaperAuto = 0;
     int wallpaperAutoFavs = 0;
@@ -761,6 +762,9 @@ struct Selector {
     bool configured = false;
     std::vector<std::string> allFiles;
     std::vector<std::string> files;
+    std::map<std::string, int> folderCount;  // pictures under each folder tile
+    double navScroll = 0;  // how far the folders of the sidebar are scrolled
+    std::string browse;  // the folder being looked at inside the selector (empty: the top one of the chip)
     int scrollRow = 0;
     int hoverTile = -1, hoverChip = -1, hoverMode = -1;
     int hoverNav = -1, hoverBtn = -1;

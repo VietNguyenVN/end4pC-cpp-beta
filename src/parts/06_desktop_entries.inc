@@ -1459,7 +1459,7 @@ void updatesTone(const App& app, const char*& role, const char*& on) {
     else { role = nullptr; on = "on_primary"; }
 }
 double updatesBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double cy, bool hot) {
-    constexpr double ic = 20, gap = 5, disc = kM3Disc;
+    constexpr double ic = 16, gap = 4, m3Gap = 5, disc = kM3Disc;  // (the plain looks keep the icon and gap of the AI usage widget, which has its paddings right)
     constexpr int discIconSize = 16;
     const std::string style = widgetStyle(app, "updates");
     const bool m3 = style == "m3", framed = framedStyle(style);
@@ -1471,7 +1471,7 @@ double updatesBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double 
     pango_layout_set_text(layout, updatesText(app).c_str(), -1);
     int tw = 0, th = 0;
     pango_layout_get_pixel_size(layout, &tw, &th);
-    const double w = m3 ? kM3Inset + disc + gap + tw + kModulePad : ic + gap + tw + (framed ? 2 * kModulePad : 0);
+    const double w = m3 ? kM3Inset + disc + m3Gap + tw + kModulePad : ic + gap + tw + (framed ? 2 * kModulePad : 0);
     if (cr) {
         if (m3) {
             roundedRect(cr, x, cy - kM3Box / 2.0, w, kM3Box, kM3Box / 2.0);
@@ -1488,7 +1488,7 @@ double updatesBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double 
             cairo_fill(cr);
             drawIcon(cr, "download-square", x + kM3Inset + (disc - discIconSize) / 2.0, cy - discIconSize / 2.0, discIconSize, app.color(on));
             setSource(cr, app.color("on_primary_container"));
-            cairo_move_to(cr, x + kM3Inset + disc + gap, cy - th / 2.0);
+            cairo_move_to(cr, x + kM3Inset + disc + m3Gap, cy - th / 2.0);
             pango_cairo_show_layout(cr, layout);
         } else {
             Color ink = app.color("on_surface");
@@ -1497,7 +1497,8 @@ double updatesBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double 
                 ink = styleFrame(cr, app, style, x, cy - kQuickBox / 2.0, w, kQuickBox, hot);
                 left += kModulePad;
             }
-            drawIcon(cr, "download-square", left, cy - ic / 2.0, ic, role ? app.color(role) : ink);
+            const bool strongFill = style == "badge" || style == "m3filled";  // (the alert color would vanish on the solid primary of these looks)
+            drawIcon(cr, "download-square", left, cy - ic / 2.0, ic, role && !strongFill ? app.color(role) : ink);
             setSource(cr, ink);
             cairo_move_to(cr, left + ic + gap, cy - th / 2.0);
             pango_cairo_show_layout(cr, layout);
