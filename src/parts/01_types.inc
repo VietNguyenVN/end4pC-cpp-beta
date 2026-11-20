@@ -1814,6 +1814,7 @@ struct App {
     // written, and which one the OSD and the control center show (`brightness` is that one's value)
     std::map<std::string, int> brightVal;
     std::map<std::string, std::pair<int, int>> brightPend;
+    bool brightFailed = false;  // the last reading of the screen got no answer (brightnessctl or ddcutil missing, or no permission)
     std::set<std::string> brightDirtyOuts;
     std::string brightOut, brightJobOut;
     std::string hotCornerOut;  // the output of the hot corner the pointer is in

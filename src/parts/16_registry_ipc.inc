@@ -186,7 +186,27 @@ void handleClient(App& app, int listenFd) {
 
     std::string reply;
     if (cmd == "ping") reply = "pong";
-    else if (cmd == "volume") reply = std::to_string(app.volume) + (app.muted ? " muted" : "");
+    else if (cmd == "volume" || cmd.rfind("volume ", 0) == 0) {
+        // volume [get|up|down|set N|mute|unmute|toggle]: the default speakers; the reply is the volume it ends at
+        const std::string a = cmd.size() > 7 ? cmd.substr(7) : "get";
+        const bool digits = a.size() > 4 && a.rfind("set ", 0) == 0 && a.find_first_not_of("0123456789", 4) == std::string::npos && a.size() <= 7;
+        if (a == "up" || a == "down") {
+            app.volume = std::clamp(app.volume + (a == "up" ? app.cfg.volumeStep : -app.cfg.volumeStep), 0, app.cfg.volumeMax);
+            runDetached({"wpctl", "set-volume", "-l", volLimit(app).c_str(), "@DEFAULT_AUDIO_SINK@", volStep(app, a == "down").c_str()});
+            showOsd(app, OsdVolume);  // (app.volume is already the new one, so the audio event would find no change and show nothing)
+        } else if (digits) {
+            app.volume = std::clamp(std::atoi(a.c_str() + 4), 0, app.cfg.volumeMax);
+            runDetached({"wpctl", "set-volume", "-l", volLimit(app).c_str(), "@DEFAULT_AUDIO_SINK@", (std::to_string(app.volume) + "%").c_str()});
+            showOsd(app, OsdVolume);
+        } else if (a == "mute" || a == "unmute" || a == "toggle") {
+            app.muted = a == "toggle" ? !app.muted : a == "mute";
+            runDetached({"wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", a == "toggle" ? "toggle" : a == "mute" ? "1" : "0"});
+            showOsd(app, OsdVolume);
+        } else if (a != "get") {
+            reply = "usage: volume [get|up|down|set N|mute|unmute|toggle]";
+        }
+        if (reply.empty()) reply = std::to_string(app.volume) + (app.muted ? " muted" : "");
+    }
     else if (cmd == "usercard image" || cmd.rfind("usercard image ", 0) == 0) {
         std::string path = cmd.size() > 15 ? cmd.substr(15) : "";
         while (!path.empty() && path.back() == ' ') path.pop_back();
@@ -323,7 +343,9 @@ void handleClient(App& app, int listenFd) {
         if (a == "up") changeBrightness(app, 5, -1, output);
         else if (a == "down") changeBrightness(app, -5, -1, output);
         else if (a.rfind("set ", 0) == 0) changeBrightness(app, 0, std::atoi(a.c_str() + 4), output);
-        reply = app.brightness < 0 ? "unknown (asking the monitor)" : std::to_string(app.brightness);
+        else brightnessFollowFocus(app);  // (get: reads the screen in focus when its value is not known yet; ask again a moment later)
+        reply = app.brightFailed ? "the screen does not answer: install brightnessctl (laptop) or ddcutil (external monitor) and check you are in the video group"
+                : app.brightness < 0 ? "unknown (asking the monitor)" : std::to_string(app.brightness);
     }
     else if (cmd == "conflicts") { const size_t n = openConflicts(app, true); reply = n ? std::to_string(n) + " conflicting program(s)" : "none"; }
     else if (cmd == "forcequit") { openForceQuit(app); reply = app.fq.surface ? "open" : "closed"; }

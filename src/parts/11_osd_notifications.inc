@@ -246,7 +246,8 @@ void brightnessJobDone(App& app) {
     app.brightFd = -1;
     if (!app.brightJobIsGet) return;
     int cur = 0, max = 0;
-    if (std::sscanf(app.brightBuf.c_str(), "%d %d", &cur, &max) != 2 || max <= 0) { app.brightPend.erase(app.brightJobOut); return; }
+    if (std::sscanf(app.brightBuf.c_str(), "%d %d", &cur, &max) != 2 || max <= 0) { app.brightFailed = true; app.brightPend.erase(app.brightJobOut); return; }
+    app.brightFailed = false;
     const std::string out = app.brightJobOut;
     app.brightVal[out] = std::clamp(cur * 100 / max, 0, 100);
     if (app.brightOut == out) app.brightness = app.brightVal[out];

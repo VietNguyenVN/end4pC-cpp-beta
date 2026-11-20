@@ -29,6 +29,8 @@ It started as a C++ port of my Quickshell config and keeps its Material 3 look.
 
 > [!WARNING]
 > **Beta.** The project changes quickly and things may break. Tested on Arch Linux with Hyprland 0.57.1 (Lua config); niri and sway (SwayFX) are supported too.
+>
+> **NVIDIA:** there is no support for NVIDIA graphics for the moment. The shell has only been tested on Intel and AMD.
 
 ## Contents
 
@@ -54,6 +56,7 @@ It started as a C++ port of my Quickshell config and keeps its Material 3 look.
 | **Wallpaper** | Selector with local folders, favourites, Wallhaven / Unsplash / Pexels; transitions; light/dark and generated palettes (matugen) plus ready-made themes. |
 | **Capture** | Screenshot and screen recording with annotations, audio and fps options. OCR of an area (`tesseract`), Google Lens search, QR reading and QR generation. |
 | **Tools** | Translator, notes, image converter, video editor, unit and currency converter (about 160 currencies), timers, stopwatch and reminders that ring with the window closed, a key bind editor. |
+| **Task Manager** | Its own window (`SUPER + SHIFT + T`, `CTRL + SHIFT + Esc`, or the button in the resources popup). Processes: apps and processes with CPU, memory and disk, search, End task and Force kill with a confirmation. Performance: CPU (every core), memory, disks, network and GPU (Intel and AMD; NVIDIA is untested) with live charts. Battery and Devices tabs from `upower`. |
 | **Desktop widgets** | Clock (many faces), weather, to-do, calendar, player, resources, user card, image, text, audio visualizer. |
 | **Accessibility** | Screen magnifier, bigger cursor, draggable on-screen keyboard that follows the focused monitor. |
 | **System** | Lock screen (`ext-session-lock` + PAM), polkit authentication agent, removable drives popup (`udisks2`), game overlay, do-not-disturb. |
@@ -253,6 +256,7 @@ All take `toggle` (the default), `open` or `close` unless noted.
 | `game [open\|close]` | Game overlay |
 | `settings` | Settings window |
 | `tools` | Tools window |
+| `tasks` | Task Manager window |
 | `osd volume \| osd brightness` | Show the on-screen display |
 
 ### Desktop widgets
@@ -274,7 +278,7 @@ All take `toggle` (the default), `open` or `close` unless noted.
 | `tray click <n>` | Click tray item `n` |
 | `tray open` / `tray close` | Expand or collapse the tray |
 | `brightness [get\|up\|down\|set N]` | Screen brightness |
-| `volume` | Volume in use |
+| `volume [get\|up\|down\|set N\|mute\|unmute\|toggle]` | Volume of the default speakers (`up` and `down` use the step of the Settings; the answer is the volume it ends at) |
 | `dnd [on\|off\|toggle]` | Do not disturb |
 | `updates [check]` | Check pending updates now |
 | `quick <n>` | Run quick action `n` of the bar |
