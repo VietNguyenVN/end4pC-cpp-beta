@@ -206,6 +206,9 @@ Open Settings from the bar's gear, with `SUPER + Escape`, or `end4pC settings`.
 
 `end4pC` with no arguments starts the shell. With arguments it **talks to the running shell** over a socket and prints the reply, so everything here works from a terminal, a key bind or a script.
 
+> [!IMPORTANT]
+> **Put the whole command in quotes** when it has more than one word: `end4pC "volume up"`, `end4pC "brightness set 70"`, `end4pC "set dock 1"`. Without the quotes only the first word reaches the shell (`end4pC volume up` is read as `end4pC volume`). Commands of one word, like `end4pC settings` or `end4pC ping`, need no quotes. Every example below with arguments is meant to be written this way.
+
 ```text
 end4pC                          start the shell (foreground)
 end4pC run                      start it detached (no-op if already running)
