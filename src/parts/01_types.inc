@@ -45,6 +45,7 @@ struct WpJob {
     CollageSpec fromCollage, toCollage;
     std::string fromPath, toPath;
     int w = 0, h = 0;
+    double scale = 1;  // the wallpaper surface's scale: the pictures are rendered at w x h times it (src/hidpi.h)
     double bgR = 0, bgG = 0, bgB = 0;
     cairo_surface_t* from = nullptr;
     cairo_surface_t* to = nullptr;
@@ -89,6 +90,7 @@ struct Bar {
     uint32_t height = kBarHeight;
     wl_buffer* buffer = nullptr;
     wl_surface* wpSurface = nullptr;
+    hidpi::SurfaceScale wpScale;
     zwlr_layer_surface_v1* wpLayer = nullptr;
     Bar* wpRef = nullptr;
     uint32_t wpW = 0, wpH = 0;
@@ -1647,6 +1649,7 @@ struct App {
     wp_viewporter* viewporter = nullptr;                 // these two: sharp drawing at fractional scales (src/hidpi.h)
     wp_fractional_scale_manager_v1* fscaleMgr = nullptr;
     bool scaleChanged = false;                           // a bar surface was given a new scale: the main loop redraws them
+    bool wallpaperScaleChanged = false;                  // the same for a wallpaper surface
     wl_seat* seat = nullptr;
     wl_pointer* pointer = nullptr;
     wl_keyboard* keyboard = nullptr;

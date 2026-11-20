@@ -738,6 +738,10 @@ int main(int argc, char** argv) {
             for (auto& b : app.bars) { b->shSig.clear(); draw(*b); }
             redrawFrames(app);
         }
+        if (app.wallpaperScaleChanged) {
+            app.wallpaperScaleChanged = false;
+            redrawWallpapers(app);
+        }
 
         if (fds[1].revents & POLLIN) {
             uint64_t expirations;

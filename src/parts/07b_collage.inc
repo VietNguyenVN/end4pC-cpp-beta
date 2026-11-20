@@ -163,8 +163,10 @@ void paintCollageTile(cairo_t* cr, const CollageRect& r, double radius, cairo_su
 bool paintCollage(cairo_t* cr, int w, int h, const std::string& wallpaper, const CollageSpec& spec, double r, double g, double b, bool blocking) {
     const std::vector<CollageTile> tiles = collageTiles(spec, w, h);
     bool complete = true;
+    const double ds = hidpi::scaleOf(cr);  // (the pictures are decoded at the canvas's real pixels; collageReady asks for the same size)
+    const int pw = hidpi::bufferExtent(w, ds), ph = hidpi::bufferExtent(h, ds);
     auto fetch = [&](const std::string& path) {
-        const CollageLookup got = lookupCollageImage(path, w, h, blocking);
+        const CollageLookup got = lookupCollageImage(path, pw, ph, blocking);
         complete = complete && !got.pending;
         return got.image;
     };
@@ -184,8 +186,9 @@ bool paintCollage(cairo_t* cr, int w, int h, const std::string& wallpaper, const
     return complete;
 }
 
-cairo_surface_t* collageRenderSurface(const std::string& wallpaper, int w, int h, double r, double g, double b, const CollageSpec& spec) {
-    cairo_surface_t* surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
+cairo_surface_t* collageRenderSurface(const std::string& wallpaper, int w, int h, double scale, double r, double g, double b, const CollageSpec& spec) {
+    cairo_surface_t* surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, hidpi::bufferExtent(w, scale), hidpi::bufferExtent(h, scale));
+    cairo_surface_set_device_scale(surf, scale, scale);
     cairo_t* cr = mkcr(surf);
     paintCollage(cr, w, h, wallpaper, spec, r, g, b, true);
     cairo_destroy(cr);
@@ -198,8 +201,10 @@ bool collageReady(const Bar& bar, const App& app) {
     paths.push_back(app.wallpaper);
     paths.push_back(collagePrimaryImage(spec));
     bool ready = true;
+    const double ds = std::max(1.0, bar.wpScale.factor());  // (the size paintCollage asks for)
+    const int pw = hidpi::bufferExtent(static_cast<int>(bar.wpW), ds), ph = hidpi::bufferExtent(static_cast<int>(bar.wpH), ds);
     for (const std::string& path : paths)
-        if (lookupCollageImage(path, bar.wpW, bar.wpH, false).pending) ready = false;
+        if (lookupCollageImage(path, pw, ph, false).pending) ready = false;
     return ready;
 }
 
