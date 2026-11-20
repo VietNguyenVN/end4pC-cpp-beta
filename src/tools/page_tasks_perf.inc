@@ -125,6 +125,49 @@ void tkChart(cairo_t* cr, const Rect& r, const std::vector<const TkSeries*>& ser
     text(cr, topLabel, r.x + r.w - 16 - tw, r.y + 10, 12, false, g.color("on_surface_variant"));
 }
 
+// A text that fits in maxW on one line: the end is cut and marked with "…" when it is too long.
+std::string tkFit(const std::string& s, double px, bool bold, double maxW) {
+    double w = 0, h = 0;
+    measure(s, px, bold, 0, w, h);
+    if (w <= maxW) return s;
+    std::string cut = s;
+    while (!cut.empty()) {  // (by characters, not bytes)
+        do cut.pop_back(); while (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80);
+        measure(cut + "…", px, bold, 0, w, h);
+        if (w <= maxW) return cut + "…";
+    }
+    return "…";
+}
+
+// The numbers as boxes that fill the width and the height they are given: no empty room on the right.
+void tkStatGrid(cairo_t* cr, const Rect& a, const std::vector<std::pair<std::string, std::string>>& st, int cols, std::vector<Rect>* boxes = nullptr) {
+    if (st.empty()) return;
+    constexpr double gap = 8;
+    if (boxes) boxes->clear();
+    cols = std::max(1, std::min<int>(cols, static_cast<int>(st.size())));
+    const int rows = (static_cast<int>(st.size()) + cols - 1) / cols;
+    const double ch = (a.h - (rows - 1) * gap) / rows;
+    for (size_t i = 0; i < st.size(); i++) {
+        const int c = static_cast<int>(i) % cols, rr = static_cast<int>(i) / cols;
+        const int inRow = rr == rows - 1 ? static_cast<int>(st.size()) - rr * cols : cols;  // (the last row shares its width among the boxes it has)
+        const double w = (a.w - (inRow - 1) * gap) / inRow;
+        const Rect b = {a.x + c * (w + gap), a.y + rr * (ch + gap), w, ch};
+        if (boxes) boxes->push_back(b);
+        src(cr, g.color("surface_container"));
+        rrect(cr, b.x, b.y, b.w, b.h, 20);
+        cairo_fill(cr);
+        text(cr, st[i].first, b.x + 16, b.y + 12, 13, false, g.color("on_surface_variant"));
+        double px = std::clamp(b.h * 0.34, 18.0, 28.0), tw = 0, th = 0;
+        for (; px > 15; px -= 1) {  // a long value gets a smaller type before it gets cut
+            measure(st[i].second, px, true, 0, tw, th);
+            if (tw <= b.w - 28) break;
+        }
+        const std::string val = tkFit(st[i].second, px, true, b.w - 28);
+        measure(val, px, true, 0, tw, th);
+        text(cr, val, b.x + 16, b.y + b.h - 14 - th, px, true, g.color("on_surface"));
+    }
+}
+
 struct TkPerf {
     // ---- the machine ----
     std::string cpuModel;
@@ -587,8 +630,8 @@ struct TkPerf {
         switch (r.kind) {
             case Cpu: return "cpu";
             case Mem: return "server-square";
-            case Disk: return "database";
-            case Net: return nets[r.index].wifi ? "wi-fi-router" : "global";
+            case Disk: return "ssd-square";
+            case Net: return nets[r.index].wifi ? "wi-fi-router-minimalistic" : "server-path";
             case Gpu: return "monitor";
         }
         return "cpu";
@@ -647,8 +690,8 @@ struct TkPerf {
             cairo_restore(cr);
             const double isz = std::clamp(r.h * 0.42, 34.0, 52.0);
             ::icon(cr, iconOf(list[i], nets), r.x + r.w - 20 - isz, r.y + 16, static_cast<int>(isz), fg);
-            text(cr, titleOf(list[i]), r.x + 18, r.y + 16, 16, true, fg, r.w - 36 - isz);
-            text(cr, valueOf(list[i]), r.x + 18, r.y + 42, 13, false, fg, r.w - 36 - isz, 0.85);
+            text(cr, tkFit(titleOf(list[i]), 16, true, r.w - 36 - isz), r.x + 18, r.y + 16, 16, true, fg);
+            text(cr, tkFit(valueOf(list[i]), 13, false, r.w - 36 - isz), r.x + 18, r.y + 42, 13, false, fg, 0, 0.85);
         }
         cairo_restore(cr);
     }
@@ -660,32 +703,8 @@ struct TkPerf {
     Clock::time_point copiedAt{};
     std::string copyText;
 
-    // The numbers as boxes that fill the width and the height they are given: no empty room on the right.
-    void statGrid(cairo_t* cr, const Rect& a, const Stats& st, int cols) {
-        if (st.empty()) return;
-        constexpr double gap = 8;
-        boxes.clear();
-        cols = std::max(1, std::min<int>(cols, static_cast<int>(st.size())));
-        const int rows = (static_cast<int>(st.size()) + cols - 1) / cols;
-        const double cw = (a.w - (cols - 1) * gap) / cols, ch = (a.h - (rows - 1) * gap) / rows;
-        for (size_t i = 0; i < st.size(); i++) {
-            const int c = static_cast<int>(i) % cols, rr = static_cast<int>(i) / cols;
-            // the last row shares its width among the boxes it has
-            const int inRow = rr == rows - 1 ? static_cast<int>(st.size()) - rr * cols : cols;
-            const double w = (a.w - (inRow - 1) * gap) / inRow;
-            const Rect b = {a.x + c * (w + gap), a.y + rr * (ch + gap), w, ch};
-            boxes.push_back(b);
-            (void)cw;
-            src(cr, g.color("surface_container"));
-            rrect(cr, b.x, b.y, b.w, b.h, 20);
-            cairo_fill(cr);
-            text(cr, st[i].first, b.x + 16, b.y + 12, 13, false, g.color("on_surface_variant"));
-            const double px = std::clamp(b.h * 0.34, 18.0, 28.0);
-            double tw = 0, th = 0;
-            measure(st[i].second, px, true, 0, tw, th);
-            text(cr, st[i].second, b.x + 16, b.y + b.h - 14 - th, px, true, g.color("on_surface"), b.w - 28);
-        }
-    }
+    // The numbers as boxes (see tkStatGrid); the boxes are kept so a page can put a button in one.
+    void statGrid(cairo_t* cr, const Rect& a, const Stats& st, int cols) { tkStatGrid(cr, a, st, cols, &boxes); }
 
     void draw(cairo_t* cr, const Rect& area) {
         if (list.empty()) buildList();
@@ -703,7 +722,9 @@ struct TkPerf {
         else sub = gpus[r.index].name;
         double sw = 0, sh = 0;
         measure(sub, 14, false, 0, sw, sh);
-        text(cr, sub, d.x + d.w - 4 - sw, d.y + 12, 14, false, g.color("on_surface_variant"), d.w * 0.6);
+        sub = tkFit(sub, 14, false, d.w * 0.6);
+        measure(sub, 14, false, 0, sw, sh);
+        text(cr, sub, d.x + d.w - 4 - sw, d.y + 12, 14, false, g.color("on_surface_variant"));
         const double top = d.y + 44, bottom = d.y + d.h, gap = 10;
         const std::string time = tkT("60 seconds");
         const Color c1 = g.color("primary"), c2 = g.color("tertiary");

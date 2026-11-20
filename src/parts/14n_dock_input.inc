@@ -62,7 +62,7 @@ void dockShow(App& app) {
 
 void dockHide(App& app) {
     DockState& D = app.dock;
-    if (!app.cfg.dockAutoHide || app.onDock || D.menuOpen || D.gridOpen) return;
+    if (!dockWantsHidden(app) || app.onDock || D.menuOpen || D.gridOpen) return;
     D.slideTarget = 1;
     if (!D.moving) D.lastStep = std::chrono::steady_clock::now();
     D.moving = true;
@@ -163,7 +163,7 @@ void dockLeave(App& app) {
     D.hover = -1;
     dockCloseMenu(app);
     dockGridClose(app);
-    if (app.cfg.dockAutoHide) {
+    if (dockWantsHidden(app)) {
         D.hideArmed = true;
         D.hideAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(static_cast<long>(kDockHideDelay * 1000));
     }
@@ -386,10 +386,26 @@ void dockGridScroll(App& app, int dir) {
     D.moving = true;
 }
 
+// Smart auto-hide: a window opens or the workspace changes, and the dock goes down or comes back up.
+void dockSmartUpdate(App& app) {
+    DockState& D = app.dock;
+    if (!D.open() || !D.configured || app.cfg.dockAutoHide != 2) return;
+    if (dockWantsHidden(app)) {
+        if (D.slideTarget < 0.5 && !app.onDock && !D.menuOpen && !D.gridOpen && !D.hideArmed) {
+            D.hideArmed = true;  // (a short wait: a window that is just opening does not make the dock flicker)
+            D.hideAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(350);
+        }
+    } else {
+        D.hideArmed = false;
+        if (D.slideTarget > 0.5) { dockShow(app); D.moving = true; }
+    }
+}
+
 void dockOnWindowsChanged(App& app) {
     if (!app.dock.open() || !app.dock.configured) return;
     dockRebuild(app);
     dockRedraw(app);
+    dockSmartUpdate(app);
 }
 
 void dockWTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs) {

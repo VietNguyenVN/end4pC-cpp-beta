@@ -75,6 +75,12 @@ do
     if not ok then print("end4pC keybinds: " .. tostring(err)) end
 end
 
+-- Window rules made in Settings > Hyprland > Rules: a table (~/.config/hypr/windowrules.tsv). See hyprland/rules.lua.
+do
+    local ok, err = pcall(dofile, os.getenv("HOME") .. "/.config/end4pC/hyprland/rules.lua")
+    if not ok then print("end4pC rules: " .. tostring(err)) end
+end
+
 -- Settings app (end4pC-settings): a normal window, always floating, centred and with a fixed size.
 hl.window_rule({
     name  = "end4pC-settings",

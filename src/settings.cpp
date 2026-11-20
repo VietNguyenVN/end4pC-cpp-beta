@@ -38,6 +38,7 @@
 #include <map>
 #include <mutex>
 #include <thread>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -100,6 +101,8 @@ std::string pageFile() { return stateDir() + "/settings-page"; }
 void savePage();
 double searchFlash(int pi, int ri);  // (Search, below)
 void commitText();
+void ruleSend(const std::string& key, const std::string& value);
+void loadRules();
 std::string colorsPath() { return stateDir() + "/generated/colors.json"; }
 std::string runtimeDir() { const char* d = std::getenv("XDG_RUNTIME_DIR"); return d ? d : "/tmp"; }
 
@@ -180,7 +183,7 @@ std::string jsonString(const std::string& text, const std::string& key, const st
 }
 constexpr const char* kCollageDefaultTree = R"({"t":"leaf","id":1,"img":""})";
 
-enum Kind { Toggle, Choice, Slider, Text, Info, Action, Webapp, Chip, Widgets, Gallery, Accent, Swatch, Split, Scheme, WCards, ThemeCards, CollageLayout, IconStyle, PresetCards, DisplayMap, StyleCards };
+enum Kind { Toggle, Choice, Slider, Text, Info, Action, Webapp, Chip, Widgets, Gallery, Accent, Swatch, Split, Scheme, WCards, ThemeCards, CollageLayout, IconStyle, PresetCards, DisplayMap, StyleCards, Rule };
 std::vector<std::pair<std::string, std::string>> cwpShapeOpts();
 using Opts = std::vector<std::pair<std::string, std::string>>;
 
@@ -326,6 +329,8 @@ std::vector<Row> hyprRows() {
         {Toggle, "hypr:binds:allow_workspace_cycles", "Allow workspace cycles", "Let the back-and-forth ping-pong between workspaces."},
         {Choice, "hypr:render:direct_scanout", "Direct scanout", "Send fullscreen apps straight to the screen.", {{"0", "Off"}, {"1", "On"}, {"2", "Auto"}}},
         {Action, "hyprReset", "Reset", "Put every Hyprland option back as it was before you changed anything here.", {}, 0, 100, 1, "Reset all"},
+        {Text, "rule:add", "Add a rule", "Type the class of an app (like firefox) and press Enter. The rule decides where the app opens and how."},
+        {Split, "rule:pick", "Pick an open app", "Or choose one of the apps that are open now.", {}},
     };
     return r;
 }
@@ -479,7 +484,7 @@ std::vector<Page> makePages() {
         {Swatch, "dockBorderColor", "Border color", "The color of that line.", {{"primary", "Primary"}, {"secondary", "Secondary"}, {"tertiary", "Tertiary"}, {"primary_container", "Primary container"}, {"secondary_container", "Secondary container"}, {"tertiary_container", "Tertiary container"}, {"outline", "Outline"}, {"outline_variant", "Outline variant"}}},
         {Toggle, "dockMedia", "Media Player", "Shows what is playing in the dock, after the pinned apps: the cover, the artist and the title, with play and pause and next buttons. Right click for previous and the full player.", {}},
         {Toggle, "dockPin", "Pin button", "A button at the start of the dock that turns auto-hide on and off.", {}},
-        {Toggle, "dockAutoHide", "Auto-hide", "Hide the dock until the pointer touches its edge of the screen. Off: it stays on screen and windows do not go under it."},
+        {Choice, "dockAutoHide", "Auto-hide", "Hide the dock until the pointer touches its edge of the screen. Smart: it shows while the workspace is empty and hides when a window opens. Off: it stays on screen and windows do not go under it.", {{"0", "Off"}, {"1", "Always"}, {"2", "Smart"}}},
         {Toggle, "dockMagnify", "Magnify icons", "The icons under the pointer grow as it passes over them."},
         {Slider, "dockMagnification", "Magnification", "How big the icon under the pointer gets.", {}, 100, 220, 10, "%"},
         {Slider, "dockIconSize", "Icon size", "The size of the dock icons.", {}, 28, 72, 2, "px"},
@@ -636,7 +641,7 @@ std::vector<Page> makePages() {
         if (pg.name == "General") sections(pg, {{"language", "Language"}, {"preferredPlayer", "Apps"}, {"clock24", "Time"}, {"volumeMax", "Audio"}, {"batteryLow", "Battery"}});
         else if (pg.name == "Appearance") sections(pg, {{"colorMode", "Colors"}, {"fontFamily", "Font & Icons"}, {"theme", "Themes"}, {"presetSave", "Presets"}, {"templateKitty", "Templates"}});
         else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"privacyAlways", "Privacy"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"dividerStyle", "Divider"}, {"aiClaude", "AI usage"}});
-        else if (pg.name == "Hyprland") sections(pg, {{"mon:map", "Displays"}, {"hypr:general:layout", "Layout"}, {"hypr:input:kb_layout", "Keyboard"}, {"hypr:input:sensitivity", "Mouse"}, {"hypr:input:touchpad:natural_scroll", "Touchpad"}, {"idle:lock", "Idle"}, {"hypr:decoration:rounding", "Look"}, {"borderColor", "Borders"}, {"hypr:animations:enabled", "Animations"}, {"hypr:general:resize_on_border", "Windows"}, {"hypr:misc:focus_on_activate", "Misc"}});
+        else if (pg.name == "Hyprland") sections(pg, {{"mon:map", "Displays"}, {"hypr:general:layout", "Layout"}, {"hypr:input:kb_layout", "Keyboard"}, {"hypr:input:sensitivity", "Mouse"}, {"hypr:input:touchpad:natural_scroll", "Touchpad"}, {"idle:lock", "Idle"}, {"hypr:decoration:rounding", "Look"}, {"borderColor", "Borders"}, {"hypr:animations:enabled", "Animations"}, {"hypr:general:resize_on_border", "Windows"}, {"hypr:misc:focus_on_activate", "Misc"}, {"rule:add", "Rules"}});
         else if (pg.name == "Niri") sections(pg, {{"niri:gaps", "Layout"}, {"niri:radius", "Windows"}, {"niri:follow", "Behavior"}, {"niri:repeatDelay", "Input"}, {"niriReset", "Reset"}});
         else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}, {"deskVizStyle", "Visualizer"}, {"customTextFont", "Text"}});
         else if (pg.name == "System") sections(pg, {{"sys:cursor", "Cursor"}, {"sys:icons", "Icons"}, {"sys:font", "Fonts"}, {"sys:app:browser", "Default Apps"}, {"screenshotDir", "Capture"}, {"doNotDisturb", "Notifications"}, {"periphSummary", "Devices"}});
@@ -1236,6 +1241,7 @@ void loadHypr() {
     }
     const char* home = std::getenv("HOME");
     const std::string a = readFile(std::string(home ? home : "") + "/.config/hypr/hyprland/shellOverrides/animations.lua");
+    loadRules();
     g.val["hypr:animPreset"] = a.find("pc_wobble") != std::string::npos ? "fast" : a.find("emphasizedDecel") != std::string::npos ? "normal" : a.find("niri_wobble") != std::string::npos ? "niri" : (a.empty() && g.val["hypr:animations:enabled"] == "0") ? "off" : "";
 }
 
@@ -1508,6 +1514,7 @@ void sendSet(const std::string& key, const std::string& value) {
     if (key.compare(0, 4, "sys:") == 0) { sysSend(key, value); g.dirty = true; return; }
     if (key.compare(0, 5, "idle:") == 0) { idleSend(key, value); g.dirty = true; return; }
     if (key.compare(0, 4, "mon:") == 0) { monitorSend(key, value); g.dirty = true; return; }
+    if (key.compare(0, 5, "rule:") == 0) { ruleSend(key, value); g.dirty = true; return; }
     if (key == "layoutFor") { g.val[key] = value; loadConfig(); g.dirty = true; return; }
     if (isHyprKey(key)) { hyprSend(key, value); g.dirty = true; return; }
     if (isNiriKey(key)) { niriSend(key, value); g.dirty = true; return; }
@@ -2148,6 +2155,200 @@ void createWebapp(const std::string& raw) {
     g.createPid = spawn({"bash", scriptPath("webapp.sh"), "create", url});
     if (g.createPid > 0) g.webPids.insert(g.createPid);
     else g.createPid = 0;
+}
+
+// ---- Hyprland > Rules: window rules made with the mouse ----
+// The rules are a plain table, ~/.config/hypr/windowrules.tsv (one rule per line, fields separated by a tab), loaded by hyprland/rules.lua like the
+// keybinds are; `hyprctl reload` applies a change. The class of an app is exact and case blind when it is a plain word; with regex characters
+// it is a regular expression (Hyprland matches the whole text). A plain title is a part of the title.
+struct RuleItem {
+    std::string id, cls, title, monitor, size;
+    int workspace = 0, mode = 0, opacity = 100;  // mode: 0 as it comes, 1 floating, 2 tiled
+    bool silent = false, center = false, pin = false;
+};
+std::vector<RuleItem> g_rules;
+std::string g_ruleOpen;  // the rule that shows its options
+bool g_rulesRebuild = false;
+std::vector<std::pair<std::string, std::string>> g_openWindows;  // class, title of what is open now
+int g_ruleCounter = 0;
+
+std::string rulesPath() {
+    const char* h = std::getenv("HOME");
+    return std::string(h ? h : "") + "/.config/hypr/windowrules.tsv";
+}
+std::string ruleEsc(const std::string& s) {
+    std::string o;
+    for (char c : s) { if (c == '\\') o += "\\\\"; else if (c == '\t') o += "\\t"; else if (c == '\n') o += "\\n"; else o += c; }
+    return o;
+}
+std::string ruleUnesc(const std::string& s) {
+    std::string o;
+    for (size_t i = 0; i < s.size(); i++) {
+        if (s[i] == '\\' && i + 1 < s.size()) { const char c = s[++i]; o += c == 't' ? '\t' : c == 'n' ? '\n' : c; }
+        else o += s[i];
+    }
+    return o;
+}
+std::string ruleLower(std::string s) { for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return s; }
+bool ruleIsPlain(const std::string& p) { return p.find_first_of("^$.*+?[]()|\\") == std::string::npos; }
+// The same match Hyprland does (the whole text), so the counter of "open now" tells the truth.
+bool ruleMatch(const std::string& pat, const std::string& text, bool part) {
+    if (pat.empty()) return true;
+    if (ruleIsPlain(pat)) return part ? ruleLower(text).find(ruleLower(pat)) != std::string::npos : ruleLower(text) == ruleLower(pat);
+    std::string p = pat;
+    if (p.rfind("(?i)", 0) == 0) p = p.substr(4);
+    try { return std::regex_match(text, std::regex(p, std::regex::ECMAScript | std::regex::icase)); } catch (...) { return false; }
+}
+int ruleCountOpen(const RuleItem& r) {
+    int n = 0;
+    for (const auto& w : g_openWindows) if (ruleMatch(r.cls, w.first, false) && ruleMatch(r.title, w.second, true)) n++;
+    return n;
+}
+void loadOpenWindows() {
+    g_openWindows.clear();
+    for (const std::string& l : linesOf(captureCmd("hyprctl clients -j 2>/dev/null | jq -r '.[]|select(.mapped)|[.class,.title]|@tsv' 2>/dev/null"))) {
+        const size_t t = l.find('\t');
+        if (t == std::string::npos || t == 0) continue;
+        g_openWindows.push_back({l.substr(0, t), l.substr(t + 1)});
+    }
+}
+
+void saveRules() {
+    std::ofstream f(rulesPath(), std::ios::trunc);
+    for (const RuleItem& r : g_rules)
+        f << ruleEsc(r.id) << '\t' << ruleEsc(r.cls) << '\t' << ruleEsc(r.title) << '\t' << r.workspace << '\t' << (r.silent ? 1 : 0) << '\t' << ruleEsc(r.monitor) << '\t' << r.mode << '\t'
+          << (r.center ? 1 : 0) << '\t' << ruleEsc(r.size) << '\t' << r.opacity << '\t' << (r.pin ? 1 : 0) << '\n';
+    f.close();
+    spawn({"hyprctl", "reload"});
+}
+
+std::string ruleSummary(const RuleItem& r) {
+    std::vector<std::string> p;
+    if (r.workspace > 0) p.push_back(std::string(i18n::tr("Workspace")) + " " + std::to_string(r.workspace));
+    if (!r.monitor.empty()) p.push_back(r.monitor);
+    if (r.mode == 1) p.push_back(i18n::tr("Floating"));
+    if (r.mode == 2) p.push_back(i18n::tr("Tiled"));
+    if (r.center) p.push_back(i18n::tr("Centered"));
+    if (!r.size.empty()) p.push_back(r.size);
+    if (r.opacity < 100) p.push_back(std::string(i18n::tr("Opacity")) + " " + std::to_string(r.opacity) + "%");
+    if (r.pin) p.push_back(i18n::tr("Pinned"));
+    if (p.empty()) return i18n::tr("No action yet: open the rule to choose what it does.");
+    std::string o;
+    for (const auto& s : p) o += (o.empty() ? "" : "  ·  ") + s;
+    return o;
+}
+
+// The rows of every rule go at the end of the Hyprland page: its summary and, for the one that is open, its options.
+void rebuildRuleRows() {
+    loadOpenWindows();
+    for (auto& pg : g.pages) {
+        if (pg.name != "Hyprland") continue;
+        while (!pg.rows.empty() && pg.rows.back().key.compare(0, 5, "rule:") == 0 && pg.rows.back().key != "rule:add" && pg.rows.back().key != "rule:pick") pg.rows.pop_back();
+        for (auto& r : pg.rows) {
+            if (r.key != "rule:pick") continue;
+            r.opts.clear();
+            std::set<std::string> seen;
+            for (const auto& w : g_openWindows) if (seen.insert(w.first).second) r.opts.push_back({w.first, w.first});
+            std::sort(r.opts.begin(), r.opts.end());
+        }
+        Opts wsOpts = {{"0", "Any"}}, monOpts = {{"-", "Any"}};
+        for (int i = 1; i <= 10; i++) wsOpts.push_back({std::to_string(i), std::to_string(i)});
+        for (const auto& m : g_mons) monOpts.push_back({m.name, m.name});
+        for (const RuleItem& it : g_rules) {
+            const std::string k = "rule:" + it.id + ":";
+            Row head{Rule, k + "head", it.cls.empty() ? it.title : it.title.empty() ? it.cls : it.cls + "  ·  " + it.title, ruleSummary(it)};
+            head.section = "Rules";
+            pg.rows.push_back(head);
+            if (g_ruleOpen != it.id) continue;
+            g.val[k + "class"] = it.cls; g.val[k + "title"] = it.title; g.val[k + "workspace"] = std::to_string(it.workspace); g.val[k + "silent"] = it.silent ? "1" : "0";
+            g.val[k + "monitor"] = it.monitor.empty() ? "-" : it.monitor; g.val[k + "mode"] = std::to_string(it.mode); g.val[k + "center"] = it.center ? "1" : "0";
+            g.val[k + "size"] = it.size; g.val[k + "opacity"] = std::to_string(it.opacity); g.val[k + "pin"] = it.pin ? "1" : "0";
+            std::vector<Row> opts = {
+                {Text, k + "class", "App class", "A plain word is the exact class, whatever the capitals (firefox). With regex characters it is a regular expression."},
+                {Text, k + "title", "Title contains", "Optional: only the windows whose title has this text."},
+                {Choice, k + "workspace", "Open on workspace", "The workspace the app opens on.", wsOpts},
+                {Toggle, k + "silent", "Do not switch to it", "The app opens on that workspace without taking you there."},
+                {Split, k + "monitor", "Open on screen", "The screen the app opens on.", monOpts},
+                {Choice, k + "mode", "Window mode", "Floating windows can be moved freely; tiled ones share the screen.", {{"0", "As it comes"}, {"1", "Floating"}, {"2", "Tiled"}}},
+                {Toggle, k + "center", "Center it", "A floating window opens in the middle of the screen."},
+                {Text, k + "size", "Size", "For a floating window, as WIDTHxHEIGHT in pixels, like 900x600. Empty for the size it asks for."},
+                {Slider, k + "opacity", "Opacity", "How see-through the window is (100 is solid).", {}, 30, 100, 5, "%"},
+                {Toggle, k + "pin", "Show on every workspace", "A floating window that follows you across workspaces."},
+                {Info, k + "matches", "Open now", ""},
+            };
+            const int n = ruleCountOpen(it);
+            opts.back().desc = n == 0 ? std::string("No open window matches this rule.") : std::string(i18n::tr("Windows that match this rule")) + ": " + std::to_string(n);
+            for (Row& o : opts) { o.section = "Rules"; pg.rows.push_back(o); }
+        }
+    }
+    g.dirty = true;
+}
+
+void loadRules() {
+    g_rules.clear();
+    std::istringstream in(readFile(rulesPath()));
+    for (std::string line; std::getline(in, line);) {
+        const auto f = splitOn(line, '\t');
+        if (f.size() < 11) continue;
+        RuleItem r;
+        r.id = ruleUnesc(f[0]); r.cls = ruleUnesc(f[1]); r.title = ruleUnesc(f[2]);
+        r.workspace = std::atoi(f[3].c_str()); r.silent = f[4] == "1"; r.monitor = ruleUnesc(f[5]); r.mode = std::atoi(f[6].c_str());
+        r.center = f[7] == "1"; r.size = ruleUnesc(f[8]); r.opacity = std::clamp(std::atoi(f[9].c_str()), 10, 100); r.pin = f[10] == "1";
+        if (!r.id.empty()) g_rules.push_back(r);
+    }
+    rebuildRuleRows();
+}
+
+void ruleAdd(const std::string& raw) {
+    std::string cls = raw;
+    while (!cls.empty() && std::isspace(static_cast<unsigned char>(cls.back()))) cls.pop_back();
+    while (!cls.empty() && std::isspace(static_cast<unsigned char>(cls.front()))) cls.erase(cls.begin());
+    if (cls.empty()) return;
+    RuleItem r;
+    r.id = std::to_string(static_cast<long long>(std::time(nullptr))) + std::to_string(g_ruleCounter++);
+    r.cls = cls;
+    g_rules.push_back(r);
+    g_ruleOpen = r.id;
+    saveRules();
+    g_rulesRebuild = true;
+}
+void ruleRemove(const std::string& id) {
+    g_rules.erase(std::remove_if(g_rules.begin(), g_rules.end(), [&](const RuleItem& r) { return r.id == id; }), g_rules.end());
+    if (g_ruleOpen == id) g_ruleOpen.clear();
+    saveRules();
+    g_rulesRebuild = true;
+}
+
+// A setting of a rule changed. (The rows are built again from the loop, not here: the row that asked is one of those that go.)
+void ruleSend(const std::string& keyIn, const std::string& valueIn) {
+    const std::string key = keyIn, value = valueIn;
+    if (key == "rule:add" || key == "rule:pick") { ruleAdd(value); return; }
+    const size_t a = key.find(':', 5);
+    if (a == std::string::npos) return;
+    const std::string id = key.substr(5, a - 5), field = key.substr(a + 1);
+    for (RuleItem& r : g_rules) {
+        if (r.id != id) continue;
+        if (field == "class") r.cls = value;
+        else if (field == "title") r.title = value;
+        else if (field == "workspace") r.workspace = std::clamp(std::atoi(value.c_str()), 0, 10);
+        else if (field == "silent") r.silent = value == "1";
+        else if (field == "monitor") r.monitor = value == "-" ? "" : value;
+        else if (field == "mode") r.mode = std::clamp(std::atoi(value.c_str()), 0, 2);
+        else if (field == "center") r.center = value == "1";
+        else if (field == "size") {
+            int w = 0, h = 0;
+            char x = 0;
+            std::istringstream ss(value);
+            if (value.empty()) r.size.clear();
+            else if ((ss >> w >> x >> h) && (x == 'x' || x == 'X') && w > 50 && h > 50) r.size = std::to_string(w) + "x" + std::to_string(h);
+        }
+        else if (field == "opacity") r.opacity = std::clamp(std::atoi(value.c_str()), 10, 100);
+        else if (field == "pin") r.pin = value == "1";
+        else return;
+        saveRules();
+        g_rulesRebuild = true;
+        return;
+    }
 }
 
 cairo_surface_t* webIcon(const std::string& path) {
@@ -3086,7 +3287,7 @@ Layout layoutPage(int pi) {
             chips.push_back({ctrlW - bw, 0, bw, 40});
             ch = 40;
         } else if (r.kind == Text || r.kind == Action) ch = 38;
-        else if (r.kind == Webapp) ch = 34;
+        else if (r.kind == Webapp || r.kind == Rule) ch = 34;
         rl.h = std::max(rl.textH, ch) + 30;
         const double cy = y + (rl.h - ch) / 2;
         rl.ctrl = {ctrlX, cy, ctrlW, ch};
@@ -3550,7 +3751,7 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
             continue;
         }
         const double ty = rl.y + oy + (rl.h - rl.textH) / 2;
-        const double tx0 = r.kind == Webapp ? kPadX + 46 : kPadX;
+        const double tx0 = (r.kind == Webapp || r.kind == Rule) ? kPadX + 46 : kPadX;
         const double th = text(cr, r.title, tx0, ty, 16, false, onSurface, std::floor((cardW() - 2 * kPadX) * 0.40));
         text(cr, descOf(r), tx0, ty + th + 3, 12.5, false, variant, std::floor((cardW() - 2 * kPadX) * 0.40));
 
@@ -3632,6 +3833,29 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
                 src(cr, hot ? mix(danger ? g.color("error") : primary, chip, 0.22) : chip);
                 cairo_fill(cr);
                 icon(cr, names[opt], b.x + 7, b.y + 7, 20, hot ? (danger ? g.color("error") : primary) : variant);
+            }
+        } else if (r.kind == Rule) {
+            const double iy = rl.y + oy + (rl.h - 32) / 2;
+            rrect(cr, kPadX, iy, 32, 32, 16);
+            src(cr, chip);
+            cairo_fill(cr);
+            const std::string letter = r.title.empty() ? "?" : std::string(1, static_cast<char>(std::toupper(static_cast<unsigned char>(r.title[0]))));
+            text(cr, letter, kPadX + 10, iy + 6, 16, true, variant);
+            const bool openRule = g_ruleOpen == r.key.substr(5, r.key.rfind(':') - 5);
+            const char* names[2] = {"pen-2", "trash-bin-minimalistic"};
+            for (int o = 0; o < 2; o++) {
+                const Rect b = {rl.ctrlX + rl.ctrlW - 34 - o * 42.0, rl.ctrl.y + oy, 34, 34};
+                const int opt = o == 0 ? 1 : 0;
+                bool hot = false;
+                if (live) {
+                    g.hits.push_back({{b.x, rl.ctrl.y, b.w, b.h}, static_cast<int>(i), opt, Rule});
+                    hot = g.hoverHit == static_cast<int>(g.hits.size()) - 1;
+                }
+                const bool danger = opt == 1, lit = opt == 0 && openRule;
+                rrect(cr, b.x, b.y, b.w, b.h, 17);
+                src(cr, lit ? primary : hot ? mix(danger ? g.color("error") : primary, chip, 0.22) : chip);
+                cairo_fill(cr);
+                icon(cr, names[opt], b.x + 7, b.y + 7, 20, lit ? onPrimary : hot ? (danger ? g.color("error") : primary) : variant);
             }
         } else if (r.kind == IconStyle) {
             const std::string cur = valStr(r);
@@ -5009,6 +5233,10 @@ void click() {
         else if (r.key == "layoutEditor") { g_armed.clear(); clearLayout(); }
         else if (r.key == "oskToggle") ipc("osk toggle");
         else if (r.key == "updCheck") { ipc("updates check"); g.updChecking = true; g.updCheckStart = Clock::now(); }
+    } else if (h.kind == Rule) {
+        const std::string id = r.key.substr(5, r.key.rfind(':') - 5);
+        if (h.opt == 0) { g_ruleOpen = g_ruleOpen == id ? "" : id; g_rulesRebuild = true; }
+        else ruleRemove(id);
     } else if (h.kind == Webapp) {
         const WebappItem* w = nullptr;
         for (const auto& it : g.webapps) if (it.id == r.key) w = &it;
@@ -5368,6 +5596,7 @@ int main() {
         if (pfd.revents & (POLLERR | POLLHUP)) break;
 
         const auto now = Clock::now();
+        if (g_rulesRebuild) { g_rulesRebuild = false; rebuildRuleRows(); }
         if (g.configured && g.animT >= 1 && !g_sysStarted) sysPreload();
         if (g_bubbleMoving) g.dirty = true;
         if (g.selDrag && std::chrono::duration<double>(now - g.dragTick).count() >= 0.04) {

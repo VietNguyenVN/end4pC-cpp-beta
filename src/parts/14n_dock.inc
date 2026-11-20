@@ -88,6 +88,13 @@ void dockUpright(cairo_t* cr, const DockState& D, double cx, double cy, Paint pa
     cairo_restore(cr);
 }
 
+// Auto-hide has three modes: 0 off, 1 always hides, 2 smart: the dock shows while the workspace in view has no windows and hides when one is open.
+// (In modes 1 and 2 the dock never takes room from the windows: it is on top, and it is only ever visible over an empty workspace or under the pointer.)
+bool dockWantsHidden(const App& app) {
+    if (app.cfg.dockAutoHide == 1) return true;
+    return app.cfg.dockAutoHide == 2 && app.occupied.count(app.workspace) > 0;
+}
+
 int dockPeakPx(const App& app) {
     return app.cfg.dockMagnify ? (app.cfg.dockIconSize * app.cfg.dockMagnification + 99) / 100 : app.cfg.dockIconSize;
 }
@@ -167,7 +174,7 @@ void openDock(App& app, Bar& bar) {
     D.reqW = 2 * kDockSideRoom + 300;
     dockAskSize(app, D.reqW, D.reqH);
     zwlr_layer_surface_v1_set_exclusive_zone(D.layer, dockExclusive(app));
-    D.slide = D.slideTarget = app.cfg.dockAutoHide ? 1 : 0;
+    D.slide = D.slideTarget = dockWantsHidden(app) ? 1 : 0;
     wl_surface_commit(D.surface);
 }
 
@@ -186,6 +193,7 @@ void dockApply(App& app) {
     if (Bar* b = dockScreenBar(app)) D.barHere = b->surface != nullptr;
     D.gapOut = hyprOptionInt("general:gaps_out", 5);
     if (!app.cfg.dockAutoHide) { D.slide = D.slideTarget = 0; D.hideArmed = false; }
+    else if (app.cfg.dockAutoHide == 2) { D.slide = D.slideTarget = dockWantsHidden(app) ? 1 : 0; D.hideArmed = false; }
     const int h = dockSurfH(app);
     if (h != D.reqH) {
         D.reqH = h;

@@ -403,7 +403,7 @@ Config sanitized(Config c) {
     c.dockIconSize = std::clamp(c.dockIconSize, 28, 72);
     c.dockMagnify = c.dockMagnify ? 1 : 0;
     c.dockMagnification = std::clamp(c.dockMagnification, 100, 220);
-    c.dockAutoHide = c.dockAutoHide ? 1 : 0;
+    c.dockAutoHide = std::clamp(c.dockAutoHide, 0, 2);
     c.dockPin = c.dockPin ? 1 : 0;
     c.dockMedia = c.dockMedia ? 1 : 0;
     c.dockLauncher = c.dockLauncher ? 1 : 0;
@@ -926,7 +926,7 @@ std::string setDockKey(Config& next, const std::string& key, const std::string& 
     }
     struct DockIntKey { const char* name; int* field; int lo, hi; };
     const DockIntKey table[] = {{"dock", &next.dock, 0, 1}, {"dockIconSize", &next.dockIconSize, 28, 72}, {"dockMagnify", &next.dockMagnify, 0, 1},
-                                {"dockMagnification", &next.dockMagnification, 100, 220}, {"dockAutoHide", &next.dockAutoHide, 0, 1}, {"dockPin", &next.dockPin, 0, 1}, {"dockMedia", &next.dockMedia, 0, 1}, {"dockLauncher", &next.dockLauncher, 0, 1}, {"dockHug", &next.dockHug, 0, 1}, {"dockRounding", &next.dockRounding, 8, 40}, {"dockSpacing", &next.dockSpacing, 0, 24}, {"dockBorder", &next.dockBorder, 0, 6}};
+                                {"dockMagnification", &next.dockMagnification, 100, 220}, {"dockAutoHide", &next.dockAutoHide, 0, 2}, {"dockPin", &next.dockPin, 0, 1}, {"dockMedia", &next.dockMedia, 0, 1}, {"dockLauncher", &next.dockLauncher, 0, 1}, {"dockHug", &next.dockHug, 0, 1}, {"dockRounding", &next.dockRounding, 8, 40}, {"dockSpacing", &next.dockSpacing, 0, 24}, {"dockBorder", &next.dockBorder, 0, 6}};
     for (const DockIntKey& k : table) {
         if (key != k.name) continue;
         if (value.empty() || value.find_first_not_of("-0123456789") != std::string::npos) return "Value must be an integer";

@@ -659,7 +659,8 @@ bool readWmEvents(App& app, int fd, std::string& pending) {
         if (refreshWsApps(app)) changed = true;
         dockOnWindowsChanged(app);
     }
-    else if (ev.focus && app.cfg.workspaceApps && refreshWsApps(app)) changed = true;
+    if (app.cfg.dock && app.cfg.dockAutoHide == 2 && (changed || ev.workspace > 0)) dockSmartUpdate(app);
+    if (!ev.occupied && ev.focus && app.cfg.workspaceApps && refreshWsApps(app)) changed = true;
     if (ev.window && inBarLayout(app, "activewindow") && awinRead(app)) changed = true;
     if (ev.keyboard && kbdRead(app)) {
         oskSync(app);

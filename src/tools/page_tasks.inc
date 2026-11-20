@@ -5,7 +5,7 @@
 std::string tkT(const char* s) { return std::string(i18n::tr(s)); }
 
 constexpr int kTkHistory = 60;
-constexpr double kTkSampleSec = 1.0, kTkRowH = 50, kTkChildH = 38, kTkHeadH = 34, kTkTileH = 124, kTkGap = 12;
+constexpr double kTkSampleSec = 1.0, kTkRowH = 50, kTkChildH = 38, kTkHeadH = 60, kTkTileH = 124, kTkEdge = 14, kTkPillH = 36, kTkGap = 12;
 
 struct TkProc {
     int pid = 0, ppid = 0;
@@ -151,6 +151,7 @@ struct TasksPage : ToolPage {
     long clkTck = 100;
     bool primed = false;
     int procTotal = 0;
+    bool netWifi = false;  // the connection that carries the traffic is Wi-Fi (the icon of the network tile)
 
     // ---- view ----
     int sortCol = 1;  // 0 name, 1 cpu, 2 memory, 3 disk
@@ -250,6 +251,18 @@ struct TasksPage : ToolPage {
             lastNetRx = rx;
             lastNetTx = tx;
             netNow = netDown + netUp;
+            {  // the interface of the default route: Wi-Fi or not
+                std::istringstream rt(tkRead("/proc/net/route", 4096));
+                std::string line;
+                std::getline(rt, line);
+                netWifi = false;
+                while (std::getline(rt, line)) {
+                    std::istringstream ls(line);
+                    std::string ifc, dest;
+                    ls >> ifc >> dest;
+                    if (dest == "00000000") { netWifi = access(("/sys/class/net/" + ifc + "/wireless").c_str(), F_OK) == 0; break; }
+                }
+            }
         }
         push(cpuH, cpuNow);
         push(memH, memNow);
@@ -434,10 +447,11 @@ struct TasksPage : ToolPage {
         cairo_fill(cr);
         spark(cr, {r.x, r.y + r.h * 0.52, r.w, r.h * 0.48}, h, maxV, g.color(fg));
         cairo_restore(cr);
-        ::icon(cr, ic, r.x + r.w - 20 - 40, r.y + 16, 40, g.color(fg));
-        text(cr, tkT(title), r.x + 18, r.y + 14, 14, true, g.color(fg), 0, 0.9);
-        text(cr, big, r.x + 16, r.y + 34, 34, true, g.color(fg));
-        if (!sub.empty()) text(cr, sub, r.x + 18, r.y + r.h - 28, 13, false, g.color(fg), r.w - 36, 0.85);
+        constexpr double pad = 20;  // the same room above, left and right
+        ::icon(cr, ic, r.x + r.w - pad - 40, r.y + pad - 2, 40, g.color(fg));
+        text(cr, tkT(title), r.x + pad, r.y + 16, 14, true, g.color(fg), 0, 0.9);
+        text(cr, big, r.x + pad - 2, r.y + 36, 34, true, g.color(fg));
+        if (!sub.empty()) text(cr, sub, r.x + pad, r.y + r.h - 28, 13, false, g.color(fg), r.w - 2 * pad, 0.85);
     }
 
     void button(cairo_t* cr, const Rect& r, const char* label, const char* ic, bool enabled, bool hot, const char* bg, const char* fg) {
@@ -476,9 +490,9 @@ struct TasksPage : ToolPage {
         drawTile(cr, tiles[0], "CPU", tkPercent(cpuNow), b2, cpuH, std::max(25.0, *std::max_element(cpuH.begin(), cpuH.end()) * 1.15), "primary_container", "on_primary_container", "cpu");
         drawTile(cr, tiles[1], "Memory", tkPercent(memNow), b1, memH, 100, "secondary_container", "on_secondary_container", "server");
         const double dMax = std::max(1024.0 * 1024, *std::max_element(diskH.begin(), diskH.end()));
-        drawTile(cr, tiles[2], "Disk", tkRate(diskNow), tkT("Read and write"), diskH, dMax, "tertiary_container", "on_tertiary_container", "pulse");
+        drawTile(cr, tiles[2], "Disk", tkRate(diskNow), tkT("Read and write"), diskH, dMax, "tertiary_container", "on_tertiary_container", "ssd-square");
         const double nMax = std::max(1024.0 * 1024, *std::max_element(netH.begin(), netH.end()));
-        drawTile(cr, tiles[3], "Network", tkRate(netNow), "↓ " + tkRate(netDown) + "   ↑ " + tkRate(netUp), netH, nMax, "surface_container_high", "on_surface", "graph-up");
+        drawTile(cr, tiles[3], "Network", tkRate(netNow), "↓ " + tkRate(netDown) + "   ↑ " + tkRate(netUp), netH, nMax, "surface_container_high", "on_surface", netWifi ? "wi-fi-router-minimalistic" : "server-path");
 
         // toolbar: search and the two actions
         const double ty = kTkTileH + kTkGap, th = 44;
@@ -567,17 +581,23 @@ struct TasksPage : ToolPage {
     }
 
     void drawTable(cairo_t* cr) {
-        const double nameW = table.w - 3 * 130 - 20;
-        colRect[0] = {table.x + 20, table.y, nameW - 20, kTkHeadH};
-        for (int c = 1; c < 4; c++) colRect[c] = {table.x + nameW + (c - 1) * 130, table.y, 130, kTkHeadH};
+        const double nameW = table.w - 3 * 130 - kTkEdge;
+        // the headers are rounded buttons with the same room above, left and right (kTkEdge); the numbers' columns end where the last one does
+        colRect[0] = {table.x + kTkEdge, table.y + kTkEdge, nameW - kTkEdge, kTkPillH};
+        for (int c = 1; c < 4; c++) colRect[c] = {table.x + nameW + (c - 1) * 130 + 4, table.y + kTkEdge, 126, kTkPillH};
         static const char* labels[4] = {"Name", "CPU", "Memory", "Disk"};
         for (int c = 0; c < 4; c++) {
-            const bool on = sortCol == c;
+            const bool on = sortCol == c, hot = hoverHead == c;
+            const Rect& b = colRect[c];
+            const Color base = g.color(on ? "secondary_container" : "surface_container_highest");
+            src(cr, hot ? mix(g.color("primary"), base, 0.2) : base);
+            rrect(cr, b.x, b.y, b.w, b.h, b.h / 2);
+            cairo_fill(cr);
             const std::string label = tkT(labels[c]) + (on ? (sortDesc ? "  ↓" : "  ↑") : "");
             double tw = 0, th = 0;
             measure(label, 13, true, 0, tw, th);
-            const Color col = g.color(on || hoverHead == c ? "primary" : "on_surface_variant");
-            text(cr, label, c == 0 ? colRect[c].x + 34 : colRect[c].x + colRect[c].w - 14 - tw, table.y + (kTkHeadH - th) / 2 + 4, 13, true, col);
+            const Color col = g.color(on ? "on_secondary_container" : hot ? "on_surface" : "on_surface_variant");
+            text(cr, label, c == 0 ? b.x + 38 : b.x + b.w - 14 - tw, b.y + (b.h - th) / 2, 13, true, col);
         }
         const Rect body = {table.x, table.y + kTkHeadH, table.w, table.h - kTkHeadH};
         std::vector<int> order;
@@ -629,7 +649,7 @@ struct TasksPage : ToolPage {
             rrect(cr, row.x, row.y, row.w, row.h, 16);
             cairo_fill(cr);
         }
-        const double nameW = table.w - 3 * 130 - 20;
+        const double nameW = table.w - 3 * 130 - kTkEdge;
         if (a.procs.size() > 1) ::icon(cr, isOpen ? "alt-arrow-down" : "alt-arrow-right", row.x + 8, row.y + (row.h - 18) / 2, 18, g.color("on_surface_variant"));
         const double ix = row.x + 36, iy = row.y + (row.h - 28) / 2;
         if (cairo_surface_t* ic = iconFor(a)) {
@@ -672,7 +692,7 @@ struct TasksPage : ToolPage {
             rrect(cr, row.x, row.y, row.w, row.h, 14);
             cairo_fill(cr);
         }
-        const double nameW = table.w - 3 * 130 - 20;
+        const double nameW = table.w - 3 * 130 - kTkEdge;
         const std::string title = p.comm + "   " + std::to_string(p.pid);
         double tw = 0, th = 0;
         measure(title, 14, false, 0, tw, th);

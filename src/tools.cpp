@@ -430,11 +430,14 @@ private:
 #include "tools/page_keybinds.inc"
 #include "tools/page_phone.inc"
 #include "tools/page_tasks.inc"
+#include "tools/page_power.inc"
 
 void buildPages() {
     if (g.solo) {
         g.pages.push_back(std::make_unique<TasksPage>());
         g.pages.push_back(std::make_unique<PerfPage>());
+        if (PowerPage::available(true)) g.pages.push_back(std::make_unique<PowerPage>(true));
+        if (PowerPage::available(false)) g.pages.push_back(std::make_unique<PowerPage>(false));
         for (auto& p : g.pages) p->init();
         return;
     }
