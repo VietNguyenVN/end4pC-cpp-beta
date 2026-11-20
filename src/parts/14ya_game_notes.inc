@@ -348,6 +348,7 @@ void onNotesGhostConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t seria
 void closeNotesGhost(App& app) {
     GameOverlay& G = app.game;
     if (G.ghostLayer) zwlr_layer_surface_v1_destroy(G.ghostLayer);
+    hidpi::detach(G.ghostScale);
     if (G.ghostSurface) wl_surface_destroy(G.ghostSurface);
     G.ghostLayer = nullptr;
     G.ghostSurface = nullptr;
@@ -359,11 +360,10 @@ const zwlr_layer_surface_v1_listener kNotesGhostListener = {onNotesGhostConfigur
 void drawNotesGhost(App& app) {
     GameOverlay& G = app.game;
     if (!G.ghostSurface || !G.ghostConfigured) return;
-    const int R = kLaunShadow + 4, W = static_cast<int>(G.nw) + 2 * R, H = static_cast<int>(G.nh) + 2 * R, stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-notes-ghost", MFD_CLOEXEC);
-    if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int R = kLaunShadow + 4, W = static_cast<int>(G.nw) + 2 * R, H = static_cast<int>(G.nh) + 2 * R;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, G.ghostScale.factor(), "end4pC-notes-ghost")) return;
+    cairo_surface_t* surf = hf.surface;
     cairo_t* cr = mkcr(surf);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -383,16 +383,10 @@ void drawNotesGhost(App& app) {
     g_gn.ghostDraw = false;
     g_object_unref(L);
     cairo_destroy(cr);
-    cairo_surface_destroy(surf);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kGameBuffer, nullptr);
-    wl_surface_attach(G.ghostSurface, buffer, 0, 0);
-    wl_surface_damage_buffer(G.ghostSurface, 0, 0, W, H);
-    wl_surface_commit(G.ghostSurface);
+    hidpi::present(G.ghostSurface, buffer, hf, G.ghostScale);
 }
 
 void onNotesGhostConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t, uint32_t) {
@@ -409,6 +403,7 @@ void openNotesGhost(App& app) {
     const Bar* bar = mainBar(app);
     const int R = kLaunShadow + 4;
     G.ghostSurface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, G.ghostScale, G.ghostSurface, [&app] { drawNotesGhost(app); });
     G.ghostLayer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, G.ghostSurface, bar ? bar->output : nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-game-notes");
     zwlr_layer_surface_v1_set_anchor(G.ghostLayer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT);
     zwlr_layer_surface_v1_set_size(G.ghostLayer, static_cast<int>(G.nw) + 2 * R, static_cast<int>(G.nh) + 2 * R);

@@ -622,11 +622,9 @@ void drawMediaPanel(App& app) {
     const double t = std::clamp(M.lyricT, -0.08, 1.35), eqT = std::clamp(M.eqT, -0.08, 1.35), eqA = std::clamp(M.eqT, 0.0, 1.0);
     const auto lerp = [&](double a, double b) { return a + (b - a) * t; };
     const int W = kMediaSurfW, H = kMediaSurfH;
-    const int stride = W * 4, size = stride * H;
-    int fd = memfd_create("end4pC-media", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, M.scale.factor(), "end4pC-media")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -862,16 +860,10 @@ void drawMediaPanel(App& app) {
         cairo_pattern_destroy(cairo_pop_group(cr));
     }
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
-    wl_surface_attach(M.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(M.surface, 0, 0, W, H);
-    wl_surface_commit(M.surface);
+    hidpi::present(M.surface, buffer, hf, M.scale);
 }
 
 void resetMediaPanel(MediaPanel& M) {
@@ -898,6 +890,7 @@ void closeMediaPanel(App& app) {
     if (!M.open()) return;
     stopCava(app);
     if (M.layer) zwlr_layer_surface_v1_destroy(M.layer);
+    hidpi::detach(M.scale);
     wl_surface_destroy(M.surface);
     if (M.cover) cairo_surface_destroy(M.cover);
     if (M.blur) cairo_surface_destroy(M.blur);
@@ -945,6 +938,7 @@ void openMediaPanel(App& app, Bar* bar = nullptr) {
     int surfLeft = 0;
     mediaCardOrigin(app, surfLeft, M.cardX);
     M.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, M.scale, M.surface, [&app] { drawMediaPanel(app); });
     M.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, M.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-media");
     const bool vert = sideBar(app), atBottom = app.cfg.barPosition == "bottom";
     constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;

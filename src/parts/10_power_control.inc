@@ -31,11 +31,10 @@ int powerLit(const PowerMenu& P) { return P.hover >= 0 ? P.hover : P.selected; }
 void drawPowerMenu(App& app) {
     PowerMenu& P = app.power;
     if (!P.open() || !P.configured || P.w <= 0 || P.h <= 0) return;
-    const int W = P.w, H = P.h, stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-power", MFD_CLOEXEC);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int W = P.w, H = P.h;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, P.scale.factor(), "end4pC-power")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -81,19 +80,13 @@ void drawPowerMenu(App& app) {
     if (rev > 0.001) popFadeEnd(cr, rev, W / 2.0, H / 2.0, 0.97);
     else cairo_pattern_destroy(cairo_pop_group(cr));
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     updateBlurRegion(app, P.surface, P.blur, W, H, [&](cairo_t* m) {  // the whole screen: the scrim is what is blurred
         if (rev > 0.001) cairo_paint(m);
     });
-    wl_surface_attach(P.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(P.surface, 0, 0, W, H);
-    wl_surface_commit(P.surface);
+    hidpi::present(P.surface, buffer, hf, P.scale);
 }
 
 void closePowerMenu(App& app) {
@@ -101,6 +94,7 @@ void closePowerMenu(App& app) {
     if (!P.open()) return;
     if (P.layer) zwlr_layer_surface_v1_destroy(P.layer);
     releaseBlurSurface(P.blur);
+    hidpi::detach(P.scale);
     wl_surface_destroy(P.surface);
     P = PowerMenu{};
     app.onPower = false;
@@ -163,6 +157,7 @@ void openPowerMenu(App& app) {
     P = PowerMenu{};
     popStartQuick(P.anim, 0.16, 0.11);
     P.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, P.scale, P.surface, [&app] { drawPowerMenu(app); });
     P.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, P.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-power");
     zwlr_layer_surface_v1_set_anchor(P.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
     zwlr_layer_surface_v1_set_size(P.layer, 0, 0);
@@ -340,11 +335,10 @@ void drawControlCenter(App& app) {
     if (!C.open() || !C.configured) return;
     C.signature = ccSignature(app);
     if (!app.avatarTried) loadAvatar(app);
-    const int W = kCcSurfW, H = kCcSurfH, stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-control", MFD_CLOEXEC);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int W = kCcSurfW, H = kCcSurfH;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, C.scale.factor(), "end4pC-control")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -588,12 +582,8 @@ void drawControlCenter(App& app) {
     if (rev > 0.001) popGroupEnd(cr, rev, gox, goy, C.anim.phase == kPopOut ? 1.0 : std::min(1.0, rev * 8));
     else cairo_pattern_destroy(cairo_pop_group(cr));
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     updateBlurRegion(app, C.surface, C.blur, W, H, [&](cairo_t* m) {
         if (rev <= 0.001) return;
@@ -603,9 +593,7 @@ void drawControlCenter(App& app) {
             cairo_fill(m);
         });
     });
-    wl_surface_attach(C.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(C.surface, 0, 0, W, H);
-    wl_surface_commit(C.surface);
+    hidpi::present(C.surface, buffer, hf, C.scale);
 }
 
 void closeControlCenter(App& app) {
@@ -613,6 +601,7 @@ void closeControlCenter(App& app) {
     if (!C.open()) return;
     if (C.layer) zwlr_layer_surface_v1_destroy(C.layer);
     releaseBlurSurface(C.blur);
+    hidpi::detach(C.scale);
     wl_surface_destroy(C.surface);
     if (C.cover) cairo_surface_destroy(C.cover);
     C = ControlCenter{};
@@ -659,6 +648,7 @@ void openControlCenter(App& app, bool fromAvatar = false, int forceSide = 0) {
     C = ControlCenter{};
     popStart(C.anim);
     C.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, C.scale, C.surface, [&app] { drawControlCenter(app); });
     C.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, C.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-control");
     const bool vert = sideBar(app), atBottom = app.cfg.barPosition == "bottom";
     constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;

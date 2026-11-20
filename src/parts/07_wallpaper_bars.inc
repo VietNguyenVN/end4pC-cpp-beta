@@ -2,13 +2,16 @@
 
 int g_wpWakeFd = -1;
 int g_wpWakeWrite = -1;
-cairo_surface_t* collageRenderSurface(const std::string& wallpaper, int w, int h, double r, double g, double b, const CollageSpec& spec);
+cairo_surface_t* collageRenderSurface(const std::string& wallpaper, int w, int h, double scale, double r, double g, double b, const CollageSpec& spec);
+void paintWallpaperCover(cairo_t* cr, const std::string& path, int w, int h);
 void pruneCollageCache(const App& app, const std::string& oldPath, const CollageSpec& oldCollage);
 void collageSync(App& app);
 
-cairo_surface_t* renderWallpaperSurface(const std::string& path, int w, int h, double r, double g, double b, const CwpParams& cwp, const CollageSpec& collage) {
-    if (collage.on) return collageRenderSurface(path, w, h, r, g, b, collage);
-    cairo_surface_t* surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
+// w x h logical; the picture has w x h times `scale` pixels and that device scale, so it paints at w x h (src/hidpi.h).
+cairo_surface_t* renderWallpaperSurface(const std::string& path, int w, int h, double scale, double r, double g, double b, const CwpParams& cwp, const CollageSpec& collage) {
+    if (collage.on) return collageRenderSurface(path, w, h, scale, r, g, b, collage);
+    cairo_surface_t* surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, hidpi::bufferExtent(w, scale), hidpi::bufferExtent(h, scale));
+    cairo_surface_set_device_scale(surf, scale, scale);
     cairo_t* cr = mkcr(surf);
     if (cwp.on) {
         cwpPaint(cr, w, h, path, cwp);
@@ -17,18 +20,7 @@ cairo_surface_t* renderWallpaperSurface(const std::string& path, int w, int h, d
     }
     cairo_set_source_rgb(cr, r, g, b);
     cairo_paint(cr);
-    int iw = 0, ih = 0;
-    if (!path.empty() && gdk_pixbuf_get_file_info(path.c_str(), &iw, &ih) && iw > 0 && ih > 0) {
-        const double scale = std::max(double(w) / iw, double(h) / ih);
-        GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_scale(path.c_str(), std::max(w, int(iw * scale + 0.5)), std::max(h, int(ih * scale + 0.5)), FALSE, nullptr);
-        if (pb) {
-            cairo_surface_t* img = surfaceFromPixbuf(pb);
-            cairo_set_source_surface(cr, img, (w - gdk_pixbuf_get_width(pb)) / 2.0, (h - gdk_pixbuf_get_height(pb)) / 2.0);
-            cairo_paint(cr);
-            cairo_surface_destroy(img);
-            g_object_unref(pb);
-        }
-    }
+    paintWallpaperCover(cr, path, w, h);
     cairo_destroy(cr);
     return surf;
 }
@@ -36,12 +28,10 @@ cairo_surface_t* renderWallpaperSurface(const std::string& path, int w, int h, d
 double easeInOutCubic(double t) { return t < 0.5 ? 4 * t * t * t : 1 - std::pow(-2 * t + 2, 3) / 2; }
 
 void paintWallpaperFrame(Bar& bar, App& app, cairo_surface_t* from, cairo_surface_t* to, const std::string& kind, double e) {
-    const int w = bar.wpW, h = bar.wpH, stride = w * 4, size = stride * h;
-    int fd = memfd_create("end4pC-wallpaper-frame", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, w, h, stride);
-    cairo_t* cr = mkcr(surface);
+    const int w = bar.wpW, h = bar.wpH;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, w, h, bar.wpScale.factor(), "end4pC-wallpaper-frame")) return;
+    cairo_t* cr = mkcr(hf.surface);
     const double W = w, H = h, feather = 180;
     if (e >= 1.0) {
         cairo_set_source_surface(cr, to, 0, 0);
@@ -130,16 +120,10 @@ void paintWallpaperFrame(Bar& bar, App& app, cairo_surface_t* from, cairo_surfac
         }
     }
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, w, h, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, &bar);
-    wl_surface_attach(bar.wpSurface, buffer, 0, 0);
-    wl_surface_damage_buffer(bar.wpSurface, 0, 0, w, h);
-    wl_surface_commit(bar.wpSurface);
+    hidpi::present(bar.wpSurface, buffer, hf, bar.wpScale);
 }
 
 void cancelWallpaperAnim(Bar& bar) {
@@ -211,6 +195,7 @@ void transitionWallpaper(App& app, const std::string& oldPath, CollageSpec oldCo
         job->toCollage = withBarInsets(nowCollage, bar, app);
         job->w = bar.wpW;
         job->h = bar.wpH;
+        job->scale = bar.wpScale.factor();
         job->cwp = cwpParams(app);
         job->bgR = bg.r; job->bgG = bg.g; job->bgB = bg.b;
         job->serial = serial;
@@ -220,7 +205,7 @@ void transitionWallpaper(App& app, const std::string& oldPath, CollageSpec oldCo
         for (int which = 0; which < 2; which++)
             std::thread([job, which] {
                 const bool isOld = which == 0;
-                cairo_surface_t* surf = renderWallpaperSurface(isOld ? job->fromPath : job->toPath, job->w, job->h, job->bgR, job->bgG, job->bgB,
+                cairo_surface_t* surf = renderWallpaperSurface(isOld ? job->fromPath : job->toPath, job->w, job->h, job->scale, job->bgR, job->bgG, job->bgB,
                                                                job->cwp, isOld ? job->fromCollage : job->toCollage);
                 (isOld ? job->from : job->to) = surf;
                 job->pending--;
@@ -252,20 +237,28 @@ void onConfigure(void* userData, zwlr_layer_surface_v1* layerSurface, uint32_t s
 
 void destroyStrip(Strip& st);
 
+// Gives a bar-related surface its fractional scale (src/hidpi.h). A new scale from the compositor redraws them all from the main loop.
+void attachBarScale(App& app, hidpi::SurfaceScale& s, wl_surface* surface) {
+    hidpi::attach(s, surface, app.viewporter, app.fscaleMgr, [&app] { app.scaleChanged = true; });
+}
+
 void destroyBar(Bar& bar) {
     for (auto& st : bar.strips) destroyStrip(st);
     for (auto& st : bar.rounds) destroyStrip(st);
     for (auto& st : bar.corners) destroyStrip(st);
     if (bar.app->hoverBar == &bar) bar.app->hoverBar = nullptr;
     if (bar.wpLayer) zwlr_layer_surface_v1_destroy(bar.wpLayer);
+    hidpi::detach(bar.wpScale);
     if (bar.wpSurface) wl_surface_destroy(bar.wpSurface);
     if (bar.bdLayer) zwlr_layer_surface_v1_destroy(bar.bdLayer);
     if (bar.bdSurface) wl_surface_destroy(bar.bdSurface);
     if (bar.bdPic) cairo_surface_destroy(bar.bdPic);
     if (bar.layerSurface) zwlr_layer_surface_v1_destroy(bar.layerSurface);
     releaseBlurSurface(bar.blur);
+    hidpi::detach(bar.scale);
     if (bar.surface) wl_surface_destroy(bar.surface);
     if (bar.shLayer) zwlr_layer_surface_v1_destroy(bar.shLayer);
+    hidpi::detach(bar.shScale);
     if (bar.shSurface) wl_surface_destroy(bar.shSurface);
     if (bar.output) wl_output_destroy(bar.output);
 }
@@ -332,9 +325,11 @@ void drawBackdrop(Bar& bar, App& app) {
 void backdropSetPicture(Bar& bar, cairo_surface_t* full) {
     const int fw = cairo_image_surface_get_width(full), fh = cairo_image_surface_get_height(full);
     const int w = (fw + kBackdropScale - 1) / kBackdropScale, h = (fh + kBackdropScale - 1) / kBackdropScale;
+    double ds = 1, dsy = 1;  // (`full` may carry a device scale, src/hidpi.h: the shrink is counted in its pixels)
+    cairo_surface_get_device_scale(full, &ds, &dsy);
     cairo_surface_t* small = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
     cairo_t* cr = cairo_create(small);
-    cairo_scale(cr, double(w) / fw, double(h) / fh);
+    cairo_scale(cr, double(w) * ds / fw, double(h) * dsy / fh);
     cairo_set_source_surface(cr, full, 0, 0);
     cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
     cairo_paint(cr);
@@ -464,6 +459,7 @@ const zwlr_layer_surface_v1_listener kStripListener = {onStripConfigure, onStrip
 
 void destroyStrip(Strip& st) {
     if (st.layer) zwlr_layer_surface_v1_destroy(st.layer);
+    hidpi::detach(st.scale);
     if (st.surface) wl_surface_destroy(st.surface);
     st = Strip{};
 }
@@ -475,16 +471,9 @@ void destroyStrip(Strip& st) {
 void drawRound(Strip* st) {
     const int W = st->w, H = st->h;
     if (!st->surface || W <= 0 || H <= 0) return;
-    const int stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-round", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
-    cairo_t* cr = mkcr(surf);
-    cairo_set_source_rgba(cr, 0, 0, 0, 0);
-    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-    cairo_paint(cr);
-    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    hidpi::Frame frame;
+    if (!hidpi::begin(frame, W, H, st->scale.factor(), "end4pC-round")) return;
+    cairo_t* cr = mkcr(frame.surface);
     const double cx = (st->corner == 0 || st->corner == 2) ? W : 0, cy = (st->corner == 0 || st->corner == 1) ? H : 0;
     cairo_rectangle(cr, 0, 0, W, H);
     cairo_arc(cr, cx, cy, W, 0, 2 * M_PI);
@@ -493,16 +482,10 @@ void drawRound(Strip* st) {
     cairo_set_source_rgba(cr, fc.r, fc.g, fc.b, 1);
     cairo_fill(cr);
     cairo_destroy(cr);
-    cairo_surface_destroy(surf);
-    munmap(data, size);
-    wl_shm_pool* pool = wl_shm_create_pool(st->bar->app->shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(frame, st->bar->app->shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kCornerBufferListener, nullptr);
-    wl_surface_attach(st->surface, buffer, 0, 0);
-    wl_surface_damage_buffer(st->surface, 0, 0, W, H);
-    wl_surface_commit(st->surface);
+    hidpi::present(st->surface, buffer, frame, st->scale);
 }
 void onRoundConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t w, uint32_t h) {
     auto* st = static_cast<Strip*>(d);
@@ -580,6 +563,7 @@ void createBarShadow(Bar& bar, bool side, bool atBottom) {
                        L = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, R = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
     const int gap = app.cfg.frame + ((app.cfg.barStyle == "float" || app.cfg.barStyle == "island") ? kBarGap : 0);
     bar.shSurface = wl_compositor_create_surface(app.compositor);
+    attachBarScale(app, bar.shScale, bar.shSurface);
     app.layerGen++;
     bar.shLayer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, bar.shSurface, bar.output, ZWLR_LAYER_SHELL_V1_LAYER_TOP, "end4pC-shadow-bar");
     zwlr_layer_surface_v1_set_anchor(bar.shLayer, side ? (T | B | (atBottom ? R : L)) : ((atBottom ? B : T) | L | R));
@@ -608,8 +592,10 @@ void applyFrame(Bar& bar) {
 
     if (bar.layerSurface) { zwlr_layer_surface_v1_destroy(bar.layerSurface); bar.layerSurface = nullptr; }
     releaseBlurSurface(bar.blur);
+    hidpi::detach(bar.scale);
     if (bar.surface) { wl_surface_destroy(bar.surface); bar.surface = nullptr; }
     if (bar.shLayer) { zwlr_layer_surface_v1_destroy(bar.shLayer); bar.shLayer = nullptr; }
+    hidpi::detach(bar.shScale);
     if (bar.shSurface) { wl_surface_destroy(bar.shSurface); bar.shSurface = nullptr; }
     bar.shW = bar.shH = 0;
     bar.shSig.clear();
@@ -648,6 +634,7 @@ void applyFrame(Bar& bar) {
     bar.contentY = atBottom ? static_cast<int>(bar.extra) : 0;
     if (app.cfg.barShadow && app.cfg.barBackground) createBarShadow(bar, side, atBottom);
     bar.surface = wl_compositor_create_surface(app.compositor);
+    attachBarScale(app, bar.scale, bar.surface);
     app.layerGen++;
     bar.layerSurface = zwlr_layer_shell_v1_get_layer_surface(
         app.layerShell, bar.surface, bar.output, ZWLR_LAYER_SHELL_V1_LAYER_TOP, "end4pC-bar");
@@ -683,6 +670,7 @@ void applyFrame(Bar& bar) {
             st.bar = &bar;
             st.corner = i;
             st.surface = wl_compositor_create_surface(app.compositor);
+            attachBarScale(app, st.scale, st.surface);
             st.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, st.surface, bar.output,
                 app.cfg.fakeRounding == 1 ? ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY : ZWLR_LAYER_SHELL_V1_LAYER_TOP, "end4pC-rounding");
             zwlr_layer_surface_v1_add_listener(st.layer, &kRoundListener, &st);
@@ -729,7 +717,7 @@ void cwpStart(App& app, bool entering) {
     const Color bg = app.color("surface");
     cwpFree(app);
     for (auto& b : app.bars)
-        if (b->wpSurface && b->wpW > 0 && b->wpH > 0) b->cwpFull = renderWallpaperSurface(app.wallpaper, b->wpW, b->wpH, bg.r, bg.g, bg.b, CwpParams{}, CollageSpec{});
+        if (b->wpSurface && b->wpW > 0 && b->wpH > 0) b->cwpFull = renderWallpaperSurface(app.wallpaper, b->wpW, b->wpH, b->wpScale.factor(), bg.r, bg.g, bg.b, CwpParams{}, CollageSpec{});
     app.cwpA.active = true;
     app.cwpA.from = app.cwpA.p = entering ? 1 : 0;
     app.cwpA.to = entering ? 0 : 1;
@@ -873,6 +861,7 @@ void createBar(App& app, wl_output* output, uint32_t name) {
     bar->outputName = name;
     for (const auto& o : app.outputs) if (o->name == name) bar->connector = o->connector;
     bar->wpSurface = wl_compositor_create_surface(app.compositor);
+    hidpi::attach(bar->wpScale, bar->wpSurface, app.viewporter, app.fscaleMgr, [&app] { app.wallpaperScaleChanged = true; });
     bar->wpLayer = zwlr_layer_shell_v1_get_layer_surface(
         app.layerShell, bar->wpSurface, output, ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND, "end4pC-wallpaper");
     zwlr_layer_surface_v1_set_anchor(bar->wpLayer,

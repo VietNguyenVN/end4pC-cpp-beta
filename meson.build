@@ -26,9 +26,11 @@ ftl_xml = '/usr/share/wayland-protocols/staging/ext-foreign-toplevel-list/ext-fo
 capsrc_xml = '/usr/share/wayland-protocols/staging/ext-image-capture-source/ext-image-capture-source-v1.xml'
 copycap_xml = '/usr/share/wayland-protocols/staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml'
 blur_xml = '/usr/share/wayland-protocols/staging/ext-background-effect/ext-background-effect-v1.xml'  # blur behind translucent shell surfaces (niri)
+fscale_xml = '/usr/share/wayland-protocols/staging/fractional-scale/fractional-scale-v1.xml'  # sharp drawing at fractional scales (src/hidpi.h)
+viewporter_xml = '/usr/share/wayland-protocols/stable/viewporter/viewporter.xml'
 
 generated = []
-foreach xml : [xdg_xml, layer_xml, cursor_xml, tablet_xml, lock_xml, idle_xml, blur_xml, ftl_xml, capsrc_xml, copycap_xml]
+foreach xml : [xdg_xml, layer_xml, cursor_xml, tablet_xml, lock_xml, idle_xml, blur_xml, ftl_xml, capsrc_xml, copycap_xml, fscale_xml, viewporter_xml]
   name = fs.stem(xml)
   generated += custom_target(name + '-header',
     input: xml,

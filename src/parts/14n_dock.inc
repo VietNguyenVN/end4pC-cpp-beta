@@ -135,6 +135,7 @@ void closeDock(App& app) {
     if (!D.open()) return;
     if (D.layer) zwlr_layer_surface_v1_destroy(D.layer);
     releaseBlurSurface(D.blur);
+    hidpi::detach(D.scale);
     wl_surface_destroy(D.surface);
     app.dock = DockState{};
     app.onDock = false;
@@ -163,6 +164,7 @@ void openDock(App& app, Bar& bar) {
     D.barHere = bar.surface != nullptr;
     D.layerGen = app.layerGen;
     D.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, D.scale, D.surface, [&app] { dockRedraw(app); });
     D.output = bar.output;
     D.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, D.surface, bar.output, ZWLR_LAYER_SHELL_V1_LAYER_TOP, "end4pC-dock");
     constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP;
@@ -340,7 +342,7 @@ std::shared_ptr<cairo_surface_t> dockIcon(App& app, const std::string& name) {
     std::shared_ptr<cairo_surface_t> surf;
     const std::string path = lookupIcon(name, px);
     if (!path.empty()) {
-        if (cairo_surface_t* raw = loadIconSurface(path, px)) surf = std::shared_ptr<cairo_surface_t>(raw, cairo_surface_destroy);
+        if (cairo_surface_t* raw = loadIconScaled(path, px)) surf = std::shared_ptr<cairo_surface_t>(raw, cairo_surface_destroy);
     }
     app.dock.icons[key] = surf;
     return surf;

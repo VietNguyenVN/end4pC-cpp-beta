@@ -45,6 +45,7 @@
 
 #include "cursor-shape-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
+#include "hidpi.h"
 
 static cairo_t* mkcr(cairo_surface_t* s) {
     static cairo_font_options_t* fo = nullptr;
@@ -161,6 +162,8 @@ struct App {
     wl_registry* registry = nullptr;
     wl_compositor* compositor = nullptr;
     wl_shm* shm = nullptr;
+    wp_viewporter* viewporter = nullptr;
+    wp_fractional_scale_manager_v1* fscaleMgr = nullptr;
     wl_seat* seat = nullptr;
     wl_pointer* pointer = nullptr;
     wl_keyboard* keyboard = nullptr;
@@ -168,6 +171,7 @@ struct App {
     wp_cursor_shape_manager_v1* cursorMgr = nullptr;
     wp_cursor_shape_device_v1* cursorDev = nullptr;
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     xdg_surface* xsurface = nullptr;
     xdg_toplevel* toplevel = nullptr;
     uint32_t enterSerial = 0;
@@ -325,11 +329,21 @@ cairo_surface_t* iconMask(const std::string& name, int size, bool bold) {
     cache[key] = mask;
     return mask;
 }
+// Masks an icon cached at `px` real pixels into a size x size logical box (px > size on a fractionally scaled window, hidpi.h).
+void maskIconBox(cairo_t* cr, cairo_surface_t* m, double x, double y, int size, int px) {
+    if (px == size) { cairo_mask_surface(cr, m, x, y); return; }
+    cairo_save(cr);
+    cairo_translate(cr, x, y);
+    cairo_scale(cr, double(size) / px, double(size) / px);
+    cairo_mask_surface(cr, m, 0, 0);
+    cairo_restore(cr);
+}
 void icon(cairo_t* cr, const std::string& name, double x, double y, int size, const Color& c, bool bold = false) {
-    cairo_surface_t* m = iconMask(name, size, bold);
+    const int px = hidpi::bufferExtent(size, hidpi::scaleOf(cr));
+    cairo_surface_t* m = iconMask(name, px, bold);
     if (!m) return;
     src(cr, c);
-    cairo_mask_surface(cr, m, x, y);
+    maskIconBox(cr, m, x, y, size, px);
 }
 
 // Material shape outlines (assets/shapes.txt: bezier points in a unit square).
@@ -576,13 +590,10 @@ const wl_buffer_listener kBufferListener = {wlBufferRelease};
 
 void render() {
     if (!g.configured || !g.surface) return;
-    const int W = g.width, H = g.height, stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-tools", MFD_CLOEXEC);
-    if (fd < 0) return;
-    void* data = ftruncate(fd, size) < 0 ? MAP_FAILED : mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (data == MAP_FAILED) { close(fd); return; }
-    cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
-    cairo_t* cr = mkcr(surf);
+    const int W = g.width, H = g.height;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, g.scale.factor(), "end4pC-tools")) return;
+    cairo_t* cr = mkcr(hf.surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
@@ -595,16 +606,10 @@ void render() {
     drawClose(cr);
     drawContent(cr);
     cairo_destroy(cr);
-    cairo_surface_destroy(surf);
-    wl_shm_pool* pool = wl_shm_create_pool(g.shm, fd, size);
-    wl_buffer* buf = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buf = hidpi::buffer(hf, g.shm);
+    if (!buf) return;
     wl_buffer_add_listener(buf, &kBufferListener, nullptr);
-    wl_surface_attach(g.surface, buf, 0, 0);
-    wl_surface_damage_buffer(g.surface, 0, 0, W, H);
-    wl_surface_commit(g.surface);
+    hidpi::present(g.surface, buf, hf, g.scale);
     g.dirty = false;
 }
 
@@ -825,6 +830,10 @@ const wl_seat_listener kSeatListener = {onSeatCaps, onSeatName};
 void onGlobal(void*, wl_registry* reg, uint32_t name, const char* iface, uint32_t version) {
     if (!std::strcmp(iface, wl_compositor_interface.name)) g.compositor = static_cast<wl_compositor*>(wl_registry_bind(reg, name, &wl_compositor_interface, std::min(version, 4u)));
     else if (!std::strcmp(iface, wl_shm_interface.name)) g.shm = static_cast<wl_shm*>(wl_registry_bind(reg, name, &wl_shm_interface, 1));
+    else if (!std::strcmp(iface, wp_viewporter_interface.name) && !hidpi::disabled())  // (sharp drawing at fractional scales, hidpi.h)
+        g.viewporter = static_cast<wp_viewporter*>(wl_registry_bind(reg, name, &wp_viewporter_interface, 1));
+    else if (!std::strcmp(iface, wp_fractional_scale_manager_v1_interface.name) && !hidpi::disabled())
+        g.fscaleMgr = static_cast<wp_fractional_scale_manager_v1*>(wl_registry_bind(reg, name, &wp_fractional_scale_manager_v1_interface, 1));
     else if (!std::strcmp(iface, wl_seat_interface.name)) {
         g.seat = static_cast<wl_seat*>(wl_registry_bind(reg, name, &wl_seat_interface, std::min(version, 5u)));
         wl_seat_add_listener(g.seat, &kSeatListener, nullptr);
@@ -846,6 +855,7 @@ bool connectWayland() {
     wl_display_roundtrip(g.display);
     if (!g.compositor || !g.shm || !g.wm) { std::fprintf(stderr, "end4pC-tools: missing Wayland globals\n"); return false; }
     g.surface = wl_compositor_create_surface(g.compositor);
+    hidpi::attach(g.scale, g.surface, g.viewporter, g.fscaleMgr, [] { g.dirty = true; });
     g.xsurface = xdg_wm_base_get_xdg_surface(g.wm, g.surface);
     xdg_surface_add_listener(g.xsurface, &kXdgSurfaceListener, nullptr);
     g.toplevel = xdg_surface_get_toplevel(g.xsurface);
@@ -889,6 +899,7 @@ void teardown() {
     if (g.cursorDev) wp_cursor_shape_device_v1_destroy(g.cursorDev);
     if (g.toplevel) xdg_toplevel_destroy(g.toplevel);
     if (g.xsurface) xdg_surface_destroy(g.xsurface);
+    hidpi::detach(g.scale);
     if (g.surface) wl_surface_destroy(g.surface);
     if (g.display) { wl_display_roundtrip(g.display); wl_display_disconnect(g.display); }
     g.pages.clear();  // last: the roundtrip above can still deliver a pointer event, which asks for the current page

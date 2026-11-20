@@ -18,7 +18,7 @@ bool awinRead(App& app) {
         if (app.awin.icon) { cairo_surface_destroy(app.awin.icon); app.awin.icon = nullptr; }
         if (!iconFor.empty()) {
             const std::string path = lookupIcon(iconFor, 44);
-            if (!path.empty()) app.awin.icon = loadIconSurface(path, 44);
+            if (!path.empty()) app.awin.icon = loadIconScaled(path, 44);
         }
         app.awin.iconFor = iconFor;
     }
@@ -99,7 +99,7 @@ bool refreshWsApps(App& app) {
         const AppEntry* e = dockEntryFor(app, cls);
         const std::string name = e && !e->icon.empty() ? e->icon : cls;
         const std::string path = lookupIcon(name, kWsAppIconPx);
-        app.wsIcons[cls] = path.empty() ? nullptr : loadIconSurface(path, kWsAppIconPx);
+        app.wsIcons[cls] = path.empty() ? nullptr : loadIconScaled(path, kWsAppIconPx);
     }
     for (auto it = app.wsIcons.begin(); it != app.wsIcons.end();) {
         if (classes.count(it->first)) { ++it; continue; }

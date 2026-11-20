@@ -123,12 +123,11 @@ void deskDraw(App& app, DeskWidget& d, bool force) {
     const bool big = d.full && d.fullReady;
     int cardSW = 0, cardSH = 0;
     deskSurfSize(app, d, cardSW, cardSH);
-    const int W = d.w, H = d.h, SW = big ? d.fullW : cardSW, SH = big ? d.fullH : cardSH, stride = SW * 4, size = stride * SH;
+    const int W = d.w, H = d.h, SW = big ? d.fullW : cardSW, SH = big ? d.fullH : cardSH;
     const double ox = big ? d.ml : kDeskRoom, oy = big ? d.mt : kDeskRoom;
-    const int fd = memfd_create("end4pC-widget", MFD_CLOEXEC);
-    if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, SW, SH, stride);
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, SW, SH, d.scale.factor(), "end4pC-widget")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -202,12 +201,8 @@ void deskDraw(App& app, DeskWidget& d, bool force) {
     }
 
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, SW, SH, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     if (d.wantFrame) {
         d.wantFrame = false;
@@ -218,15 +213,13 @@ void deskDraw(App& app, DeskWidget& d, bool force) {
             roundedRect(m, ox, oy, W, H, d.radius);
             cairo_fill(m);
         });
-    wl_surface_attach(d.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(d.surface, 0, 0, SW, SH);
     wl_region* region = wl_compositor_create_region(app.compositor);
     if (big) wl_region_add(region, 0, 0, SW, SH);
     else if (d.editing) wl_region_add(region, kDeskRoom - 12, kDeskRoom - 12, W + 24, H + 24 + kDeskEditExtra);
     else wl_region_add(region, kDeskRoom, kDeskRoom, W, H);
     wl_surface_set_input_region(d.surface, region);
     wl_region_destroy(region);
-    wl_surface_commit(d.surface);
+    hidpi::present(d.surface, buffer, hf, d.scale);
 }
 
 void onDeskConfigure(void* data, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t w, uint32_t h) {
@@ -253,6 +246,7 @@ void onDeskClosed(void* data, zwlr_layer_surface_v1*) {
     auto* d = static_cast<DeskWidget*>(data);
     d->layer = nullptr;
     releaseBlurSurface(d->bgBlur);
+    hidpi::detach(d->scale);
     if (d->surface) wl_surface_destroy(d->surface);
     d->surface = nullptr;
     d->configured = false;
@@ -346,6 +340,7 @@ void deskOpen(App& app, DeskWidget& d) {
     deskArrangeOne(app, d);
     deskFit(app, d);
     d.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, d.scale, d.surface, [&app, w = &d] { deskDraw(app, *w, true); });
     const std::string ns = std::string("end4pC-widget-") + d.name;
     const Bar* home = widgetBar(app);
     d.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, d.surface, home ? home->output : nullptr, ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM, ns.c_str());
@@ -366,6 +361,7 @@ void deskDropSurface(App& app, DeskWidget& d) {
     if (d.open()) {
         if (d.layer) zwlr_layer_surface_v1_destroy(d.layer);
         releaseBlurSurface(d.bgBlur);
+        hidpi::detach(d.scale);
         wl_surface_destroy(d.surface);
         d.layer = nullptr;
         d.surface = nullptr;

@@ -47,10 +47,12 @@ const wl_buffer_listener kDeskVizBuffer = {deskVizBufferRelease};
 
 bool allocDeskVizBuffers(App& app) {
     DeskViz& V = app.dv;
-    if (V.bufW == V.W && V.bufH == V.H && V.buf[0]) return true;
+    const double sc = V.scale.factor();  // bufW x bufH: the buffers' pixels, the logical size times the scale (src/hidpi.h)
+    const int PW = hidpi::bufferExtent(V.W, sc), PH = hidpi::bufferExtent(V.H, sc);
+    if (V.bufW == PW && V.bufH == PH && V.buf[0]) return true;
     freeDeskVizBuffers(V);
-    const int stride = V.W * 4;
-    const size_t one = static_cast<size_t>(stride) * V.H;
+    const int stride = PW * 4;
+    const size_t one = static_cast<size_t>(stride) * PH;
     const int fd = memfd_create("end4pC-deskviz", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, one * 2) < 0) { if (fd >= 0) close(fd); return false; }
     void* data = mmap(nullptr, one * 2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -59,14 +61,15 @@ bool allocDeskVizBuffers(App& app) {
     V.memSize = one * 2;
     wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, static_cast<int32_t>(one * 2));
     for (int i = 0; i < 2; i++) {
-        V.cs[i] = cairo_image_surface_create_for_data(V.mem + i * one, CAIRO_FORMAT_ARGB32, V.W, V.H, stride);
-        V.buf[i] = wl_shm_pool_create_buffer(pool, static_cast<int32_t>(i * one), V.W, V.H, stride, WL_SHM_FORMAT_ARGB8888);
+        V.cs[i] = cairo_image_surface_create_for_data(V.mem + i * one, CAIRO_FORMAT_ARGB32, PW, PH, stride);
+        cairo_surface_set_device_scale(V.cs[i], sc, sc);
+        V.buf[i] = wl_shm_pool_create_buffer(pool, static_cast<int32_t>(i * one), PW, PH, stride, WL_SHM_FORMAT_ARGB8888);
         wl_buffer_add_listener(V.buf[i], &kDeskVizBuffer, &V.busy[i]);
     }
     wl_shm_pool_destroy(pool);
     close(fd);
-    V.bufW = V.W;
-    V.bufH = V.H;
+    V.bufW = PW;
+    V.bufH = PH;
     return true;
 }
 
@@ -322,7 +325,8 @@ void deskVizDraw(App& app) {
     V.dirty = false;
     wl_callback_add_listener(wl_surface_frame(V.surface), &kDeskVizFrame, &app);
     wl_surface_attach(V.surface, V.buf[idx], 0, 0);
-    wl_surface_damage_buffer(V.surface, 0, 0, V.W, V.H);
+    wl_surface_damage_buffer(V.surface, 0, 0, V.bufW, V.bufH);
+    if (V.scale.viewport) wp_viewport_set_destination(V.scale.viewport, V.W, V.H);
     wl_surface_commit(V.surface);
 }
 
@@ -477,6 +481,7 @@ void deskVizOpen(App& app) {
     V.enabled = true;
     V.covered = false;
     V.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, V.scale, V.surface, [&app] { deskVizDraw(app); });
     V.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, V.surface, V.output, ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND, "end4pC-desk-viz");
     zwlr_layer_surface_v1_set_exclusive_zone(V.layer, 0);
     zwlr_layer_surface_v1_set_keyboard_interactivity(V.layer, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE);
@@ -491,6 +496,7 @@ void deskVizOpen(App& app) {
 void deskVizClose(App& app, bool forget) {
     DeskViz& V = app.dv;
     if (V.layer) zwlr_layer_surface_v1_destroy(V.layer);
+    hidpi::detach(V.scale);
     if (V.surface) wl_surface_destroy(V.surface);
     V.layer = nullptr;
     V.surface = nullptr;

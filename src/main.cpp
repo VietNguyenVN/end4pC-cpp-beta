@@ -78,6 +78,7 @@
 #include "ext-foreign-toplevel-list-v1-client-protocol.h"
 #include "ext-image-capture-source-v1-client-protocol.h"
 #include "ext-image-copy-capture-v1-client-protocol.h"
+#include "hidpi.h"
 #include "notify_dbus.h"
 #include "polkit_dbus.h"
 #include "tray_dbus.h"
@@ -732,6 +733,15 @@ int main(int argc, char** argv) {
         if (fds[0].revents & POLLIN) wl_display_read_events(app.display);
         else wl_display_cancel_read(app.display);
         wl_display_dispatch_pending(app.display);
+        if (app.scaleChanged) {  // the compositor gave a bar surface a new fractional scale (src/hidpi.h): draw them at it
+            app.scaleChanged = false;
+            for (auto& b : app.bars) { b->shSig.clear(); draw(*b); }
+            redrawFrames(app);
+        }
+        if (app.wallpaperScaleChanged) {
+            app.wallpaperScaleChanged = false;
+            redrawWallpapers(app);
+        }
 
         if (fds[1].revents & POLLIN) {
             uint64_t expirations;

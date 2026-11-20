@@ -962,8 +962,8 @@ cairo_surface_t* launcherAppIcon(App& app, const std::string& name) {
     Launcher& L = app.launcher;
     if (auto it = L.icons.find(name); it != L.icons.end()) return it->second;
     cairo_surface_t* surf = nullptr;
-    const std::string path = lookupIcon(name, 32);
-    if (!path.empty()) surf = loadIconSurface(path, 32);
+    const std::string path = lookupIcon(name, picturePx(32));
+    if (!path.empty()) surf = loadIconScaled(path, 32);
     L.icons[name] = surf;
     return surf;
 }
@@ -981,11 +981,9 @@ void drawLauncher(App& app) {
     Launcher& L = app.launcher;
     if (!L.open() || !L.configured) return;
     const int W = kLaunW, H = kLaunH;
-    const int stride = W * 4, size = stride * H;
-    int fd = memfd_create("end4pC-launcher", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, L.scale.factor(), "end4pC-launcher")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -1191,14 +1189,13 @@ void drawLauncher(App& app) {
             else if (r.kind == ResClip && r.image) {
                 const std::string id = clipId(r.payload), key = "clip:" + id;
                 if (auto cached = L.icons.find(key); cached != L.icons.end()) appIcon = cached->second;
-                else if (access(clipThumbPath(id).c_str(), R_OK) == 0) appIcon = L.icons[key] = loadIconSurface(clipThumbPath(id), 32);
+                else if (access(clipThumbPath(id).c_str(), R_OK) == 0) appIcon = L.icons[key] = loadIconScaled(clipThumbPath(id), 32);
                 else requestClipThumb(L, id);
                 if (appIcon) {
                     cairo_save(cr);
                     roundedRect(cr, ix, iy, 32, 32, 7);
                     cairo_clip(cr);
-                    cairo_set_source_surface(cr, appIcon, ix, iy);
-                    cairo_paint(cr);
+                    paintPictureBox(cr, appIcon, ix, iy, 32);
                     cairo_restore(cr);
                     appIcon = nullptr;
                 } else {
@@ -1212,8 +1209,7 @@ void drawLauncher(App& app) {
                 cairo_move_to(cr, ix + (32 - tw) / 2.0, iy + (32 - th) / 2.0);
                 pango_cairo_show_layout(cr, layout);
             } else if (appIcon) {
-                cairo_set_source_surface(cr, appIcon, ix, iy);
-                cairo_paint(cr);
+                paintPictureBox(cr, appIcon, ix, iy, 32);
             } else if (!(r.kind == ResClip && r.image)) {
                 drawIcon(cr, r.kind == ResApp ? "apps" : r.icon, ix + 3, iy + 3, 26, ink, sel);
             }
@@ -1297,12 +1293,8 @@ void drawLauncher(App& app) {
     if (rev > 0.001) popGroupEnd(cr, rev, ox, oy, L.anim.phase == kPopOut ? 1.0 : std::min(1.0, rev * 8));
     else cairo_pattern_destroy(cairo_pop_group(cr));
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     updateBlurRegion(app, L.surface, L.blur, W, H, [&](cairo_t* m) {
         if (rev <= 0.001) return;
@@ -1312,9 +1304,7 @@ void drawLauncher(App& app) {
             cairo_fill(m);
         });
     });
-    wl_surface_attach(L.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(L.surface, 0, 0, W, H);
-    wl_surface_commit(L.surface);
+    hidpi::present(L.surface, buffer, hf, L.scale);
 }
 
 void closeLauncher(App& app) {
@@ -1326,6 +1316,7 @@ void closeLauncher(App& app) {
     if (L.fileFd >= 0) close(L.fileFd);
     if (L.layer) zwlr_layer_surface_v1_destroy(L.layer);
     releaseBlurSurface(L.blur);
+    hidpi::detach(L.scale);
     wl_surface_destroy(L.surface);
     for (auto& [name, surf] : L.icons)
         if (surf) cairo_surface_destroy(surf);
@@ -1361,6 +1352,7 @@ void openLauncher(App& app) {
     L.anim.outSeconds = 0.13;
     popStart(L.anim);
     L.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, L.scale, L.surface, [&app] { drawLauncher(app); });
     L.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, L.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-launcher");
     zwlr_layer_surface_v1_set_anchor(L.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
     zwlr_layer_surface_v1_set_margin(L.layer, static_cast<int>(launcherTopMargin(app)), 0, 0, 0);

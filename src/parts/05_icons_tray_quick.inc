@@ -46,35 +46,39 @@ std::vector<std::string> iconCandidates(const std::string& name, bool filled) {
     return out;
 }
 
-cairo_surface_t* iconMask(const std::string& name, bool filled, int size) {
+// An icon of `size` logical px rendered with `px` real pixels (px > size on a fractionally scaled surface, src/hidpi.h). The mask
+// carries the ratio as its device scale, so it still paints `size` px wide in logical units, one mask pixel per buffer pixel.
+cairo_surface_t* iconMaskPx(const std::string& name, bool filled, int size, int px) {
     static std::map<std::string, cairo_surface_t*> cache;
-    const std::string key = name + (filled ? "|f|" : "|" + g_iconStyle + "|") + std::to_string(size) + (matsym::enabled() ? "|m" : "");
+    const std::string key = name + (filled ? "|f|" : "|" + g_iconStyle + "|") + std::to_string(size) + (px != size ? "@" + std::to_string(px) : "") + (matsym::enabled() ? "|m" : "");
     if (auto it = cache.find(key); it != cache.end()) return it->second;
 
-    cairo_surface_t* mask = matsym::makeMask(name, filled, size);
+    cairo_surface_t* mask = matsym::makeMask(name, filled, px);
     for (const auto& path : iconCandidates(matsym::baseName(name), filled)) {
         if (mask) break;
         if (access(path.c_str(), R_OK) != 0) continue;
         RsvgHandle* h = rsvg_handle_new_from_file(path.c_str(), nullptr);
         if (!h) continue;
-        mask = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, size, size);
+        mask = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, px, px);
         cairo_t* cr = mkcr(mask);
-        RsvgRectangle vp = {0, 0, double(size), double(size)};
+        RsvgRectangle vp = {0, 0, double(px), double(px)};
         rsvg_handle_render_document(h, cr, &vp, nullptr);
         cairo_destroy(cr);
         g_object_unref(h);
         break;
     }
     if (!mask) std::fprintf(stderr, "icon not found: %s\n", name.c_str());
+    else if (px != size) cairo_surface_set_device_scale(mask, double(px) / size, double(px) / size);
     cache[key] = mask;
     return mask;
 }
+cairo_surface_t* iconMask(const std::string& name, bool filled, int size) { return iconMaskPx(name, filled, size, size); }
 
 void drawIcon(cairo_t* cr, const std::string& name, double x, double y, int size, const Color& c, bool filled = false) {
     const int scaled = g_iconScale == 100 ? size : std::max(8, static_cast<int>(std::lround(size * g_iconScale / 100.0)));  // the icon keeps its centre
     x += (size - scaled) / 2.0;
     y += (size - scaled) / 2.0;
-    cairo_surface_t* mask = iconMask(name, filled, scaled);
+    cairo_surface_t* mask = iconMaskPx(name, filled, scaled, hidpi::bufferExtent(scaled, hidpi::scaleOf(cr)));
     if (!mask) return;
     cairo_set_source_rgba(cr, c.r, c.g, c.b, 1.0);
     cairo_mask_surface(cr, mask, x, y);
@@ -129,15 +133,17 @@ std::string trayIconFile(const std::string& name, const std::string& themePath) 
     return "";
 }
 
+// Drawn at the screen's real pixels (P) and given the matching device scale, so it still paints kTrayIcon logical px wide (src/hidpi.h).
 cairo_surface_t* trayMakeSurface(const TrayIcon& t) {
-    cairo_surface_t* out = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, kTrayIcon, kTrayIcon);
+    const int P = picturePx(kTrayIcon);
+    cairo_surface_t* out = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, P, P);
     cairo_t* cr = mkcr(out);
     bool drawn = false;
     const std::string file = trayIconFile(t.iconName, t.themePath);
     if (!file.empty()) {
-        if (GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_size(file.c_str(), kTrayIcon, kTrayIcon, nullptr)) {
+        if (GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_size(file.c_str(), P, P, nullptr)) {
             cairo_surface_t* im = surfaceFromPixbuf(pb);
-            cairo_set_source_surface(cr, im, (kTrayIcon - gdk_pixbuf_get_width(pb)) / 2.0, (kTrayIcon - gdk_pixbuf_get_height(pb)) / 2.0);
+            cairo_set_source_surface(cr, im, (P - gdk_pixbuf_get_width(pb)) / 2.0, (P - gdk_pixbuf_get_height(pb)) / 2.0);
             cairo_paint(cr);
             cairo_surface_destroy(im);
             g_object_unref(pb);
@@ -156,8 +162,8 @@ cairo_surface_t* trayMakeSurface(const TrayIcon& t) {
                 *px = (a << 24) | (((q[1] * a + 127) / 255) << 16) | (((q[2] * a + 127) / 255) << 8) | ((q[3] * a + 127) / 255);
             }
         cairo_surface_mark_dirty(src);
-        const double sc = std::min(double(kTrayIcon) / t.pw, double(kTrayIcon) / t.ph);
-        cairo_translate(cr, (kTrayIcon - t.pw * sc) / 2.0, (kTrayIcon - t.ph * sc) / 2.0);
+        const double sc = std::min(double(P) / t.pw, double(P) / t.ph);
+        cairo_translate(cr, (P - t.pw * sc) / 2.0, (P - t.ph * sc) / 2.0);
         cairo_scale(cr, sc, sc);
         cairo_set_source_surface(cr, src, 0, 0);
         cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BEST);
@@ -166,11 +172,12 @@ cairo_surface_t* trayMakeSurface(const TrayIcon& t) {
         drawn = true;
     }
     if (!drawn) {
-        cairo_arc(cr, kTrayIcon / 2.0, kTrayIcon / 2.0, kTrayIcon / 2.0 - 1, 0, 2 * M_PI);
+        cairo_arc(cr, P / 2.0, P / 2.0, P / 2.0 - 1, 0, 2 * M_PI);
         cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.5);
         cairo_fill(cr);
     }
     cairo_destroy(cr);
+    if (P != kTrayIcon) cairo_surface_set_device_scale(out, double(P) / kTrayIcon, double(P) / kTrayIcon);
     return out;
 }
 
@@ -625,7 +632,8 @@ void musicPaintM3(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layo
         cairo_arc(cr, cov0 + artR, cy, artR, 0, 2 * M_PI);
         cairo_clip(cr);
         cairo_translate(cr, cov0, cy - artR);
-        cairo_scale(cr, artD / kMusicArt, artD / kMusicArt);  // (the cover is cached at kMusicArt)
+        const double artK = artD / cairo_image_surface_get_width(app.musicArt);  // (the cover is cached at picturePx(kMusicArt))
+        cairo_scale(cr, artK, artK);
         cairo_set_source_surface(cr, app.musicArt, 0, 0);
         cairo_paint(cr);
         cairo_restore(cr);

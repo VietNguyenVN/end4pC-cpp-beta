@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "ext-session-lock-v1-client-protocol.h"
+#include "hidpi.h"
 
 namespace {
 struct Color { double r = 0, g = 0, b = 0; };
@@ -192,10 +193,20 @@ cairo_surface_t* iconMask(const std::string& name, int size) {
     cache[key] = mask;
     return mask;
 }
+// Masks an icon cached at `px` real pixels into a size x size logical box (px > size on a fractionally scaled window, hidpi.h).
+void maskIconBox(cairo_t* cr, cairo_surface_t* m, double x, double y, int size, int px) {
+    if (px == size) { cairo_mask_surface(cr, m, x, y); return; }
+    cairo_save(cr);
+    cairo_translate(cr, x, y);
+    cairo_scale(cr, double(size) / px, double(size) / px);
+    cairo_mask_surface(cr, m, 0, 0);
+    cairo_restore(cr);
+}
 void icon(cairo_t* cr, const std::string& name, double x, double y, int size, const Color& c) {
-    if (cairo_surface_t* m = iconMask(name, size)) {
+    const int px = hidpi::bufferExtent(size, hidpi::scaleOf(cr));
+    if (cairo_surface_t* m = iconMask(name, px)) {
         src(cr, c);
-        cairo_mask_surface(cr, m, x, y);
+        maskIconBox(cr, m, x, y, size, px);
     }
 }
 
@@ -417,6 +428,7 @@ struct Output {
     wl_output* output = nullptr;
     uint32_t name = 0;
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     ext_session_lock_surface_v1* lockSurface = nullptr;
     int w = 0, h = 0;
     bool configured = false;
@@ -432,6 +444,8 @@ struct App {
     wl_registry* registry = nullptr;
     wl_compositor* compositor = nullptr;
     wl_shm* shm = nullptr;
+    wp_viewporter* viewporter = nullptr;
+    wp_fractional_scale_manager_v1* fscaleMgr = nullptr;
     wl_seat* seat = nullptr;
     wl_keyboard* keyboard = nullptr;
     ext_session_lock_manager_v1* manager = nullptr;
@@ -673,17 +687,17 @@ void draw(Output& o) {
     if (!o.configured || o.w <= 0 || o.h <= 0) return;
     const bool animating = g.animPhase != App::AnimIdle;
     if (animating && o.framePending) return;  // (the last frame has not been shown yet)
-    const int W = o.w, H = o.h, stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-lock", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
-    cairo_t* cr = mkcr(surface);
+    const int W = o.w, H = o.h;
+    const double sc = o.scale.factor();
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, sc, "end4pC-lock")) return;
+    cairo_t* cr = mkcr(hf.surface);
 
     if (animating) {
-        if (!o.cache || o.cacheW != W || o.cacheH != H || o.cacheDirty) {
+        if (!o.cache || o.cacheW != W || o.cacheH != H || o.cacheDirty || cairo_image_surface_get_width(o.cache) != hf.pw) {
             if (o.cache) cairo_surface_destroy(o.cache);
-            o.cache = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, W, H);
+            o.cache = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, hf.pw, hf.ph);  // (at the buffer's pixels, painting in logical units)
+            cairo_surface_set_device_scale(o.cache, sc, sc);
             cairo_t* cc = mkcr(o.cache);
             paintFrame(cc, W, H);
             cairo_destroy(cc);
@@ -701,16 +715,10 @@ void draw(Output& o) {
     }
 
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    munmap(data, size);
-    wl_shm_pool* pool = wl_shm_create_pool(g.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, g.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
-    wl_surface_attach(o.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(o.surface, 0, 0, W, H);
-    wl_surface_commit(o.surface);
+    hidpi::present(o.surface, buffer, hf, o.scale);
 }
 void drawAll() { for (auto& o : g.outputs) draw(*o); }
 
@@ -732,6 +740,7 @@ const ext_session_lock_surface_v1_listener kLockSurfaceListener = {onLockSurface
 void createLockSurface(Output& o) {
     if (!g.lock || o.lockSurface) return;
     o.surface = wl_compositor_create_surface(g.compositor);
+    hidpi::attach(o.scale, o.surface, g.viewporter, g.fscaleMgr, [op = &o] { op->cacheDirty = true; draw(*op); });
     o.lockSurface = ext_session_lock_v1_get_lock_surface(g.lock, o.surface, o.output);
     ext_session_lock_surface_v1_add_listener(o.lockSurface, &kLockSurfaceListener, &o);
 }
@@ -817,6 +826,10 @@ const wl_seat_listener kSeatListener = {onSeatCaps, onSeatName};
 void onGlobal(void*, wl_registry* reg, uint32_t name, const char* iface, uint32_t version) {
     if (!std::strcmp(iface, wl_compositor_interface.name)) g.compositor = static_cast<wl_compositor*>(wl_registry_bind(reg, name, &wl_compositor_interface, std::min(version, 4u)));
     else if (!std::strcmp(iface, wl_shm_interface.name)) g.shm = static_cast<wl_shm*>(wl_registry_bind(reg, name, &wl_shm_interface, 1));
+    else if (!std::strcmp(iface, wp_viewporter_interface.name) && !hidpi::disabled())  // (sharp drawing at fractional scales, hidpi.h)
+        g.viewporter = static_cast<wp_viewporter*>(wl_registry_bind(reg, name, &wp_viewporter_interface, 1));
+    else if (!std::strcmp(iface, wp_fractional_scale_manager_v1_interface.name) && !hidpi::disabled())
+        g.fscaleMgr = static_cast<wp_fractional_scale_manager_v1*>(wl_registry_bind(reg, name, &wp_fractional_scale_manager_v1_interface, 1));
     else if (!std::strcmp(iface, wl_seat_interface.name)) {
         g.seat = static_cast<wl_seat*>(wl_registry_bind(reg, name, &wl_seat_interface, std::min(version, 5u)));
         wl_seat_add_listener(g.seat, &kSeatListener, nullptr);
@@ -838,6 +851,7 @@ void onGlobalRemove(void*, wl_registry*, uint32_t name) {
             if (o.frameCb) wl_callback_destroy(o.frameCb);
             if (o.cache) cairo_surface_destroy(o.cache);
             if (o.lockSurface) ext_session_lock_surface_v1_destroy(o.lockSurface);
+            hidpi::detach(o.scale);
             if (o.surface) wl_surface_destroy(o.surface);
             if (o.output) wl_output_destroy(o.output);
             g.outputs.erase(it);

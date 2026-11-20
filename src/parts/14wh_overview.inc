@@ -413,6 +413,7 @@ void destroyOverview(App& app) {
     O.wins.clear();
     ovFreeSlots(O);
     if (O.layer) zwlr_layer_surface_v1_destroy(O.layer);
+    hidpi::detach(O.scale);
     wl_surface_destroy(O.surface);
     O.surface = nullptr; O.layer = nullptr;
     O.configured = false; O.dirty = false; O.hoverPlus = false; O.closing = false;
@@ -495,8 +496,10 @@ void ovDrawThumb(App& app, cairo_t* cr, PangoLayout* L, int id, const Rect& t, b
 void drawOverview(App& app) {
     OverviewState& O = app.ov;
     if (!O.surface || !O.configured || O.width <= 0 || O.height <= 0) return;
-    const int W = O.width, H = O.height, stride = W * 4;
-    const size_t size = static_cast<size_t>(stride) * H;
+    const int W = O.width, H = O.height;  // logical; the buffers are scaled (src/hidpi.h)
+    const double sc = O.scale.factor();
+    const int PW = hidpi::bufferExtent(W, sc), PH = hidpi::bufferExtent(H, sc), stride = PW * 4;
+    const size_t size = static_cast<size_t>(stride) * PH;
     if (O.slotSize != size) ovFreeSlots(O);
     OverviewState::Slot* slot = nullptr;
     for (auto& s : O.slot) if (!s.busy) { slot = &s; break; }
@@ -506,13 +509,14 @@ void drawOverview(App& app) {
         if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }
         slot->map = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-        slot->buf = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
+        slot->buf = wl_shm_pool_create_buffer(pool, 0, PW, PH, stride, WL_SHM_FORMAT_ARGB8888);
         wl_shm_pool_destroy(pool);
         close(fd);
         wl_buffer_add_listener(slot->buf, &kOvSlotListener, slot);
         O.slotSize = size;
     }
-    cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(slot->map), CAIRO_FORMAT_ARGB32, W, H, stride);
+    cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(slot->map), CAIRO_FORMAT_ARGB32, PW, PH, stride);
+    cairo_surface_set_device_scale(surf, sc, sc);
     cairo_t* cr = mkcr(surf);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -566,7 +570,8 @@ void drawOverview(App& app) {
     cairo_destroy(cr);
     cairo_surface_destroy(surf);
     wl_surface_attach(O.surface, slot->buf, 0, 0);
-    wl_surface_damage_buffer(O.surface, 0, 0, W, H);
+    wl_surface_damage_buffer(O.surface, 0, 0, PW, PH);
+    if (O.scale.viewport) wp_viewport_set_destination(O.scale.viewport, W, H);
     wl_surface_commit(O.surface);
     slot->busy = true;
     O.dirty = false;
@@ -656,6 +661,7 @@ void openOverview(App& app) {
     O.openT0 = std::chrono::steady_clock::now();
     O.closing = false;
     O.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, O.scale, O.surface, [&app] { app.ov.dirty = true; drawOverview(app); });
     O.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, O.surface, bar ? bar->output : nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-overview");
     const uint32_t T = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, B = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, Lf = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, R = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
     const uint32_t anchors[4] = {T | Lf | R, B | Lf | R, T | B | Lf, T | B | R};

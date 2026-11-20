@@ -28,6 +28,7 @@ void closePolkitDialog(App& app) {
     PolkitDlg& P = app.pk;
     if (P.layer) zwlr_layer_surface_v1_destroy(P.layer);
     releaseBlurSurface(P.blur);
+    hidpi::detach(P.scale);
     if (P.surface) wl_surface_destroy(P.surface);
     P.layer = nullptr;
     P.surface = nullptr;
@@ -71,6 +72,7 @@ void openPolkitDialog(App& app) {
     P.anim = PopAnim{};
     popStartQuick(P.anim, 0.16, 0.11);
     P.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, P.scale, P.surface, [&app] { drawPolkit(app); });
     P.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, P.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-polkit");
     zwlr_layer_surface_v1_set_anchor(P.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
     zwlr_layer_surface_v1_set_size(P.layer, 0, 0);
@@ -233,11 +235,10 @@ struct PkLayout {
 void drawPolkit(App& app) {
     PolkitDlg& P = app.pk;
     if (!P.open() || !P.configured || P.w <= 0 || P.h <= 0) return;
-    const int W = P.w, H = P.h, stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-polkit", MFD_CLOEXEC);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int W = P.w, H = P.h;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, P.scale.factor(), "end4pC-polkit")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -392,19 +393,13 @@ void drawPolkit(App& app) {
     if (rev > 0.001) popFadeEnd(cr, rev, W / 2.0, H / 2.0, 0.97);
     else cairo_pattern_destroy(cairo_pop_group(cr));
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     updateBlurRegion(app, P.surface, P.blur, W, H, [&](cairo_t* m) {  // the whole screen: the scrim is what is blurred
         if (rev > 0.001) cairo_paint(m);
     });
-    wl_surface_attach(P.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(P.surface, 0, 0, W, H);
-    wl_surface_commit(P.surface);
+    hidpi::present(P.surface, buffer, hf, P.scale);
 }
 
 int pkButtonAt(const PolkitDlg& P, double x, double y) {

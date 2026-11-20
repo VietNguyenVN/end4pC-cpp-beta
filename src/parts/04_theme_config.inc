@@ -1325,14 +1325,15 @@ void loadCover(App& app, const std::string& path) {
     if (app.musicArt) { cairo_surface_destroy(app.musicArt); app.musicArt = nullptr; }
     int iw = 0, ih = 0;
     if (path.empty() || !gdk_pixbuf_get_file_info(path.c_str(), &iw, &ih) || iw <= 0 || ih <= 0) return;
-    const double scale = std::max(double(kMusicArt) / iw, double(kMusicArt) / ih);
+    const int art = picturePx(kMusicArt);  // (painted scaled to its box: decoded at the screen's real pixels)
+    const double scale = std::max(double(art) / iw, double(art) / ih);
     GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_scale(
-        path.c_str(), std::max(kMusicArt, int(iw * scale + 0.5)), std::max(kMusicArt, int(ih * scale + 0.5)), FALSE, nullptr);
+        path.c_str(), std::max(art, int(iw * scale + 0.5)), std::max(art, int(ih * scale + 0.5)), FALSE, nullptr);
     if (!pb) return;
     cairo_surface_t* img = surfaceFromPixbuf(pb);
-    app.musicArt = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, kMusicArt, kMusicArt);
+    app.musicArt = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, art, art);
     cairo_t* cr = mkcr(app.musicArt);
-    cairo_set_source_surface(cr, img, (kMusicArt - gdk_pixbuf_get_width(pb)) / 2.0, (kMusicArt - gdk_pixbuf_get_height(pb)) / 2.0);
+    cairo_set_source_surface(cr, img, (art - gdk_pixbuf_get_width(pb)) / 2.0, (art - gdk_pixbuf_get_height(pb)) / 2.0);
     cairo_paint(cr);
     cairo_destroy(cr);
     cairo_surface_destroy(img);
@@ -1377,6 +1378,24 @@ double shapeMinRadius(const std::string& name) {
     return cache[name] = std::max(0.2, best);
 }
 
+// Paints the picture at `path` so it covers w x h (logical, centred), decoded at the canvas's real pixels: on a fractionally scaled
+// screen the wallpaper keeps the screen's full resolution (src/hidpi.h).
+void paintWallpaperCover(cairo_t* cr, const std::string& path, int w, int h) {
+    int iw = 0, ih = 0;
+    if (path.empty() || !gdk_pixbuf_get_file_info(path.c_str(), &iw, &ih) || iw <= 0 || ih <= 0) return;
+    const double ds = hidpi::scaleOf(cr);
+    const int pw = hidpi::bufferExtent(w, ds), ph = hidpi::bufferExtent(h, ds);
+    const double scale = std::max(double(pw) / iw, double(ph) / ih);
+    GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_scale(path.c_str(), std::max(pw, int(iw * scale + 0.5)), std::max(ph, int(ih * scale + 0.5)), FALSE, nullptr);
+    if (!pb) return;
+    cairo_surface_t* img = surfaceFromPixbuf(pb);
+    cairo_surface_set_device_scale(img, ds, ds);
+    cairo_set_source_surface(cr, img, (w - gdk_pixbuf_get_width(pb) / ds) / 2.0, (h - gdk_pixbuf_get_height(pb) / ds) / 2.0);
+    cairo_paint(cr);
+    cairo_surface_destroy(img);
+    g_object_unref(pb);
+}
+
 void cwpPaint(cairo_t* cr, int w, int h, const std::string& path, const CwpParams& p) {
     cairo_set_source_rgb(cr, p.r, p.g, p.b);
     cairo_paint(cr);
@@ -1399,11 +1418,13 @@ void cwpPaint(cairo_t* cr, int w, int h, const std::string& path, const CwpParam
     }
     int iw = 0, ih = 0;
     if (!path.empty() && gdk_pixbuf_get_file_info(path.c_str(), &iw, &ih) && iw > 0 && ih > 0) {
-        const double tw = std::max(box, w * k), th = std::max(box, h * k), scale = std::max(tw / iw, th / ih);
+        const double ds = hidpi::scaleOf(cr);  // (decoded at the canvas's real pixels)
+        const double tw = std::max(box, w * k), th = std::max(box, h * k), scale = std::max(tw * ds / iw, th * ds / ih);
         GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_scale(path.c_str(), std::max(1, int(iw * scale + 0.5)), std::max(1, int(ih * scale + 0.5)), FALSE, nullptr);
         if (pb) {
             cairo_surface_t* img = surfaceFromPixbuf(pb);
-            cairo_set_source_surface(cr, img, (w - gdk_pixbuf_get_width(pb)) / 2.0, (h - gdk_pixbuf_get_height(pb)) / 2.0);
+            cairo_surface_set_device_scale(img, ds, ds);
+            cairo_set_source_surface(cr, img, (w - gdk_pixbuf_get_width(pb) / ds) / 2.0, (h - gdk_pixbuf_get_height(pb) / ds) / 2.0);
             cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
             cairo_paint(cr);
             cairo_surface_destroy(img);
@@ -1422,49 +1443,24 @@ void drawWallpaper(Bar& bar, App& app) {
     if (!bar.wpSurface || bar.wpW == 0 || bar.wpH == 0) return;
     if (app.cfg.collage && !collageReady(bar, app)) return;
     const int w = bar.wpW, h = bar.wpH;
-    const int stride = w * 4;
-    const int size = stride * h;
-
-    int fd = memfd_create("end4pC-wallpaper", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(
-        static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, w, h, stride);
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, w, h, bar.wpScale.factor(), "end4pC-wallpaper")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     setSource(cr, app.color("surface"));
     cairo_paint(cr);
 
-    int iw = 0, ih = 0;
     CwpParams cwp = cwpParams(app);
     cwp.full = bar.cwpFull;
     if (!app.cwpA.active) app.cwpDrawn = app.cfg.centeredWallpaper;
     if (app.cfg.collage) collagePaintNow(cr, bar, app);
     else if (cwp.on) cwpPaint(cr, w, h, app.wallpaper, cwp);
-    else if (!app.wallpaper.empty() && gdk_pixbuf_get_file_info(app.wallpaper.c_str(), &iw, &ih) && iw > 0 && ih > 0) {
-        const double scale = std::max(double(w) / iw, double(h) / ih);
-        GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_scale(
-            app.wallpaper.c_str(), std::max(w, int(iw * scale + 0.5)), std::max(h, int(ih * scale + 0.5)), FALSE, nullptr);
-        if (pb) {
-            const double dx = (w - gdk_pixbuf_get_width(pb)) / 2.0;
-            const double dy = (h - gdk_pixbuf_get_height(pb)) / 2.0;
-            cairo_surface_t* img = surfaceFromPixbuf(pb);
-            cairo_set_source_surface(cr, img, dx, dy);
-            cairo_paint(cr);
-            cairo_surface_destroy(img);
-            g_object_unref(pb);
-        }
-    }
+    else paintWallpaperCover(cr, app.wallpaper, w, h);
     cairo_destroy(cr);
     if (bar.bdSurface) backdropSetPicture(bar, surface);
-    cairo_surface_destroy(surface);
 
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, w, h, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, &bar);
-    wl_surface_attach(bar.wpSurface, buffer, 0, 0);
-    wl_surface_damage_buffer(bar.wpSurface, 0, 0, w, h);
-    wl_surface_commit(bar.wpSurface);
+    hidpi::present(bar.wpSurface, buffer, hf, bar.wpScale);
 }
