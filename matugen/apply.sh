@@ -30,3 +30,19 @@ bin="$(command -v end4pC || true)"
 "$bin" wallpaper "$wall" >/dev/null 2>&1 || true
 # The palette written for the other programs (kitty...): only the templates switched on in Settings -> Appearance -> Templates.
 python3 -I "$HOME/.config/end4pC/scripts/templates.py" >/dev/null 2>&1 || true
+# The user's own matugen templates (~/.config/matugen/config.toml, for the apps the shell has no template for): the same wallpaper,
+# mode and type. With an accent, or a named theme (which matugen cannot read), they get a palette built from that colour instead.
+user_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/matugen/config.toml"
+if [ -f "$user_cfg" ] && command -v matugen >/dev/null 2>&1; then
+    src=""
+    if [[ "$accent" =~ ^#[0-9a-fA-F]{6}$ ]]; then src="$accent"
+    elif [[ "$theme" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        src="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("primary",""))' "$state/generated/colors.json" 2>/dev/null || true)"
+    fi
+    if [[ "$src" =~ ^#[0-9a-fA-F]{6}$ ]]; then
+        [ "$type" = scheme-neutral ] && type=scheme-tonal-spot
+        matugen color hex "$src" --mode "$mode" --type "$type" -c "$user_cfg" >/dev/null 2>&1 || true
+    else
+        matugen --source-color-index 0 image "$wall" --mode "$mode" --type "$type" -c "$user_cfg" >/dev/null 2>&1 || true
+    fi
+fi
