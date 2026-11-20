@@ -1325,14 +1325,15 @@ void loadCover(App& app, const std::string& path) {
     if (app.musicArt) { cairo_surface_destroy(app.musicArt); app.musicArt = nullptr; }
     int iw = 0, ih = 0;
     if (path.empty() || !gdk_pixbuf_get_file_info(path.c_str(), &iw, &ih) || iw <= 0 || ih <= 0) return;
-    const double scale = std::max(double(kMusicArt) / iw, double(kMusicArt) / ih);
+    const int art = picturePx(kMusicArt);  // (painted scaled to its box: decoded at the screen's real pixels)
+    const double scale = std::max(double(art) / iw, double(art) / ih);
     GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_scale(
-        path.c_str(), std::max(kMusicArt, int(iw * scale + 0.5)), std::max(kMusicArt, int(ih * scale + 0.5)), FALSE, nullptr);
+        path.c_str(), std::max(art, int(iw * scale + 0.5)), std::max(art, int(ih * scale + 0.5)), FALSE, nullptr);
     if (!pb) return;
     cairo_surface_t* img = surfaceFromPixbuf(pb);
-    app.musicArt = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, kMusicArt, kMusicArt);
+    app.musicArt = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, art, art);
     cairo_t* cr = mkcr(app.musicArt);
-    cairo_set_source_surface(cr, img, (kMusicArt - gdk_pixbuf_get_width(pb)) / 2.0, (kMusicArt - gdk_pixbuf_get_height(pb)) / 2.0);
+    cairo_set_source_surface(cr, img, (art - gdk_pixbuf_get_width(pb)) / 2.0, (art - gdk_pixbuf_get_height(pb)) / 2.0);
     cairo_paint(cr);
     cairo_destroy(cr);
     cairo_surface_destroy(img);

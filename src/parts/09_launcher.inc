@@ -962,8 +962,8 @@ cairo_surface_t* launcherAppIcon(App& app, const std::string& name) {
     Launcher& L = app.launcher;
     if (auto it = L.icons.find(name); it != L.icons.end()) return it->second;
     cairo_surface_t* surf = nullptr;
-    const std::string path = lookupIcon(name, 32);
-    if (!path.empty()) surf = loadIconSurface(path, 32);
+    const std::string path = lookupIcon(name, picturePx(32));
+    if (!path.empty()) surf = loadIconScaled(path, 32);
     L.icons[name] = surf;
     return surf;
 }
@@ -1189,14 +1189,13 @@ void drawLauncher(App& app) {
             else if (r.kind == ResClip && r.image) {
                 const std::string id = clipId(r.payload), key = "clip:" + id;
                 if (auto cached = L.icons.find(key); cached != L.icons.end()) appIcon = cached->second;
-                else if (access(clipThumbPath(id).c_str(), R_OK) == 0) appIcon = L.icons[key] = loadIconSurface(clipThumbPath(id), 32);
+                else if (access(clipThumbPath(id).c_str(), R_OK) == 0) appIcon = L.icons[key] = loadIconScaled(clipThumbPath(id), 32);
                 else requestClipThumb(L, id);
                 if (appIcon) {
                     cairo_save(cr);
                     roundedRect(cr, ix, iy, 32, 32, 7);
                     cairo_clip(cr);
-                    cairo_set_source_surface(cr, appIcon, ix, iy);
-                    cairo_paint(cr);
+                    paintPictureBox(cr, appIcon, ix, iy, 32);
                     cairo_restore(cr);
                     appIcon = nullptr;
                 } else {
@@ -1210,8 +1209,7 @@ void drawLauncher(App& app) {
                 cairo_move_to(cr, ix + (32 - tw) / 2.0, iy + (32 - th) / 2.0);
                 pango_cairo_show_layout(cr, layout);
             } else if (appIcon) {
-                cairo_set_source_surface(cr, appIcon, ix, iy);
-                cairo_paint(cr);
+                paintPictureBox(cr, appIcon, ix, iy, 32);
             } else if (!(r.kind == ResClip && r.image)) {
                 drawIcon(cr, r.kind == ResApp ? "apps" : r.icon, ix + 3, iy + 3, 26, ink, sel);
             }

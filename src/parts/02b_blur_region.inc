@@ -13,6 +13,11 @@ void attachScale(App& app, hidpi::SurfaceScale& s, wl_surface* surface, std::fun
     hidpi::attach(s, surface, app.viewporter, app.fscaleMgr, std::move(redraw));
 }
 
+// The scale of the screens (the last one the compositor told, src/hidpi.h): pictures are decoded at their box size times this, and
+// painted scaled down to the box (the painters scale by the picture's pixel width), so they stay sharp on a fractionally scaled screen.
+double pictureScale() { return std::max(1.0, hidpi::g_seed / static_cast<double>(hidpi::kBase)); }
+int picturePx(int size) { return hidpi::bufferExtent(size, pictureScale()); }
+
 struct ShapeOnlyScope {
     ShapeOnlyScope() { gShapeOnlyPaint = true; }
     ~ShapeOnlyScope() { gShapeOnlyPaint = false; }

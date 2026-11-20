@@ -342,7 +342,7 @@ std::shared_ptr<cairo_surface_t> dockIcon(App& app, const std::string& name) {
     std::shared_ptr<cairo_surface_t> surf;
     const std::string path = lookupIcon(name, px);
     if (!path.empty()) {
-        if (cairo_surface_t* raw = loadIconSurface(path, px)) surf = std::shared_ptr<cairo_surface_t>(raw, cairo_surface_destroy);
+        if (cairo_surface_t* raw = loadIconScaled(path, px)) surf = std::shared_ptr<cairo_surface_t>(raw, cairo_surface_destroy);
     }
     app.dock.icons[key] = surf;
     return surf;

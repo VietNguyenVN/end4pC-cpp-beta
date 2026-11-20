@@ -133,15 +133,17 @@ std::string trayIconFile(const std::string& name, const std::string& themePath) 
     return "";
 }
 
+// Drawn at the screen's real pixels (P) and given the matching device scale, so it still paints kTrayIcon logical px wide (src/hidpi.h).
 cairo_surface_t* trayMakeSurface(const TrayIcon& t) {
-    cairo_surface_t* out = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, kTrayIcon, kTrayIcon);
+    const int P = picturePx(kTrayIcon);
+    cairo_surface_t* out = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, P, P);
     cairo_t* cr = mkcr(out);
     bool drawn = false;
     const std::string file = trayIconFile(t.iconName, t.themePath);
     if (!file.empty()) {
-        if (GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_size(file.c_str(), kTrayIcon, kTrayIcon, nullptr)) {
+        if (GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_size(file.c_str(), P, P, nullptr)) {
             cairo_surface_t* im = surfaceFromPixbuf(pb);
-            cairo_set_source_surface(cr, im, (kTrayIcon - gdk_pixbuf_get_width(pb)) / 2.0, (kTrayIcon - gdk_pixbuf_get_height(pb)) / 2.0);
+            cairo_set_source_surface(cr, im, (P - gdk_pixbuf_get_width(pb)) / 2.0, (P - gdk_pixbuf_get_height(pb)) / 2.0);
             cairo_paint(cr);
             cairo_surface_destroy(im);
             g_object_unref(pb);
@@ -160,8 +162,8 @@ cairo_surface_t* trayMakeSurface(const TrayIcon& t) {
                 *px = (a << 24) | (((q[1] * a + 127) / 255) << 16) | (((q[2] * a + 127) / 255) << 8) | ((q[3] * a + 127) / 255);
             }
         cairo_surface_mark_dirty(src);
-        const double sc = std::min(double(kTrayIcon) / t.pw, double(kTrayIcon) / t.ph);
-        cairo_translate(cr, (kTrayIcon - t.pw * sc) / 2.0, (kTrayIcon - t.ph * sc) / 2.0);
+        const double sc = std::min(double(P) / t.pw, double(P) / t.ph);
+        cairo_translate(cr, (P - t.pw * sc) / 2.0, (P - t.ph * sc) / 2.0);
         cairo_scale(cr, sc, sc);
         cairo_set_source_surface(cr, src, 0, 0);
         cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BEST);
@@ -170,11 +172,12 @@ cairo_surface_t* trayMakeSurface(const TrayIcon& t) {
         drawn = true;
     }
     if (!drawn) {
-        cairo_arc(cr, kTrayIcon / 2.0, kTrayIcon / 2.0, kTrayIcon / 2.0 - 1, 0, 2 * M_PI);
+        cairo_arc(cr, P / 2.0, P / 2.0, P / 2.0 - 1, 0, 2 * M_PI);
         cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.5);
         cairo_fill(cr);
     }
     cairo_destroy(cr);
+    if (P != kTrayIcon) cairo_surface_set_device_scale(out, double(P) / kTrayIcon, double(P) / kTrayIcon);
     return out;
 }
 
@@ -629,7 +632,8 @@ void musicPaintM3(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layo
         cairo_arc(cr, cov0 + artR, cy, artR, 0, 2 * M_PI);
         cairo_clip(cr);
         cairo_translate(cr, cov0, cy - artR);
-        cairo_scale(cr, artD / kMusicArt, artD / kMusicArt);  // (the cover is cached at kMusicArt)
+        const double artK = artD / cairo_image_surface_get_width(app.musicArt);  // (the cover is cached at picturePx(kMusicArt))
+        cairo_scale(cr, artK, artK);
         cairo_set_source_surface(cr, app.musicArt, 0, 0);
         cairo_paint(cr);
         cairo_restore(cr);

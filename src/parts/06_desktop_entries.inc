@@ -178,6 +178,20 @@ cairo_surface_t* loadIconSurface(const std::string& path, int size) {
     return surf;
 }
 
+// An icon file decoded for a box of `size` logical px: picturePx(size) pixels, no device scale (see pictureScale).
+cairo_surface_t* loadIconScaled(const std::string& path, int size) { return loadIconSurface(path, picturePx(size)); }
+// Paints a picture into a size x size box, whatever its pixel size.
+void paintPictureBox(cairo_t* cr, cairo_surface_t* img, double x, double y, double size) {
+    const double k = size / std::max(1, cairo_image_surface_get_width(img));
+    cairo_save(cr);
+    cairo_translate(cr, x, y);
+    cairo_scale(cr, k, k);
+    cairo_set_source_surface(cr, img, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+    cairo_paint(cr);
+    cairo_restore(cr);
+}
+
 cairo_surface_t* numberMask(int n, int size) {
     static std::map<std::pair<int, int>, cairo_surface_t*> cache;
     const auto key = std::make_pair(n, size);
@@ -1018,7 +1032,7 @@ void loadAvatar(App& app) {
     }
     for (const std::string& c : {app.cfg.avatarPicture, pic, homeDir() + "/.face", homeDir() + "/.face.icon"}) {
         if (c.empty() || access(c.c_str(), R_OK) != 0) continue;
-        constexpr int size = 40;
+        const int size = picturePx(40);  // (painted scaled to its box: decoded at the screen's real pixels)
         int iw = 0, ih = 0;
         if (!gdk_pixbuf_get_file_info(c.c_str(), &iw, &ih) || iw <= 0 || ih <= 0) continue;
         const double sc = std::max(double(size) / iw, double(size) / ih);

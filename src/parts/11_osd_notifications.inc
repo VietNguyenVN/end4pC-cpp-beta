@@ -481,7 +481,7 @@ cairo_surface_t* notifPicture(App& app, const Notif& n) {
     if (key.empty()) return nullptr;
     if (auto it = app.np.icons.find(key); it != app.np.icons.end()) return it->second;
     const std::string path = key.rfind("file://", 0) == 0 ? percentDecode(key.substr(7)) : key;
-    cairo_surface_t* surf = access(path.c_str(), R_OK) == 0 ? loadIconSurface(path, 64) : nullptr;
+    cairo_surface_t* surf = access(path.c_str(), R_OK) == 0 ? loadIconScaled(path, 64) : nullptr;
     app.np.icons[key] = surf;
     return surf;
 }
@@ -511,7 +511,7 @@ cairo_surface_t* notifAppIcon(App& app, const Notif& n) {
     if (path.empty() && isName(n.icon)) path = lookupIcon(n.icon, 64);
     if (path.empty()) path = fromEntry(appId);
     if (path.empty() && !appId.empty()) path = lookupIcon(appId, 64);
-    cairo_surface_t* surf = path.empty() ? nullptr : loadIconSurface(path, 64);
+    cairo_surface_t* surf = path.empty() ? nullptr : loadIconScaled(path, 64);
     app.np.icons[key] = surf;
     return surf;
 }

@@ -355,9 +355,9 @@ std::shared_ptr<cairo_surface_t> amAppIcon(App& app, const std::string& name) {
     AudioMenu& A = app.amenu;
     if (auto hit = A.icons.find(name); hit != A.icons.end()) return hit->second;
     std::shared_ptr<cairo_surface_t> surf;
-    const std::string path = lookupIcon(name, 28);
+    const std::string path = lookupIcon(name, picturePx(28));
     if (!path.empty())
-        if (cairo_surface_t* raw = loadIconSurface(path, 28)) surf = std::shared_ptr<cairo_surface_t>(raw, cairo_surface_destroy);
+        if (cairo_surface_t* raw = loadIconScaled(path, 28)) surf = std::shared_ptr<cairo_surface_t>(raw, cairo_surface_destroy);
     A.icons[name] = surf;
     return surf;
 }
@@ -371,8 +371,7 @@ void amDrawAppRow(App& app, cairo_t* cr, PangoLayout* layout, const AudioMenu::I
     setSource(cr, app.color("secondary_container"));
     cairo_fill(cr);
     if (auto icon = amAppIcon(app, a.icon)) {
-        cairo_set_source_surface(cr, icon.get(), box.x + 8, box.y + 8);
-        cairo_paint(cr);
+        paintPictureBox(cr, icon.get(), box.x + 8, box.y + 8, 28);
     } else {
         drawIcon(cr, "speaker", box.x + 10, box.y + 10, 24, app.color("on_secondary_container"));
     }
