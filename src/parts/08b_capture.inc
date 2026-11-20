@@ -289,6 +289,13 @@ CapBuf* capFreeBuf(App& app) {
     const size_t size = static_cast<size_t>(PW) * 4 * PH;
     for (CapBuf& b : c.bufs) {
         if (b.busy) continue;
+        if (b.buf && b.size != size) {  // (made at another scale: the screen changed its scale since)
+            wl_buffer_destroy(b.buf);
+            munmap(b.data, b.size);
+            b.buf = nullptr;
+            b.data = nullptr;
+            b.size = 0;
+        }
         if (!b.buf) {
             const int fd = memfd_create("end4pC-capture", MFD_CLOEXEC);
             if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return nullptr; }
@@ -308,9 +315,10 @@ CapBuf* capFreeBuf(App& app) {
 }
 
 void capMakeBase(Capture& c) {
-    if (c.base) return;
-    const double iw = cairo_image_surface_get_width(c.shot), ih = cairo_image_surface_get_height(c.shot);
     const double sc = c.scale.factor();  // (at buffer pixels: the screenshot keeps its full resolution)
+    if (c.base && cairo_image_surface_get_width(c.base) == hidpi::bufferExtent(c.w, sc) && cairo_image_surface_get_height(c.base) == hidpi::bufferExtent(c.h, sc)) return;
+    if (c.base) { cairo_surface_destroy(c.base); c.base = nullptr; }  // (the scale changed: made again at the new one)
+    const double iw = cairo_image_surface_get_width(c.shot), ih = cairo_image_surface_get_height(c.shot);
     c.base = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, hidpi::bufferExtent(c.w, sc), hidpi::bufferExtent(c.h, sc));
     cairo_surface_set_device_scale(c.base, sc, sc);
     cairo_t* bc = mkcr(c.base);
@@ -825,7 +833,7 @@ void openCapture(App& app, bool record) {
     g_object_unref(pb);
     c.shotFile = shot;
     c.surface = wl_compositor_create_surface(app.compositor);
-    attachScale(app, c.scale, c.surface);
+    attachScale(app, c.scale, c.surface, [&app] { app.cap.dirty = true; drawCapture(app); });
     c.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, c.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-capture");
     zwlr_layer_surface_v1_set_anchor(c.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
     zwlr_layer_surface_v1_set_size(c.layer, 0, 0);
