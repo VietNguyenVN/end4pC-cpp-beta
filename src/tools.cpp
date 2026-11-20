@@ -5,7 +5,10 @@
 #include "i18n.h"
 #include "oled.h"
 #include "units.h"
+#include <arpa/inet.h>
 #include <dirent.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
 #include <fcntl.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <librsvg/rsvg.h>
@@ -34,6 +37,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <set>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -169,6 +173,7 @@ struct App {
     uint32_t enterSerial = 0;
     int cursorShape = -1;
 
+    bool solo = false;  // `end4pC-tools tasks`: the window of the Task Manager alone (no tabs)
     bool running = true, configured = false, dirty = true;
     int width = kWinW, height = kWinH;
 
@@ -424,8 +429,15 @@ private:
 #include "tools/keybinds_store.inc"
 #include "tools/page_keybinds.inc"
 #include "tools/page_phone.inc"
+#include "tools/page_tasks.inc"
 
 void buildPages() {
+    if (g.solo) {
+        g.pages.push_back(std::make_unique<TasksPage>());
+        g.pages.push_back(std::make_unique<PerfPage>());
+        for (auto& p : g.pages) p->init();
+        return;
+    }
     g.pages.push_back(std::make_unique<TranslatorPage>());
     g.pages.push_back(std::make_unique<NotesPage>());
     g.pages.push_back(std::make_unique<ConverterPage>());
@@ -486,14 +498,15 @@ int tabAt(double x, double y) {
 }
 
 void drawTitle(cairo_t* cr) {
+    const char* heading = g.solo ? "Task Manager" : "Tools";
     const double sy = (kBarH - kShapeSize) / 2, sx = kPad + 4;
     shapePath(cr, "Cookie9Sided", sx, sy, kShapeSize);
     src(cr, g.color("primary_container"));
     cairo_fill(cr);
-    icon(cr, "ruler-pen", sx + (kShapeSize - 30) / 2, sy + (kShapeSize - 30) / 2, 30, g.color("on_primary_container"), true);
+    icon(cr, g.solo ? "cpu" : "ruler-pen", sx + (kShapeSize - 30) / 2, sy + (kShapeSize - 30) / 2, 30, g.color("on_primary_container"), true);
     double tw = 0, th = 0;
-    measure("Tools", 26, true, 0, tw, th);
-    text(cr, "Tools", sx + kShapeSize + 14, (kBarH - th) / 2, 26, true, g.color("on_surface"));
+    measure(heading, 26, true, 0, tw, th);
+    text(cr, heading, sx + kShapeSize + 14, (kBarH - th) / 2, 26, true, g.color("on_surface"));
 }
 
 void drawTabs(cairo_t* cr) {
@@ -610,11 +623,13 @@ void updateCursor() {
 // The page the window was left on is remembered by its name, so it survives new pages being added.
 std::string lastPagePath() { return stateDir() + "/tools-page.txt"; }
 void rememberPage() {
+    if (g.solo) return;
     mkdir(stateDir().c_str(), 0755);
     std::ofstream f(lastPagePath(), std::ios::trunc);
     f << g.pages[g.page]->name() << "\n";
 }
 int rememberedPage() {
+    if (g.solo) return 0;
     std::ifstream f(lastPagePath());
     std::string name;
     std::getline(f, name);
@@ -832,8 +847,8 @@ bool connectWayland() {
     xdg_surface_add_listener(g.xsurface, &kXdgSurfaceListener, nullptr);
     g.toplevel = xdg_surface_get_toplevel(g.xsurface);
     xdg_toplevel_add_listener(g.toplevel, &kToplevelListener, nullptr);
-    xdg_toplevel_set_title(g.toplevel, "Tools");
-    xdg_toplevel_set_app_id(g.toplevel, "end4pC-tools");
+    xdg_toplevel_set_title(g.toplevel, g.solo ? "Task Manager" : "Tools");
+    xdg_toplevel_set_app_id(g.toplevel, g.solo ? "end4pC-tasks" : "end4pC-tools");
     xdg_toplevel_set_min_size(g.toplevel, 720, 480);
     wl_surface_commit(g.surface);
     return true;
@@ -880,9 +895,11 @@ void teardown() {
 volatile sig_atomic_t g_term = 0;  // (pkill from the toggle: leave the loop, so a shortcut capture in progress can give the keys back)
 void onTermSignal(int) { g_term = 1; }
 
-int main() {
+int main(int argc, char** argv) {
+    g.solo = argc > 1 && std::string(argv[1]) == "tasks";
+    if (g.solo) prctl(PR_SET_NAME, "end4pC-tasks");  // (its own process name: the toggle of Tools does not close it)
     {
-        const int lock = open((runtimeDir() + "/end4pC-tools.lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+        const int lock = open((runtimeDir() + (g.solo ? "/end4pC-tasks.lock" : "/end4pC-tools.lock")).c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
         if (lock >= 0 && flock(lock, LOCK_EX | LOCK_NB) != 0) return 0;
     }
     applyShellFont(fontFamilyFromConfig(configDir() + "/config.json"), fontWeightFromConfig(configDir() + "/config.json", "fontWeightText", 450), fontWeightFromConfig(configDir() + "/config.json", "fontWeightTitle", 550));
@@ -893,7 +910,7 @@ int main() {
     loadConfig();
     buildPages();
     g.page = g.prevPage = rememberedPage();
-    if (const char* p = std::getenv("TOOLS_PAGE")) g.page = g.prevPage = std::clamp(std::atoi(p), 0, pageCount() - 1);
+    if (const char* p = g.solo ? nullptr : std::getenv("TOOLS_PAGE")) g.page = g.prevPage = std::clamp(std::atoi(p), 0, pageCount() - 1);
 
     std::signal(SIGTERM, onTermSignal);
     std::signal(SIGINT, onTermSignal);

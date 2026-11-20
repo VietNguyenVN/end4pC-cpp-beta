@@ -639,6 +639,7 @@ void changeBrightness(App& app, int delta, int absolute = -1, std::string output
 void showOsd(App& app, int kind);
 void toggleSettings();
 void toggleTools();
+void toggleTasks();
 pid_t mediaSend(App& app, std::initializer_list<const char*> args);
 void setDoNotDisturb(App& app, bool on);
 void runSystemUpdate(const App& app) {

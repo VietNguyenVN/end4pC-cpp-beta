@@ -19,6 +19,17 @@ window-rule {
     shadow { off; }
 }
 window-rule {
+    match app-id=r#"^end4pC-tasks$"#
+    open-floating true
+    default-column-width { fixed 1240; }
+    default-window-height { fixed 740; }
+    geometry-corner-radius 0
+    clip-to-geometry false
+    border { off; }
+    focus-ring { off; }
+    shadow { off; }
+}
+window-rule {
     match app-id=r#"^end4pC-tools$"#
     open-floating true
     default-column-width { fixed 1240; }

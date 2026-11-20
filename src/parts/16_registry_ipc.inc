@@ -453,6 +453,10 @@ void handleClient(App& app, int listenFd) {
         toggleTools();
         reply = "ok";
     }
+    else if (cmd == "tasks" || cmd.rfind("tasks ", 0) == 0) {
+        toggleTasks();
+        reply = "ok";
+    }
     else if (cmd == "dnd" || cmd.rfind("dnd ", 0) == 0) {
         const std::string a = cmd.size() > 4 ? cmd.substr(4) : "toggle";
         setDoNotDisturb(app, a == "on" ? true : a == "off" ? false : !app.cfg.doNotDisturb);

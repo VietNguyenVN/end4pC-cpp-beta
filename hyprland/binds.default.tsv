@@ -11,6 +11,7 @@ Shell	SUPER + M	shell	media toggle	Media Player
 Shell	SUPER + Escape	shell	settings	Settings		
 Shell	SUPER + SHIFT + Escape	shell	forcequit	Force quit		
 Shell	SUPER + O	shell	overview	Overview		
+Shell	SUPER + SHIFT + T	shell	tasks	Task Manager		
 Shell	SUPER + slash	shell	tools	Tools		
 Shell	SUPER + P	shell	power toggle	Power Menu		
 Shell	SUPER + G	shell	game toggle	Game overlay		
@@ -31,7 +32,7 @@ Apps	SUPER + C	exec	{codeEditor}	Code editor
 Apps	SUPER + X	exec	{textEditor}	Text editor		
 Apps	CTRL + SUPER + V	exec	{volumeMixer}	Volume mixer		
 Apps	SUPER + I	exec	{settingsApp}	Settings app		
-Apps	CTRL + SHIFT + Escape	exec	{taskManager}	Task manager		
+Apps	CTRL + SHIFT + Escape	shell	tasks	Task manager		
 Apps	CTRL + SUPER + SHIFT + ALT + W	exec	{officeSoftware}	Office software		
 Screenshots & Tools	SUPER + SHIFT + S	shell	screenshot region	Screenshot (Region)		
 Screenshots & Tools	SUPER + ALT + S	shell	screenshot edit	Screenshot (Region, Edit in Swappy)		

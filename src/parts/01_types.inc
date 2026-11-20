@@ -1319,6 +1319,8 @@ struct ClockPanel {
     std::vector<double> cores;
     std::vector<unsigned long long> coreIdle, coreTotal;
     double uptimeS = 0, swapUsedGb = 0, swapTotalGb = 0, ramFreeGb = 0, netPeak = 1e6;
+    struct Volume { std::string name; double usedGb = 0, totalGb = 0; };
+    std::vector<Volume> volumes;  // the mounted disks (the Disk tab of the resources popup lists them when there are several)
     int procs = 0;
     double batWatts = -1, batHours = -1, batHealth = -1;
     int batCycles = -1, lastBatPct = -1;

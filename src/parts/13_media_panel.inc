@@ -1306,6 +1306,19 @@ void toggleTools() {
     runDetached({path.c_str()});
 }
 
+// The Task Manager is the same program as Tools in another mode: a window of its own, with its own process name.
+void toggleTasks() {
+    const int lock = open((runtimeDir() + "/end4pC-tasks.lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    const bool running = lock >= 0 && flock(lock, LOCK_EX | LOCK_NB) != 0;
+    if (lock >= 0) close(lock);
+    if (running) { runDetached({"pkill", "-x", "end4pC-tasks"}); return; }
+    char exe[4096];
+    const ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    std::string path = n > 0 ? std::string(exe, n) : "";
+    path = path.substr(0, path.rfind('/') + 1) + "end4pC-tools";
+    runDetached({path.c_str(), "tasks"});
+}
+
 void startUpdatesCheck(const Config& cfg) {
     const std::string script = assetsDir() + "/../scripts/updates.sh";
     runDetached({script.c_str(), cfg.updatesAur ? "1" : "0", cfg.updatesFlatpak ? "1" : "0"});

@@ -5,7 +5,7 @@ inline double clkCardH(const ClockPanel& P) { return P.cardH > 0 ? P.cardH : kCl
 constexpr int kClkSurfW = static_cast<int>(kClkW + 2 * kClkRoom), kClkSurfH = static_cast<int>(kClkH + 2 * kClkRoom);
 constexpr int kClkMaxZones = 4, kClkMaxResults = 5;
 
-enum ClkId { ClkTab = 1, ClkPrev = 10, ClkNext = 11, ClkToday = 12, ClkTimerGo = 20, ClkTimerReset = 21, ClkFab = 40, ClkBack = 41, ClkProfile = 45, ClkWxReload = 48, ClkStyle = 400, ClkLayout = 300, ClkLayoutRemove = 320, ClkLayoutPick = 340, ClkRemove = 50, ClkRow = 60, ClkZone = 200, ClkPreset = 30, ClkDay = 100 };
+enum ClkId { ClkTab = 1, ClkPrev = 10, ClkNext = 11, ClkToday = 12, ClkTimerGo = 20, ClkTimerReset = 21, ClkFab = 40, ClkBack = 41, ClkProfile = 45, ClkWxReload = 48, ClkTasks = 49, ClkStyle = 400, ClkLayout = 300, ClkLayoutRemove = 320, ClkLayoutPick = 340, ClkRemove = 50, ClkRow = 60, ClkZone = 200, ClkPreset = 30, ClkDay = 100 };
 constexpr int kClkPresets[4] = {15, 25, 45, 60};
 
 std::tm clkLocalTm(time_t t = std::time(nullptr)) {
@@ -783,6 +783,40 @@ void clkAiBody(ClkCtx& X, double x, double y, double w, double h, int kind) {
     X.literal(std::string(i18n::tr("of")) + " " + limit, 12, false, x + tw + gap + 16, y + th + gap + th - 22, X.app.color("on_surface_variant"), 0.9);
 }
 
+// The mounted disks of this machine: one per device (a btrfs with subvolumes counts once), local file systems only, no virtual ones.
+std::vector<ClockPanel::Volume> clkReadVolumes() {
+    static const char* const kTypes[] = {"ext4", "ext3", "ext2", "btrfs", "xfs", "f2fs", "ntfs", "ntfs3", "fuseblk", "vfat", "exfat", "zfs", "jfs", "reiserfs", "bcachefs"};
+    std::map<std::string, std::string> byDevice;  // device -> shortest mount point
+    std::ifstream f("/proc/mounts");
+    for (std::string line; std::getline(f, line);) {
+        std::istringstream ss(line);
+        std::string dev, mp, type;
+        ss >> dev >> mp >> type;
+        bool ok = false;
+        for (const char* t : kTypes) if (type == t) ok = true;
+        if (!ok || dev.rfind("/dev/", 0) != 0) continue;
+        if (mp.rfind("/boot", 0) == 0 || mp.rfind("/var/lib", 0) == 0 || mp.rfind("/snap", 0) == 0 || mp.rfind("/run/user", 0) == 0) continue;
+        size_t at = 0;
+        while ((at = mp.find("\\040", at)) != std::string::npos) mp.replace(at, 4, " ");  // (a space in a name is written like this)
+        auto it = byDevice.find(dev);
+        if (it == byDevice.end() || mp.size() < it->second.size()) byDevice[dev] = mp;
+    }
+    std::vector<ClockPanel::Volume> out;
+    for (const auto& [dev, mp] : byDevice) {
+        struct statvfs sv {};
+        if (statvfs(mp.c_str(), &sv) != 0 || sv.f_blocks == 0) continue;
+        ClockPanel::Volume v;
+        v.totalGb = sv.f_blocks * double(sv.f_frsize) / 1073741824.0;
+        v.usedGb = (sv.f_blocks - sv.f_bfree) * double(sv.f_frsize) / 1073741824.0;
+        const bool removable = mp.rfind("/run/media/", 0) == 0 || mp.rfind("/media/", 0) == 0 || mp.rfind("/mnt/", 0) == 0;
+        v.name = removable ? mp.substr(mp.rfind('/') + 1) : mp;
+        if (v.name.empty()) v.name = mp;
+        out.push_back(std::move(v));
+    }
+    std::sort(out.begin(), out.end(), [](const ClockPanel::Volume& a, const ClockPanel::Volume& b) { return a.name == "/" ? b.name != "/" : (b.name == "/" ? false : a.name < b.name); });
+    return out;
+}
+
 void clkSampleResources(App& app) {
     ClockPanel& P = app.clockP;
     updateResources(app);
@@ -851,6 +885,7 @@ void clkSampleResources(App& app) {
         P.swapTotalGb = swapTotal / 1048576.0;
         P.swapUsedGb = (swapTotal - swapFree) / 1048576.0;
     }
+    P.volumes = clkReadVolumes();
     P.netPeak = std::max({1e6, P.netPeak * 0.995, P.netDown, P.netUp});
 }
 
@@ -910,6 +945,15 @@ void clkResHero(ClkCtx& X, double x, double y, int tab) {
     const Color ink = app.color("on_primary_container");
     drawIcon(cr, icon, x + w - 78 - 32, y + 84 - 32, 64, ink, false);
     cairo_restore(cr);
+    {  // opens the Task Manager (a window of its own)
+        const double d = 36, bx = x + w - 16 - d, by = y + h - 14 - d;
+        X.hit(ClkTasks, bx, by, d, d);
+        cairo_new_path(cr);
+        cairo_arc(cr, bx + d / 2, by + d / 2, d / 2, 0, 2 * M_PI);
+        setSource(cr, ink, X.hot(ClkTasks) ? 0.26 : 0.14);
+        cairo_fill(cr);
+        drawIcon(cr, "arrow-right-up", bx + d / 2 - 10, by + d / 2 - 10, 20, ink, false);
+    }
     X.literal(title, 14, true, x + 20, y + 26, ink, 0.92);
     const int tw = X.literal(number, 76, false, x + 16, y + 80, ink, 1.0, 0, 0, true);
     X.literal(unit, unit == "%" ? 30 : 20, false, x + 22 + tw, y + 98, ink, 0.85, 0, 0, true);
@@ -967,6 +1011,27 @@ void clkResBody(ClkCtx& X, double x, double y, double w, double h, int tab) {
         clkAiTile(X, x, y2, tw, th, "Swap");
         clkAiRing(X, x + tw / 2, y2 + th / 2 + 10, std::min(th / 2 - 26, 46.0), app.res.swap, app.res.swap >= 0.85 ? "error" : "tertiary");
         clkResTile(X, x2, y2, tw, th, "Swap used", clkGb(P.swapUsedGb), "GB");
+    } else if (tab == 2 && P.volumes.size() > 1) {  // several disks: one row each, with how full it is
+        const size_t n = std::min<size_t>(P.volumes.size(), 4);
+        const double rowH = (h - gap * (n - 1)) / n;
+        for (size_t i = 0; i < n; i++) {
+            const ClockPanel::Volume& v = P.volumes[i];
+            const double ry = y + i * (rowH + gap), fraction = v.totalGb > 0 ? std::clamp(v.usedGb / v.totalGb, 0.0, 1.0) : 0;
+            roundedRect(cr, x, ry, w, rowH, 22);
+            setSource(cr, app.color("surface_container_high"));
+            cairo_fill(cr);
+            X.literal(v.name, 15, true, x + 16, ry + 24, app.color("on_surface"), 1.0);
+            const std::string amount = clkGb(v.usedGb) + " / " + clkGb(v.totalGb) + " GB";
+            const int aw = X.textRaw(amount, 13, false);
+            X.literal(amount, 13, false, x + w - 16 - aw, ry + 24, app.color("on_surface_variant"), 0.95);
+            const double bx = x + 16, bw = w - 32, by = ry + rowH - 16 - 14;
+            roundedRect(cr, bx, by, bw, 14, 7);
+            setSource(cr, app.color("surface_container_highest"));
+            cairo_fill(cr);
+            roundedRect(cr, bx, by, std::max(14.0, bw * fraction), 14, 7);
+            setSource(cr, app.color(fraction >= 0.9 ? "error" : "primary"));
+            cairo_fill(cr);
+        }
     } else if (tab == 2) {
         clkResTile(X, x, y, tw, th, "Used", clkGb(app.res.diskUsedGb), "GB");
         clkResTile(X, x2, y, tw, th, "Free", clkGb(std::max(0.0, app.res.diskTotalGb - app.res.diskUsedGb)), "GB");
@@ -1670,6 +1735,10 @@ void clockPanelClick(App& app) {
         clkSaveZones(app, zones);
     }
     else if (id >= ClkZone && id < ClkZone + kClkMaxResults) clkAddPicked(app, id - ClkZone);
+    else if (id == ClkTasks) {
+        closeClockPanel(app);
+        toggleTasks();
+    }
     else if (id == ClkWxReload) {
         weatherSvcRefreshNow();
         WeatherData tmp;

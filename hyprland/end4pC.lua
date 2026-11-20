@@ -109,6 +109,22 @@ hl.window_rule({
     decorate    = false,
 })
 
+-- Task Manager (end4pC-tools tasks): the same kind of window as Tools, with a name of its own.
+hl.window_rule({
+    name  = "end4pC-tasks",
+    match = { class = "^end4pC-tasks$" },
+
+    float  = true,
+    center = true,
+    size   = "1240 740",
+    rounding    = 0,
+    border_size = 0,
+    no_shadow   = true,
+    no_blur     = true,
+    no_dim      = true,
+    decorate    = false,
+})
+
 -- scrcpy (the phone mirror that Tools > Phone starts): the window is always floating and centred, so it keeps the shape of the phone's screen
 -- instead of being tiled.
 hl.window_rule({
