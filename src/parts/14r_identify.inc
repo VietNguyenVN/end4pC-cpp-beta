@@ -2,6 +2,7 @@
 struct IdSurf {
     App* app = nullptr;
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     std::string num, name;
 };
@@ -12,11 +13,10 @@ constexpr double kIdSeconds = 3.0;
 
 void drawIdentify(IdSurf& s) {
     App& app = *s.app;
-    const int W = kIdSize, H = kIdSize, stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-identify", MFD_CLOEXEC);
-    if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int W = kIdSize, H = kIdSize;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, s.scale.factor(), "end4pC-identify")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -51,16 +51,10 @@ void drawIdentify(IdSurf& s) {
     line(s.num, 150, true, top, ink);
     line(s.name, 22, false, top + nh + 2, ink);
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
-    wl_surface_attach(s.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(s.surface, 0, 0, W, H);
-    wl_surface_commit(s.surface);
+    hidpi::present(s.surface, buffer, hf, s.scale);
 }
 
 void onIdentifyConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t, uint32_t) {
@@ -73,6 +67,7 @@ const zwlr_layer_surface_v1_listener kIdentifyListener = {onIdentifyConfigure, o
 void closeIdentify() {
     for (auto& s : g_idSurfs) {
         if (s->layer) zwlr_layer_surface_v1_destroy(s->layer);
+        hidpi::detach(s->scale);
         if (s->surface) wl_surface_destroy(s->surface);
     }
     g_idSurfs.clear();
@@ -104,6 +99,7 @@ void openIdentify(App& app, const std::string& args) {
         s->num = num;
         s->name = o->connector;
         s->surface = wl_compositor_create_surface(app.compositor);
+        attachScale(app, s->scale, s->surface, [p = s.get()] { drawIdentify(*p); });
         s->layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, s->surface, o->output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-identify");
         zwlr_layer_surface_v1_set_size(s->layer, kIdSize, kIdSize);
         zwlr_layer_surface_v1_set_anchor(s->layer, 0);

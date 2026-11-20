@@ -894,10 +894,15 @@ void paintBarShadow(cairo_t* cr, const Bar& bar) {
     const App& app = *bar.app;
     cairo_surface_t* target = cairo_get_target(cr);
     if (cairo_surface_get_type(target) != CAIRO_SURFACE_TYPE_IMAGE) return;
+    // w x h are the target's pixels; on a scaled surface (src/hidpi.h) the masks work at those pixels too and carry the same device
+    // scale, so the body is drawn in logical units and the blur and the offset are scaled to stay the same size on screen.
     const int w = cairo_image_surface_get_width(target), h = cairo_image_surface_get_height(target);
+    double ds = 1, dsy = 1;
+    cairo_surface_get_device_scale(target, &ds, &dsy);
     const double opacity = app.cfg.barFollowsFrame ? 1.0 : app.cfg.barOpacity / 100.0;
     if (w <= 0 || h <= 0 || opacity < 0.02) return;
     cairo_surface_t* silhouette = cairo_image_surface_create(CAIRO_FORMAT_A8, w, h);
+    cairo_surface_set_device_scale(silhouette, ds, dsy);
     {
         cairo_t* m = cairo_create(silhouette);
         cairo_matrix_t mat;
@@ -918,9 +923,9 @@ void paintBarShadow(cairo_t* cr, const Bar& bar) {
         }
     }
     cairo_surface_destroy(silhouette);
-    blurMask(soft, w, h, kBarShadowBlur / 3, 3);
-    const int dir = barAtEnd(app) ? -1 : 1;
-    const int ox = sideBar(app) ? dir * kBarShadowOffset : 0, oy = sideBar(app) ? 0 : dir * kBarShadowOffset;
+    blurMask(soft, w, h, std::max(1, static_cast<int>(std::lround(kBarShadowBlur / 3 * ds))), 3);
+    const int dir = barAtEnd(app) ? -1 : 1, off = static_cast<int>(std::lround(kBarShadowOffset * ds));
+    const int ox = sideBar(app) ? dir * off : 0, oy = sideBar(app) ? 0 : dir * off;
     cairo_surface_t* shadow = cairo_image_surface_create(CAIRO_FORMAT_A8, w, h);
     const int sstride = cairo_image_surface_get_stride(shadow);
     unsigned char* out = cairo_image_surface_get_data(shadow);
@@ -934,6 +939,7 @@ void paintBarShadow(cairo_t* cr, const Bar& bar) {
         }
     }
     cairo_surface_mark_dirty(shadow);
+    cairo_surface_set_device_scale(shadow, ds, dsy);
     cairo_save(cr);
     cairo_identity_matrix(cr);
     cairo_set_source_rgb(cr, 0, 0, 0);

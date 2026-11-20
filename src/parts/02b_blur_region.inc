@@ -7,6 +7,12 @@
 
 inline bool gShapeOnlyPaint = false;
 
+// Gives a shell surface its fractional scale (src/hidpi.h): call right after wl_compositor_create_surface, and hidpi::detach before
+// wl_surface_destroy. `redraw` runs when the compositor asks for a different scale (the surface moved to another screen).
+void attachScale(App& app, hidpi::SurfaceScale& s, wl_surface* surface, std::function<void()> redraw = {}) {
+    hidpi::attach(s, surface, app.viewporter, app.fscaleMgr, std::move(redraw));
+}
+
 struct ShapeOnlyScope {
     ShapeOnlyScope() { gShapeOnlyPaint = true; }
     ~ShapeOnlyScope() { gShapeOnlyPaint = false; }

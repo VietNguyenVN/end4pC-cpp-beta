@@ -114,6 +114,7 @@ void closeCapture(App& app) {
     Capture& c = app.cap;
     if (!c.open()) return;
     if (c.layer) zwlr_layer_surface_v1_destroy(c.layer);
+    hidpi::detach(c.scale);
     wl_surface_destroy(c.surface);
     if (c.shot) cairo_surface_destroy(c.shot);
     if (c.base) cairo_surface_destroy(c.base);
@@ -283,7 +284,9 @@ const wl_buffer_listener kCapBufListener = {captureBufRelease};
 
 CapBuf* capFreeBuf(App& app) {
     Capture& c = app.cap;
-    const size_t size = static_cast<size_t>(c.w) * 4 * c.h;
+    const double sc = c.scale.factor();  // the buffers have the screen's real pixels (src/hidpi.h)
+    const int PW = hidpi::bufferExtent(c.w, sc), PH = hidpi::bufferExtent(c.h, sc);
+    const size_t size = static_cast<size_t>(PW) * 4 * PH;
     for (CapBuf& b : c.bufs) {
         if (b.busy) continue;
         if (!b.buf) {
@@ -291,7 +294,7 @@ CapBuf* capFreeBuf(App& app) {
             if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return nullptr; }
             void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
             wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-            b.buf = wl_shm_pool_create_buffer(pool, 0, c.w, c.h, c.w * 4, WL_SHM_FORMAT_ARGB8888);
+            b.buf = wl_shm_pool_create_buffer(pool, 0, PW, PH, PW * 4, WL_SHM_FORMAT_ARGB8888);
             wl_shm_pool_destroy(pool);
             close(fd);
             b.data = data;
@@ -307,7 +310,9 @@ CapBuf* capFreeBuf(App& app) {
 void capMakeBase(Capture& c) {
     if (c.base) return;
     const double iw = cairo_image_surface_get_width(c.shot), ih = cairo_image_surface_get_height(c.shot);
-    c.base = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, c.w, c.h);
+    const double sc = c.scale.factor();  // (at buffer pixels: the screenshot keeps its full resolution)
+    c.base = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, hidpi::bufferExtent(c.w, sc), hidpi::bufferExtent(c.h, sc));
+    cairo_surface_set_device_scale(c.base, sc, sc);
     cairo_t* bc = mkcr(c.base);
     if (std::abs(iw - c.w) > 0.5 || std::abs(ih - c.h) > 0.5) cairo_scale(bc, c.w / iw, c.h / ih);
     cairo_set_source_surface(bc, c.shot, 0, 0);
@@ -339,8 +344,11 @@ void drawCapture(App& app) {
     if (!cb) return;
     capMakeBase(c);
     c.dirty = false;
-    const int W = c.w, H = c.h, stride = W * 4;
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(cb->data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int W = c.w, H = c.h;
+    const double sc = c.scale.factor();
+    const int PW = hidpi::bufferExtent(W, sc), PH = hidpi::bufferExtent(H, sc);
+    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(cb->data), CAIRO_FORMAT_ARGB32, PW, PH, PW * 4);
+    cairo_surface_set_device_scale(surface, sc, sc);
     cairo_t* cr = mkcr(surface);
     const double iw = cairo_image_surface_get_width(c.shot), ih = cairo_image_surface_get_height(c.shot);
 
@@ -592,7 +600,8 @@ void drawCapture(App& app) {
     cairo_surface_destroy(surface);
     cb->busy = true;
     wl_surface_attach(c.surface, cb->buf, 0, 0);
-    wl_surface_damage_buffer(c.surface, 0, 0, W, H);
+    wl_surface_damage_buffer(c.surface, 0, 0, PW, PH);
+    if (c.scale.viewport) wp_viewport_set_destination(c.scale.viewport, W, H);
     wl_callback* frame = wl_surface_frame(c.surface);
     wl_callback_add_listener(frame, &kCapFrameListener, &app);
     c.framePending = true;
@@ -816,6 +825,7 @@ void openCapture(App& app, bool record) {
     g_object_unref(pb);
     c.shotFile = shot;
     c.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, c.scale, c.surface);
     c.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, c.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-capture");
     zwlr_layer_surface_v1_set_anchor(c.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
     zwlr_layer_surface_v1_set_size(c.layer, 0, 0);

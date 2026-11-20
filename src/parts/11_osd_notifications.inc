@@ -16,11 +16,9 @@ void drawOsd(App& app) {
     if (!o.open() || !o.configured) return;
     const bool horiz = osdHorizontal(app);
     const int W = horiz ? kOsdSurfH : kOsdSurfW, H = horiz ? kOsdSurfW : kOsdSurfH;
-    const int stride = W * 4, size = stride * H;
-    int fd = memfd_create("end4pC-osd", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, o.scale.factor(), "end4pC-osd")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -91,22 +89,17 @@ void drawOsd(App& app) {
         else cairo_pattern_destroy(cairo_pop_group(cr));
     }
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
-    wl_surface_attach(o.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(o.surface, 0, 0, W, H);
-    wl_surface_commit(o.surface);
+    hidpi::present(o.surface, buffer, hf, o.scale);
 }
 
 void closeOsd(App& app) {
     Osd& o = app.osd;
     if (!o.open()) return;
     if (o.layer) zwlr_layer_surface_v1_destroy(o.layer);
+    hidpi::detach(o.scale);
     wl_surface_destroy(o.surface);
     if (o.shadow) cairo_surface_destroy(o.shadow);
     o = Osd{};
@@ -165,6 +158,7 @@ void showOsd(App& app, int kind) {
     popStartQuick(o.anim, 0.22, 0.18);
     o.shown = o.target;
     o.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, o.scale, o.surface, [&app] { drawOsd(app); });
     o.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, o.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-osd");
     osdPlace(app, o);
     zwlr_layer_surface_v1_set_exclusive_zone(o.layer, -1);
@@ -418,6 +412,7 @@ uint32_t onNotifyRequest(void*, const NotifyRequest* r) {
     if (!n->popup) {
     } else if (!app.np.open()) {
         app.np.surface = wl_compositor_create_surface(app.compositor);
+        attachScale(app, app.np.scale, app.np.surface, [&app] { drawNotifPopup(app); });
         app.np.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, app.np.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-notifications");
         placeNotifSurface(app);
         zwlr_layer_surface_v1_set_size(app.np.layer, kNotifCardW, kNotifSurfH);
@@ -571,11 +566,9 @@ void drawNotifPopup(App& app) {
     NotifPopup& np = app.np;
     if (!np.open() || !np.configured) return;
     const int W = kNotifCardW, H = kNotifSurfH;
-    const int stride = W * 4, size = stride * H;
-    int fd = memfd_create("end4pC-notifications", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, np.scale.factor(), "end4pC-notifications")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -756,7 +749,8 @@ void drawNotifPopup(App& app) {
         }
     }
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
 
     updateBlurRegion(app, np.surface, np.blur, W, H, [&](cairo_t* m) {
         for (const auto& c : np.cards) {
@@ -774,15 +768,8 @@ void drawNotifPopup(App& app) {
     wl_surface_set_input_region(np.surface, region);
     wl_region_destroy(region);
 
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
-    wl_surface_attach(np.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(np.surface, 0, 0, W, H);
-    wl_surface_commit(np.surface);
+    hidpi::present(np.surface, buffer, hf, np.scale);
 }
 
 void closeNotifPopup(App& app) {
@@ -790,6 +777,7 @@ void closeNotifPopup(App& app) {
     if (!np.open()) return;
     if (np.layer) zwlr_layer_surface_v1_destroy(np.layer);
     releaseBlurSurface(np.blur);
+    hidpi::detach(np.scale);
     wl_surface_destroy(np.surface);
     for (auto& [k, surf] : np.icons)
         if (surf) cairo_surface_destroy(surf);

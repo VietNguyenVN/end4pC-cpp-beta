@@ -706,11 +706,9 @@ void drawSelector(App& app) {
     Selector& sel = app.sel;
     if (!sel.open() || !sel.configured) return;
     const int W = kSelW, H = kSelH;
-    const int stride = W * 4, size = stride * H;
-    int fd = memfd_create("end4pC-selector", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, sel.scale.factor(), "end4pC-selector")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -1294,12 +1292,8 @@ void drawSelector(App& app) {
         else cairo_pattern_destroy(cairo_pop_group(cr));
     }
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     updateBlurRegion(app, sel.surface, sel.blur, W, H, [&](cairo_t* m) {
         if (grown && rev <= 0.001) return;
@@ -1307,9 +1301,7 @@ void drawSelector(App& app) {
         if (grown) popPaintGrown(m, rev, W / 2.0, H / 2.0, 1.0, panel);
         else panel();
     });
-    wl_surface_attach(sel.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(sel.surface, 0, 0, W, H);
-    wl_surface_commit(sel.surface);
+    hidpi::present(sel.surface, buffer, hf, sel.scale);
 }
 
 void closeSelector(App& app) {
@@ -1317,6 +1309,7 @@ void closeSelector(App& app) {
     if (!sel.open()) return;
     if (sel.layer) zwlr_layer_surface_v1_destroy(sel.layer);
     releaseBlurSurface(sel.blur);
+    hidpi::detach(sel.scale);
     wl_surface_destroy(sel.surface);
     for (auto& [path, surf] : sel.thumbs)
         if (surf) cairo_surface_destroy(surf);
@@ -1398,6 +1391,7 @@ void openSelector(App& app) {
             sel.focusIdx = static_cast<int>(i);
         }
     sel.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, sel.scale, sel.surface, [&app] { drawSelector(app); });
     sel.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, sel.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-selector");
     zwlr_layer_surface_v1_set_size(sel.layer, kSelW, kSelH);
     zwlr_layer_surface_v1_set_exclusive_zone(sel.layer, -1);

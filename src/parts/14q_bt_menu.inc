@@ -315,7 +315,7 @@ void drawBtMenu(App& app) {
     BtMenu& M = app.btMenu;
     if (!M.open() || !M.configured) return;
     PopupFrame frame;
-    if (!popupCanvasBegin(frame, "end4pC-bt-menu", M.cardW, M.cardH)) return;
+    if (!popupCanvasBegin(frame, "end4pC-bt-menu", M.cardW, M.cardH, M.scale)) return;
     const double rev = std::max(0.0, M.anim.reveal);
     if (rev > 0.001) {
         cairo_identity_matrix(frame.cr);
@@ -344,6 +344,7 @@ void closeBtMenu(App& app) {
     if (!M.open()) return;
     if (M.layer) zwlr_layer_surface_v1_destroy(M.layer);
     releaseBlurSurface(M.blur);
+    hidpi::detach(M.scale);
     wl_surface_destroy(M.surface);
     M.surface = nullptr;
     M.layer = nullptr;
@@ -407,6 +408,7 @@ void openBtMenu(App& app, Bar* bar) {
     M.radio.bt = app.btBar.bt;
     btLayout(app);
     M.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, M.scale, M.surface, [&app] { drawBtMenu(app); });
     M.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, M.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-bt-menu");
     const PopOrigin origin = placePopupBeside(app, M.layer, M.ax, M.ay, M.cardW, M.cardH, bar);
     M.ox = origin.x;

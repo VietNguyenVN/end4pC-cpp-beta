@@ -100,11 +100,10 @@ constexpr double kSwScale0 = 0.97;
 void drawSwitcher(App& app) {
     Switcher& S = app.sw;
     if (!S.open() || !S.configured || S.w <= 0 || S.h <= 0) return;
-    const int W = S.w, H = S.h, stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-switcher", MFD_CLOEXEC);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int W = S.w, H = S.h;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, S.scale.factor(), "end4pC-switcher")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -220,12 +219,8 @@ void drawSwitcher(App& app) {
     if (rev > 0.001) popFadeEnd(cr, rev, cx, cy, kSwScale0);
     else cairo_pattern_destroy(cairo_pop_group(cr));
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     updateBlurRegion(app, S.surface, S.blur, W, H, [&](cairo_t* m) {  // the card only: the faint dim around it stays sharp (Hyprland's ignore_alpha does the same)
         if (rev <= 0.001) return;
@@ -234,9 +229,7 @@ void drawSwitcher(App& app) {
             cairo_fill(m);
         });
     });
-    wl_surface_attach(S.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(S.surface, 0, 0, W, H);
-    wl_surface_commit(S.surface);
+    hidpi::present(S.surface, buffer, hf, S.scale);
 }
 
 void closeSwitcher(App& app) {
@@ -245,6 +238,7 @@ void closeSwitcher(App& app) {
     swLiveStop(app);
     if (S.layer) zwlr_layer_surface_v1_destroy(S.layer);
     releaseBlurSurface(S.blur);
+    hidpi::detach(S.scale);
     wl_surface_destroy(S.surface);
     for (auto& w : S.wins) if (w.thumb) cairo_surface_destroy(w.thumb);
     const std::string dir = S.cacheDir;
@@ -359,6 +353,7 @@ void swStep(App& app, int dir, bool sticky) {
     }
 
     S.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, S.scale, S.surface, [&app] { drawSwitcher(app); });
     S.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, S.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-switcher");
     zwlr_layer_surface_v1_set_anchor(S.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
     zwlr_layer_surface_v1_set_size(S.layer, 0, 0);

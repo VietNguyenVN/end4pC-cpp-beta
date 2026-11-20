@@ -44,11 +44,10 @@ void drawForceQuit(App& app) {
     FqState& S = app.fq;
     if (!S.surface || !S.configured) return;
     const FqGeom G = fqGeom(S.wins.size());
-    const int W = static_cast<int>(kFqW), H = static_cast<int>(std::ceil(G.h)), stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-forcequit", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int W = static_cast<int>(kFqW), H = static_cast<int>(std::ceil(G.h));
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, S.scale.factor(), "end4pC-forcequit")) return;
+    cairo_surface_t* surf = hf.surface;
     cairo_t* cr = mkcr(surf);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -106,22 +105,17 @@ void drawForceQuit(App& app) {
     button(G.force, i18n::tr("Force quit"), 102, true, true);
     g_object_unref(L);
     cairo_destroy(cr);
-    cairo_surface_destroy(surf);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kFqBuffer, nullptr);
-    wl_surface_attach(S.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(S.surface, 0, 0, W, H);
-    wl_surface_commit(S.surface);
+    hidpi::present(S.surface, buffer, hf, S.scale);
 }
 
 void closeForceQuit(App& app) {
     FqState& S = app.fq;
     if (!S.surface) return;
     if (S.layer) zwlr_layer_surface_v1_destroy(S.layer);
+    hidpi::detach(S.scale);
     wl_surface_destroy(S.surface);
     S.surface = nullptr;
     S.layer = nullptr;
@@ -151,6 +145,7 @@ void openForceQuit(App& app) {
     const FqGeom G = fqGeom(S.wins.size());
     const Bar* bar = mainBar(app);
     S.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, S.scale, S.surface, [&app] { drawForceQuit(app); });
     S.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, S.surface, bar ? bar->output : nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-forcequit");
     zwlr_layer_surface_v1_set_anchor(S.layer, 0);
     zwlr_layer_surface_v1_set_size(S.layer, static_cast<uint32_t>(kFqW), static_cast<uint32_t>(std::ceil(G.h)));

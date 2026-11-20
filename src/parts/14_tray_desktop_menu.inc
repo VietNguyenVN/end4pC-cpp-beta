@@ -108,31 +108,34 @@ void tmLayout(TrayMenu& T) {
     for (auto& r : T.rects) r.w = T.cardW - 2 * kTmPad;
 }
 
+// W x H is the logical size; the buffer behind it is scaled (src/hidpi.h), and cr draws in logical units.
 struct PopupFrame {
-    int fd = -1, size = 0, stride = 0, W = 0, H = 0;
-    void* data = nullptr;
-    cairo_surface_t* surface = nullptr;
+    int W = 0, H = 0;
+    hidpi::Frame px;
+    const hidpi::SurfaceScale* scale = nullptr;
     cairo_t* cr = nullptr;
 };
 
-bool popupCanvasBegin(PopupFrame& f, const char* name, int cardW, int cardH) {
+bool popupCanvasBegin(PopupFrame& f, const char* name, int cardW, int cardH, const hidpi::SurfaceScale& scale) {
     const int room = static_cast<int>(kTmRoom);
     f.W = cardW + 2 * room;
     f.H = cardH + 2 * room;
-    f.stride = f.W * 4;
-    f.size = f.stride * f.H;
-    f.fd = memfd_create(name, 0);
-    if (f.fd < 0 || ftruncate(f.fd, f.size) < 0) return false;
-    f.data = mmap(nullptr, f.size, PROT_READ | PROT_WRITE, MAP_SHARED, f.fd, 0);
-    f.surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(f.data), CAIRO_FORMAT_ARGB32, f.W, f.H, f.stride);
-    f.cr = mkcr(f.surface);
-    cairo_set_operator(f.cr, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_rgba(f.cr, 0, 0, 0, 0);
-    cairo_paint(f.cr);
-    cairo_set_operator(f.cr, CAIRO_OPERATOR_OVER);
+    f.scale = &scale;
+    if (!hidpi::begin(f.px, f.W, f.H, scale.factor(), name)) return false;
+    f.cr = mkcr(f.px.surface);
     cairo_translate(f.cr, room, room);
     return true;
 }
+
+// Ends the drawing and turns the frame into a buffer (nullptr on failure); the caller attaches it with popupFramePresent.
+wl_buffer* popupFrameBuffer(App& app, PopupFrame& f) {
+    cairo_destroy(f.cr);
+    f.cr = nullptr;
+    wl_buffer* buffer = hidpi::buffer(f.px, app.shm);
+    if (buffer) wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
+    return buffer;
+}
+void popupFramePresent(wl_surface* surface, wl_buffer* buffer, const PopupFrame& f) { hidpi::present(surface, buffer, f.px, *f.scale); }
 
 void popupCardPaint(App& app, cairo_t* cr, int cardW, int cardH, double radius) {
     cairo_surface_t* shadow = makeShadowMask(cardW, cardH, radius);
@@ -149,36 +152,28 @@ void popupCardPaint(App& app, cairo_t* cr, int cardW, int cardH, double radius) 
     cairo_fill(cr);
 }
 
-bool popupFrameBegin(App& app, PopupFrame& f, const char* name, int cardW, int cardH, double radius) {
-    if (!popupCanvasBegin(f, name, cardW, cardH)) return false;
+bool popupFrameBegin(App& app, PopupFrame& f, const char* name, int cardW, int cardH, double radius, const hidpi::SurfaceScale& scale) {
+    if (!popupCanvasBegin(f, name, cardW, cardH, scale)) return false;
     popupCardPaint(app, f.cr, cardW, cardH, radius);
     return true;
 }
 
 void popupFrameCommit(App& app, PopupFrame& f, wl_surface* surface, BlurSurface& blur, int cardW, int cardH, double radius) {
-    cairo_destroy(f.cr);
-    cairo_surface_destroy(f.surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, f.fd, f.size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, f.W, f.H, f.stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(f.data, f.size);
-    close(f.fd);
-    wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
+    wl_buffer* buffer = popupFrameBuffer(app, f);
+    if (!buffer) return;
     updateBlurRegion(app, surface, blur, f.W, f.H, [&](cairo_t* m) {
         cairo_translate(m, kTmRoom, kTmRoom);
         roundedRect(m, 0, 0, cardW, cardH, radius);
         cairo_fill(m);
     });
-    wl_surface_attach(surface, buffer, 0, 0);
-    wl_surface_damage_buffer(surface, 0, 0, f.W, f.H);
-    wl_surface_commit(surface);
+    popupFramePresent(surface, buffer, f);
 }
 
 void drawTrayMenu(App& app) {
     TrayMenu& T = app.tmenu;
     if (!T.open() || !T.configured) return;
     PopupFrame frame;
-    if (!popupFrameBegin(app, frame, "end4pC-tray-menu", T.cardW, T.cardH, kTmRadius)) return;
+    if (!popupFrameBegin(app, frame, "end4pC-tray-menu", T.cardW, T.cardH, kTmRadius, T.scale)) return;
     cairo_t* cr = frame.cr;
 
     PangoLayout* layout = pango_cairo_create_layout(cr);
@@ -236,6 +231,7 @@ void closeTrayMenu(App& app) {
     if (!T.open()) return;
     if (T.layer) zwlr_layer_surface_v1_destroy(T.layer);
     releaseBlurSurface(T.blur);
+    hidpi::detach(T.scale);
     wl_surface_destroy(T.surface);
     T = TrayMenu{};
     app.onTmenu = false;
@@ -340,6 +336,7 @@ void openTrayMenu(App& app, int idx) {
     if (T.rows.empty()) { T = TrayMenu{}; return; }
 
     T.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, T.scale, T.surface, [&app] { drawTrayMenu(app); });
     T.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, T.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-tray-menu");
     placePopupBeside(app, T.layer, app.pointerX, app.pointerY, T.cardW, T.cardH, mainBar(app));
     zwlr_layer_surface_v1_set_exclusive_zone(T.layer, -1);
@@ -476,11 +473,10 @@ void drawDesktopMenu(App& app) {
     DesktopMenu& D = app.dmenu;
     if (!D.open() || !D.configured) return;
     dmStepSprings();
-    const int W = D.surfW, H = D.surfH, stride = W * 4, size = stride * H;
-    int fd = memfd_create("end4pC-desktop-menu", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int W = D.surfW, H = D.surfH;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, D.scale.factor(), "end4pC-desktop-menu")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -780,12 +776,8 @@ void drawDesktopMenu(App& app) {
         else cairo_pop_group_to_source(cr);
     }
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     updateBlurRegion(app, D.surface, D.blur, W, H, [&](cairo_t* m) {
         if (grown && rev <= 0.001) return;
@@ -804,14 +796,12 @@ void drawDesktopMenu(App& app) {
         if (grown) popPaintGrown(m, rev, D.ox, D.oy, 1.0, pieces);
         else pieces();
     });
-    wl_surface_attach(D.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(D.surface, 0, 0, W, H);
     wl_region* region = wl_compositor_create_region(app.compositor);
     wl_region_add(region, static_cast<int>(D.card.x), static_cast<int>(D.card.y), static_cast<int>(kDmCardW), static_cast<int>(kDmCardH));
     if (D.subOpen) wl_region_add(region, static_cast<int>(D.sub.x), static_cast<int>(D.sub.y), static_cast<int>(D.sub.w), static_cast<int>(D.sub.h));
     wl_surface_set_input_region(D.surface, region);
     wl_region_destroy(region);
-    wl_surface_commit(D.surface);
+    hidpi::present(D.surface, buffer, hf, D.scale);
 }
 
 double dmScrollTarget(int n, int focus, double inner) {
@@ -867,6 +857,7 @@ void closeDesktopMenu(App& app) {
     if (!D.open()) return;
     if (D.layer) zwlr_layer_surface_v1_destroy(D.layer);
     releaseBlurSurface(D.blur);
+    hidpi::detach(D.scale);
     wl_surface_destroy(D.surface);
     for (auto& [k, surf] : D.thumbs) if (surf) cairo_surface_destroy(surf);
     D = DesktopMenu{};
@@ -943,6 +934,7 @@ void openDesktopMenu(App& app, Bar* bar) {
     D.ox = std::clamp(app.pointerX - cx + ox, D.card.x, D.card.x + kDmCardW);
     D.oy = std::clamp(app.pointerY - cy + kDmRoom, D.card.y, D.card.y + kDmCardH);
     D.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, D.scale, D.surface, [&app] { drawDesktopMenu(app); });
     D.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, D.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-desktop-menu");
     constexpr uint32_t kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT;
     zwlr_layer_surface_v1_set_anchor(D.layer, kT | kL);

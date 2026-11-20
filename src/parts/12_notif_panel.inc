@@ -77,11 +77,9 @@ void drawNotifPanel(App& app) {
     if (!P.open() || !P.configured) return;
     const int W = kPanelSurfW, H = kPanelSurfH;
     const bool atBottom = panelAtBottom(app);
-    const int stride = W * 4, size = stride * H;
-    int fd = memfd_create("end4pC-notif-panel", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) return;
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, P.scale.factor(), "end4pC-notif-panel")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -352,12 +350,8 @@ void drawNotifPanel(App& app) {
     if (rev > 0.001) popGroupEnd(cr, rev, ox, oy, P.anim.phase == kPopOut ? 1.0 : std::min(1.0, rev * 8));
     else cairo_pattern_destroy(cairo_pop_group(cr));
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     updateBlurRegion(app, P.surface, P.blur, W, H, [&](cairo_t* m) {
         if (rev <= 0.001) return;
@@ -367,9 +361,7 @@ void drawNotifPanel(App& app) {
             cairo_fill(m);
         });
     });
-    wl_surface_attach(P.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(P.surface, 0, 0, W, H);
-    wl_surface_commit(P.surface);
+    hidpi::present(P.surface, buffer, hf, P.scale);
 }
 
 void closeNotifPanel(App& app) {
@@ -377,6 +369,7 @@ void closeNotifPanel(App& app) {
     if (!P.open()) return;
     if (P.layer) zwlr_layer_surface_v1_destroy(P.layer);
     releaseBlurSurface(P.blur);
+    hidpi::detach(P.scale);
     wl_surface_destroy(P.surface);
     if (P.shadow) cairo_surface_destroy(P.shadow);
     P = NotifPanel{};
@@ -416,6 +409,7 @@ void openNotifPanel(App& app) {
     else notifPanelAnchor(app, surfLeft, P.pillX, &P.along);
     popStart(P.anim);
     P.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, P.scale, P.surface, [&app] { drawNotifPanel(app); });
     P.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, P.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-notif-panel");
     const bool atBottom = panelAtBottom(app);
     constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;

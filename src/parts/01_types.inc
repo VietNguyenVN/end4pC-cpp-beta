@@ -512,6 +512,7 @@ struct LauncherResult {
 
 struct Launcher {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -556,6 +557,7 @@ struct Launcher {
 
 struct PowerMenu {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -574,6 +576,7 @@ struct PolkitReq {
 };
 struct PolkitDlg {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -602,6 +605,7 @@ struct SwitcherWin {
 };
 struct Switcher {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -660,6 +664,7 @@ struct ControlCenter {
     std::chrono::steady_clock::time_point tickSince{};
     bool ticking = false;
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -705,6 +710,7 @@ struct NotifPopup {
         bool leaving = false;
     };
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -722,6 +728,7 @@ struct NotifPanel {
         std::vector<std::pair<Rect, std::string>> buttons;
     };
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -744,6 +751,7 @@ struct NotifPanel {
 enum OsdKind { OsdVolume, OsdBrightness };
 struct Osd {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
     int kind = OsdVolume;
@@ -758,6 +766,7 @@ struct OnlineItem { std::string id, thumb, full, dl, author, title; int w = 0, h
 
 struct Selector {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     PopAnim anim;
     cairo_surface_t* animPicture = nullptr;
     BlurSurface blur;
@@ -832,6 +841,7 @@ struct CapAnnot {
 struct Capture {
     int autoAct = 0;  // 1: text recognition, 2: Google Lens, 3: QR code, as soon as an area is chosen
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
     int w = 0, h = 0;
@@ -877,6 +887,7 @@ struct EqState {  // the equalizer of the media panel (see 13d_eq_backend.inc); 
 };
 struct MediaPanel {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
     int cardX = 0;
@@ -936,6 +947,7 @@ struct TrayMenu {
         int toggle = 0;
     };
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -961,6 +973,7 @@ struct BtMenu {
         Rect r;
     };
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -1004,6 +1017,7 @@ struct DrivesMenu {
         Rect r;
     };
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -1022,6 +1036,7 @@ struct DrivesMenu {
 
 struct IslandCard {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -1069,6 +1084,7 @@ struct AudioMenu {
         bool dirty = false;
     };
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -1110,6 +1126,7 @@ struct AudioMenu {
 
 struct DesktopMenu {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -1154,6 +1171,7 @@ struct DeskWidget {
     int shadowW = 0, shadowH = 0;
     int moveZone = -1;
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false, enabled = false;
     int w = 360, h = 480;
@@ -1302,6 +1320,7 @@ struct ClockTimer {
 
 struct ClockPanel {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
@@ -1398,6 +1417,7 @@ struct DockItem {
 };
 struct OskState {  // the on-screen keyboard
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false, placed = false, caps = false, shiftLock = false, dragging = false, movePending = false, relayout = false;
     int mods = 0, hover = -1, pressed = -1;
@@ -1409,6 +1429,7 @@ struct OskState {  // the on-screen keyboard
 struct CfItem { std::string comm, name, kind; };
 struct CfState {  // the card that lists the programs that conflict with the shell
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
     int hover = -1;  // 100 not now / 101 never ask / 102 close them
@@ -1417,6 +1438,7 @@ struct CfState {  // the card that lists the programs that conflict with the she
 struct FqWin { std::string address, cls, title; int pid = 0, ws = 0; };
 struct FqState {  // the force quit card: the open windows to pick from
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
     int hover = -1, sel = -1, scroll = 0;  // hover: a row, or 100 cancel / 101 close / 102 force quit
@@ -1450,6 +1472,7 @@ struct OvWin {  // a window of the overview and the live capture of it (ext-imag
 inline cairo_surface_t* ovImage(const OvWin& w) { return w.hasFrame && w.surf ? w.surf : w.last; }
 struct OverviewState {  // the overview (SUPER + O): a strip with every workspace, live, on one edge of the screen; the real windows are pushed away from it
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false, dirty = false, gapsSet = false, hoverPlus = false;
     int width = 0, height = 0, monId = 0;      // (the strip's surface)
@@ -1486,6 +1509,7 @@ struct OverviewState {  // the overview (SUPER + O): a strip with every workspac
 struct FtHandle { ext_foreign_toplevel_handle_v1* h = nullptr; std::string id; };  // a toplevel the compositor lists (its id is hyprctl's stableId)
 struct ConfirmState {  // the Android-style card that asks before clearing the cache
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
     int hover = -1;
@@ -1493,6 +1517,7 @@ struct ConfirmState {  // the Android-style card that asks before clearing the c
 };
 struct QrState {  // the card that shows a QR code made from a link or a text
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
     int hover = -1;
@@ -1505,6 +1530,7 @@ struct GameHit;
 // The visualizer of the desktop: one background-layer surface under the widgets, with no input, fed by the same cava stream as the bar's.
 struct DeskViz {
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     wl_output* output = nullptr;
     bool enabled = false, configured = false;
@@ -1529,6 +1555,7 @@ struct DeskViz {
 
 struct GameOverlay {  // the game overlay (SUPER + G)
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false, closing = false, animating = false, placed = false, volDrag = false;
     int W = 0, H = 0, hover = 0, dragW = -1;
@@ -1540,9 +1567,11 @@ struct GameOverlay {  // the game overlay (SUPER + G)
     int rsMode = 0;
     bool notesPinned = false, ghostConfigured = false;
     wl_surface* ghostSurface = nullptr;
+    hidpi::SurfaceScale ghostScale;
     zwlr_layer_surface_v1* ghostLayer = nullptr;
     std::vector<struct GameHit> hits;
     wl_surface* crossSurface = nullptr;
+    hidpi::SurfaceScale crossScale;
     zwlr_layer_surface_v1* crossLayer = nullptr;
     bool crossConfigured = false, crossOn = false;
     // two buffers kept and reused (a new 8 MB one on every move made dragging crawl), one redraw per frame, and only the moved part damaged
@@ -1569,6 +1598,7 @@ struct DockState {
     uint64_t layerGen = 0;
     int gapOut = 5;  // Hyprland's gaps_out: the space the dock keeps from the screen edge, the same one windows keep above it
     wl_surface* surface = nullptr;
+    hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
     wl_output* output = nullptr;

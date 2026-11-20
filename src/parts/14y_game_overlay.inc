@@ -32,10 +32,12 @@ void freeGameBuffers(GameOverlay& G) {
 
 bool allocGameBuffers(App& app) {
     GameOverlay& G = app.game;
-    if (G.bufW == G.W && G.bufH == G.H && G.buf[0]) return true;
+    const double sc = G.scale.factor();  // bufW x bufH: the buffers' pixels, the logical size times the scale (src/hidpi.h)
+    const int PW = hidpi::bufferExtent(G.W, sc), PH = hidpi::bufferExtent(G.H, sc);
+    if (G.bufW == PW && G.bufH == PH && G.buf[0]) return true;
     freeGameBuffers(G);
-    const int stride = G.W * 4;
-    const size_t one = static_cast<size_t>(stride) * G.H;
+    const int stride = PW * 4;
+    const size_t one = static_cast<size_t>(stride) * PH;
     const int fd = memfd_create("end4pC-game", 0);
     if (fd < 0 || ftruncate(fd, one * 2) < 0) { if (fd >= 0) close(fd); return false; }
     void* data = mmap(nullptr, one * 2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -44,14 +46,15 @@ bool allocGameBuffers(App& app) {
     wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, static_cast<int32_t>(one * 2));
     for (int i = 0; i < 2; i++) {
         G.mem[i] = static_cast<unsigned char*>(data) + i * one;
-        G.cs[i] = cairo_image_surface_create_for_data(static_cast<unsigned char*>(G.mem[i]), CAIRO_FORMAT_ARGB32, G.W, G.H, stride);
-        G.buf[i] = wl_shm_pool_create_buffer(pool, static_cast<int32_t>(i * one), G.W, G.H, stride, WL_SHM_FORMAT_ARGB8888);
+        G.cs[i] = cairo_image_surface_create_for_data(static_cast<unsigned char*>(G.mem[i]), CAIRO_FORMAT_ARGB32, PW, PH, stride);
+        cairo_surface_set_device_scale(G.cs[i], sc, sc);
+        G.buf[i] = wl_shm_pool_create_buffer(pool, static_cast<int32_t>(i * one), PW, PH, stride, WL_SHM_FORMAT_ARGB8888);
         wl_buffer_add_listener(G.buf[i], &kGamePoolBuffer, &G.busy[i]);
     }
     wl_shm_pool_destroy(pool);
     close(fd);
-    G.bufW = G.W;
-    G.bufH = G.H;
+    G.bufW = PW;
+    G.bufH = PH;
     return true;
 }
 
@@ -318,10 +321,14 @@ void drawGame(App& app) {
     if (partial) {
         const int x0 = std::max(0, static_cast<int>(std::floor(G.pendX0)) - 4), y0 = std::max(0, static_cast<int>(std::floor(G.pendY0)) - 4);
         const int x1 = std::min(W, static_cast<int>(std::ceil(G.pendX1)) + 4), y1 = std::min(H, static_cast<int>(std::ceil(G.pendY1)) + 4);
-        wl_surface_damage_buffer(G.surface, x0, y0, std::max(1, x1 - x0), std::max(1, y1 - y0));
+        const double sc = G.scale.factor();  // (damage is in buffer pixels)
+        const int px0 = static_cast<int>(std::floor(x0 * sc)), py0 = static_cast<int>(std::floor(y0 * sc));
+        const int px1 = static_cast<int>(std::ceil(x1 * sc)), py1 = static_cast<int>(std::ceil(y1 * sc));
+        wl_surface_damage_buffer(G.surface, px0, py0, std::max(1, px1 - px0), std::max(1, py1 - py0));
     } else {
-        wl_surface_damage_buffer(G.surface, 0, 0, W, H);
+        wl_surface_damage_buffer(G.surface, 0, 0, G.bufW, G.bufH);
     }
+    if (G.scale.viewport) wp_viewport_set_destination(G.scale.viewport, W, H);
     G.pendValid = false;
     G.dirty = G.needFull = false;
     G.framePending = true;
@@ -344,11 +351,10 @@ void gameFrameDone(void* d, wl_callback* cb, uint32_t) {
 void drawCrosshair(App& app) {
     GameOverlay& G = app.game;
     if (!G.crossSurface || !G.crossConfigured) return;
-    const int S = kGameCross, stride = S * 4, size = stride * S;
-    const int fd = memfd_create("end4pC-cross", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, S, S, stride);
+    const int S = kGameCross;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, S, S, G.crossScale.factor(), "end4pC-cross")) return;
+    cairo_surface_t* surf = hf.surface;
     cairo_t* cr = mkcr(surf);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -373,16 +379,10 @@ void drawCrosshair(App& app) {
     cairo_set_source_rgba(cr, p.r, p.g, p.b, 1);
     cairo_fill(cr);
     cairo_destroy(cr);
-    cairo_surface_destroy(surf);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, S, S, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kGameBuffer, nullptr);
-    wl_surface_attach(G.crossSurface, buffer, 0, 0);
-    wl_surface_damage_buffer(G.crossSurface, 0, 0, S, S);
-    wl_surface_commit(G.crossSurface);
+    hidpi::present(G.crossSurface, buffer, hf, G.crossScale);
 }
 
 void onCrossConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t, uint32_t) {
@@ -398,6 +398,7 @@ const zwlr_layer_surface_v1_listener kCrossListener = {onCrossConfigure, onCross
 void closeCrosshair(App& app) {
     GameOverlay& G = app.game;
     if (G.crossLayer) zwlr_layer_surface_v1_destroy(G.crossLayer);
+    hidpi::detach(G.crossScale);
     if (G.crossSurface) wl_surface_destroy(G.crossSurface);
     G.crossLayer = nullptr;
     G.crossSurface = nullptr;
@@ -410,6 +411,7 @@ void openCrosshair(App& app) {
     if (G.crossSurface || !app.compositor || !app.layerShell || !app.shm) return;
     const Bar* bar = mainBar(app);
     G.crossSurface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, G.crossScale, G.crossSurface, [&app] { drawCrosshair(app); });
     G.crossLayer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, G.crossSurface, bar ? bar->output : nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-crosshair");
     zwlr_layer_surface_v1_set_anchor(G.crossLayer, 0);  // (no anchor: the middle of the screen)
     zwlr_layer_surface_v1_set_size(G.crossLayer, kGameCross, kGameCross);
@@ -428,6 +430,7 @@ void closeGameNow(App& app) {
     GameOverlay& G = app.game;
     if (!G.surface) return;
     if (G.layer) zwlr_layer_surface_v1_destroy(G.layer);
+    hidpi::detach(G.scale);
     wl_surface_destroy(G.surface);
     G.surface = nullptr;
     G.layer = nullptr;
@@ -479,6 +482,7 @@ void openGame(App& app) {
     G.hover = 0;
     G.closing = false;
     G.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, G.scale, G.surface, [&app] { app.game.needFull = true; drawGame(app); });
     G.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, G.surface, bar ? bar->output : nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-game-overlay");
     zwlr_layer_surface_v1_set_anchor(G.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
     zwlr_layer_surface_v1_set_size(G.layer, 0, 0);

@@ -38,11 +38,10 @@ void drawQrCard(App& app) {
     QrState& S = app.qr;
     if (!S.surface || !S.configured) return;
     const QrGeom G = qrGeom();
-    const int W = static_cast<int>(kQrW), H = static_cast<int>(std::ceil(kQrH)), stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-qr", 0);
-    if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int W = static_cast<int>(kQrW), H = static_cast<int>(std::ceil(kQrH));
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, S.scale.factor(), "end4pC-qr")) return;
+    cairo_surface_t* surf = hf.surface;
     cairo_t* cr = mkcr(surf);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -96,22 +95,17 @@ void drawQrCard(App& app) {
     pill(G.saveBtn, "download-minimalistic", "Save", S.hover == 2, false);
     g_object_unref(L);
     cairo_destroy(cr);
-    cairo_surface_destroy(surf);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kQrBuffer, nullptr);
-    wl_surface_attach(S.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(S.surface, 0, 0, W, H);
-    wl_surface_commit(S.surface);
+    hidpi::present(S.surface, buffer, hf, S.scale);
 }
 
 void closeQrCard(App& app) {
     QrState& S = app.qr;
     if (!S.surface) return;
     if (S.layer) zwlr_layer_surface_v1_destroy(S.layer);
+    hidpi::detach(S.scale);
     wl_surface_destroy(S.surface);
     S.surface = nullptr;
     S.layer = nullptr;
@@ -146,6 +140,7 @@ void openQrCard(App& app, const std::string& text) {
     S.hover = -1;
     const Bar* bar = mainBar(app);
     S.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, S.scale, S.surface, [&app] { drawQrCard(app); });
     S.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, S.surface, bar ? bar->output : nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-qr");
     zwlr_layer_surface_v1_set_anchor(S.layer, 0);  // (no anchor: centred on the screen)
     zwlr_layer_surface_v1_set_size(S.layer, static_cast<uint32_t>(kQrW), static_cast<uint32_t>(std::ceil(kQrH)));

@@ -330,12 +330,10 @@ void dockSetInput(App& app) {
 void dockRedraw(App& app) {
     DockState& D = app.dock;
     if (!D.open() || !D.configured || D.w <= 0 || D.h <= 0) return;
-    const int W = D.w, H = D.h, stride = W * 4, size = stride * H;
-    const int fd = memfd_create("end4pC-dock", MFD_CLOEXEC);
-    if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }
-    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (data == MAP_FAILED) { close(fd); return; }
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, W, H, stride);
+    const int W = D.w, H = D.h;
+    hidpi::Frame hf;
+    if (!hidpi::begin(hf, W, H, D.scale.factor(), "end4pC-dock")) return;
+    cairo_surface_t* surface = hf.surface;
     cairo_t* cr = mkcr(surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -343,15 +341,9 @@ void dockRedraw(App& app) {
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
     dockPaint(app, cr);
     cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, fd, size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, W, H, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(data, size);
-    close(fd);
+    wl_buffer* buffer = hidpi::buffer(hf, app.shm);
+    if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
-    wl_surface_attach(D.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(D.surface, 0, 0, W, H);
     dockSetInput(app);
     updateBlurRegion(app, D.surface, D.blur, W, H, [&](cairo_t* m) {
         cairo_save(m);
@@ -366,5 +358,5 @@ void dockRedraw(App& app) {
         if (D.menuOpen) dockPaintMenu(m, app);
         dockPaintGrid(m, app);
     });
-    wl_surface_commit(D.surface);
+    hidpi::present(D.surface, buffer, hf, D.scale);
 }

@@ -479,14 +479,8 @@ void amDrawList(App& app, cairo_t* cr, PangoLayout* layout, const std::vector<Au
 void amCommit(App& app, PopupFrame& f, double rev, double h) {
     AudioMenu& A = app.amenu;
     const double room = kTmRoom;
-    cairo_destroy(f.cr);
-    cairo_surface_destroy(f.surface);
-    wl_shm_pool* pool = wl_shm_create_pool(app.shm, f.fd, f.size);
-    wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, f.W, f.H, f.stride, WL_SHM_FORMAT_ARGB8888);
-    wl_shm_pool_destroy(pool);
-    munmap(f.data, f.size);
-    close(f.fd);
-    wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
+    wl_buffer* buffer = popupFrameBuffer(app, f);
+    if (!buffer) return;
     updateBlurRegion(app, A.surface, A.blur, f.W, f.H, [&](cairo_t* m) {
         if (rev <= 0.001) return;
         popPaintGrown(m, rev, A.ox + room, A.oy + room, 1.0, [&] {
@@ -504,9 +498,7 @@ void amCommit(App& app, PopupFrame& f, double rev, double h) {
         A.inTop = top;
         A.inH = hh;
     }
-    wl_surface_attach(A.surface, buffer, 0, 0);
-    wl_surface_damage_buffer(A.surface, 0, 0, f.W, f.H);
-    wl_surface_commit(A.surface);
+    popupFramePresent(A.surface, buffer, f);
 }
 
 void drawAudioMenu(App& app) {
@@ -518,7 +510,7 @@ void drawAudioMenu(App& app) {
     else A.cardTop = app.cfg.barPosition == "bottom" ? area - h : 0.0;
     A.cardTop = std::round(A.cardTop);
     PopupFrame frame;
-    if (!popupCanvasBegin(frame, "end4pC-audio-menu", A.cardW, static_cast<int>(area))) return;
+    if (!popupCanvasBegin(frame, "end4pC-audio-menu", A.cardW, static_cast<int>(area), A.scale)) return;
     const double rev = std::max(0.0, A.anim.reveal);
     if (rev > 0.001) {
         cairo_identity_matrix(frame.cr);
@@ -575,6 +567,7 @@ void closeAudioMenu(App& app) {
     if (!A.open()) return;
     if (A.layer) zwlr_layer_surface_v1_destroy(A.layer);
     releaseBlurSurface(A.blur);
+    hidpi::detach(A.scale);
     wl_surface_destroy(A.surface);
     A.surface = nullptr;
     A.layer = nullptr;
@@ -630,6 +623,7 @@ void openAudioMenu(App& app, Bar* bar) {
     A.layoutMoving = false;
     A.inTop = A.inH = -1;
     A.surface = wl_compositor_create_surface(app.compositor);
+    attachScale(app, A.scale, A.surface, [&app] { drawAudioMenu(app); });
     A.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, A.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-audio-menu");
     const PopOrigin origin = placePopupBeside(app, A.layer, A.ax, A.ay, A.cardW, A.regionH, bar);
     A.ox = origin.x;
