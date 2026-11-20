@@ -2317,6 +2317,18 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
     const Color primary = app.color("primary"), onPrimary = app.color("on_primary"), cont = app.color("primary_container"), onCont = app.color("on_primary_container");
     const Color onSurf = app.color("on_surface");
     double w = 0;
+    // (the date sits on the baseline of the time: centring each line box put the smaller date font visibly lower)
+    auto dateOnTimeBaseline = [&](const std::string& s, double x, const Color& c, double a) {
+        if (!cr) return;
+        double w = 0, h = 0;
+        size(time, tf, w, h);
+        const double timeBase = cy - h / 2 + pango_layout_get_baseline(layout) / double(PANGO_SCALE);
+        size(s, df, w, h);
+        const double dateBase = pango_layout_get_baseline(layout) / double(PANGO_SCALE);
+        setSource(cr, c, a);
+        cairo_move_to(cr, x, timeBase - dateBase);
+        pango_cairo_show_layout(cr, layout);
+    };
 
     if (style == "m3") {
         constexpr double kM3Overlap = kTightGap;
@@ -2345,7 +2357,7 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
         w = 16 + tw + (hasDate ? 8 + dw : 0);
         if (hover) fillRR(bx, by, w, bh, bh / 2, bh / 2, bh / 2, bh / 2, cont, 0.55);
         text(time, tf, bx + 8, cy, onSurf);
-        if (hasDate) text(app.clockDate, df, bx + 8 + tw + 8, cy, onSurf, 0.65);
+        if (hasDate) dateOnTimeBaseline(app.clockDate, bx + 8 + tw + 8, onSurf, 0.65);
     } else if (style == "outline") {
         w = 28 + tw + (hasDate ? 20 + dw : 0);
         if (cr) {
@@ -2358,7 +2370,7 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
         text(time, tf, bx + 14, cy, onSurf);
         if (hasDate) {
             if (cr) { cairo_new_sub_path(cr); cairo_arc(cr, bx + 14 + tw + 10, cy, 2, 0, 2 * M_PI); setSource(cr, primary); cairo_fill(cr); }
-            text(app.clockDate, df, bx + 14 + tw + 20, cy, onSurf, 0.75);
+            dateOnTimeBaseline(app.clockDate, bx + 14 + tw + 20, onSurf, 0.75);
         }
     } else if (style == "tiles") {
         const size_t colon = app.clockTime.find(':');
@@ -2382,13 +2394,13 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
         }
         double x = bx + 2 * tile + cg;
         if (aw > 0) { text(app.clockAmPm, df, x + 6, cy, onSurf, 0.7); x += 6 + aw; }
-        if (hasDate) text(app.clockDate, df, x + 10, cy, onSurf, 0.75);
+        if (hasDate) dateOnTimeBaseline(app.clockDate, x + 10, onSurf, 0.75);
     } else if (style == "badge") {
         const double pw = 24 + tw;
         w = pw + (hasDate ? 8 + dw : 0);
         fillRR(bx, by, pw, bh, bh / 2, bh / 2, bh / 2, bh / 2, hover ? cont : primary);
         text(time, tf, bx + 12, cy, hover ? onCont : onPrimary);
-        if (hasDate) text(app.clockDate, df, bx + pw + 8, cy, onSurf, 0.8);
+        if (hasDate) dateOnTimeBaseline(app.clockDate, bx + pw + 8, onSurf, 0.8);
     } else if (style == "stacked") {
         const double inner = std::max(tw, dw), ph = bh;
         w = 28 + inner;
