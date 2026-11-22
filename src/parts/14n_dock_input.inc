@@ -16,6 +16,10 @@ int dockHitIndex(const App& app) {
     double bestDist = 0;
     for (size_t i = 0; i < D.items.size(); i++) {
         const DockItem& it = D.items[i];
+        if (it.special == 2 && p.x >= it.slot.x && p.x <= it.slot.x + it.slot.w - app.cfg.dockSpacing) return static_cast<int>(i);  // (the music item is wide: its play/next buttons are far from its centre, nearer to a neighbour's)
+    }
+    for (size_t i = 0; i < D.items.size(); i++) {
+        const DockItem& it = D.items[i];
         if (it.separator) continue;
         const double dist = std::abs(p.x - (it.slot.x + (it.slot.w - app.cfg.dockSpacing) / 2));
         if (best < 0 || dist < bestDist) { best = static_cast<int>(i); bestDist = dist; }
