@@ -88,6 +88,7 @@ bool parseDesktopEntry(const std::string& file, const std::string& id, AppEntry&
             else if (k == "Keywords" && out.keywords.empty()) out.keywords = v;
             else if (k == "Icon") out.icon = v;
             else if (k == "Exec") out.exec = v;
+            else if (k == "StartupWMClass") out.wmClass = v;
             else if (k == "Terminal") out.terminal = v == "true";
             else if (k == "NoDisplay") noDisplay = v == "true";
             else if (k == "Hidden") hidden = v == "true";

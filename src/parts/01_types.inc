@@ -487,7 +487,7 @@ struct Config {
 
 struct AppAction { std::string name, icon, exec; };
 struct AppEntry {
-    std::string id, name, generic, comment, keywords, icon, exec;
+    std::string id, name, generic, comment, keywords, icon, exec, wmClass;
     bool terminal = false;
     std::vector<AppAction> actions;
 };

@@ -241,6 +241,7 @@ const AppEntry* dockEntryFor(const App& app, const std::string& key) {
         const std::string id = dockLower(e.id);
         if (id.size() > want.size() && id.ends_with("." + want)) return &e;
     }
+    for (const AppEntry& e : app.apps) if (!e.wmClass.empty() && dockLower(e.wmClass) == want) return &e;
     return nullptr;
 }
 
@@ -249,7 +250,7 @@ bool dockOwns(const DockItem& it, const AppEntry* e, const std::string& cls) {
     if (dockLower(it.key) == c) return true;
     if (!e) return false;
     const std::string id = dockLower(e->id);
-    return id == c || (id.size() > c.size() && id.ends_with("." + c));
+    return id == c || (id.size() > c.size() && id.ends_with("." + c)) || (!e->wmClass.empty() && dockLower(e->wmClass) == c);
 }
 
 void dockFillEntry(DockItem& it, const AppEntry* e) {
