@@ -69,6 +69,10 @@ end
 local oldDots = readAll(home .. "/.config/hypr/hyprland/keybinds.lua"):find("hl.dsp.window.close()", 1, true) ~= nil  -- (the new file only has the virtual machine submap)
 local customText = oldDots and readAll(home .. "/.config/hypr/custom/keybinds.lua"):lower() or ""
 local function bindKey(keys, disp, opts)
+    local actionType = type(disp)
+    if actionType ~= "userdata" and actionType ~= "function" then
+        error("no valid dispatcher for " .. keys .. " (got " .. actionType .. ")")
+    end
     if oldDots then
         if customText:find('"' .. keys:lower() .. '"', 1, true) then return end  -- (theirs)
         pcall(hl.unbind, keys)
