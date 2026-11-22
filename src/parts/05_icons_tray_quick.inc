@@ -133,13 +133,25 @@ std::string trayIconFile(const std::string& name, const std::string& themePath) 
     return "";
 }
 
+std::string lookupIcon(const std::string& name, int size);
+
 // Drawn at the screen's real pixels (P) and given the matching device scale, so it still paints kTrayIcon logical px wide (src/hidpi.h).
 cairo_surface_t* trayMakeSurface(const TrayIcon& t) {
     const int P = picturePx(kTrayIcon);
     cairo_surface_t* out = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, P, P);
     cairo_t* cr = mkcr(out);
     bool drawn = false;
-    const std::string file = trayIconFile(t.iconName, t.themePath);
+    if (t.iconName.find("keyboard") != std::string::npos) {  // (fcitx5 and the like: a layout icon is drawn with the shell's own keyboard, whatever the icon theme does with that name)
+        if (cairo_surface_t* mask = iconMaskPx("keyboard", false, P, P)) {
+            cairo_set_source_rgba(cr, 0.9, 0.9, 0.9, 1);
+            cairo_mask_surface(cr, mask, 0, 0);
+            cairo_destroy(cr);
+            if (P != kTrayIcon) cairo_surface_set_device_scale(out, double(P) / kTrayIcon, double(P) / kTrayIcon);
+            return out;
+        }
+    }
+    std::string file = trayIconFile(t.iconName, t.themePath);
+    if (file.empty() && !t.iconName.empty() && t.iconName[0] != '/') file = lookupIcon(t.iconName, P);  // (an icon that only the installed theme has, such as fcitx5's input-keyboard)
     if (!file.empty()) {
         if (GdkPixbuf* pb = gdk_pixbuf_new_from_file_at_size(file.c_str(), P, P, nullptr)) {
             cairo_surface_t* im = surfaceFromPixbuf(pb);
