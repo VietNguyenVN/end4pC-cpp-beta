@@ -72,6 +72,7 @@ void hotCornerAct(App& app, int corner) {
     else if (act == "power") togglePowerMenu(app);
     else if (act == "lock") startLock();
     else if (act == "settings") toggleSettings();
+    else if (act == "tasks") toggleTasks();
 }
 
 void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, wl_fixed_t x, wl_fixed_t y) {

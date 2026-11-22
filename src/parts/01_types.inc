@@ -156,7 +156,7 @@ int g_iconScale = 100;  // % of the size every icon is asked for (Settings > App
 
 const std::vector<std::string> kSchemes = {"scheme-tonal-spot", "scheme-neutral", "scheme-content", "scheme-expressive", "scheme-fidelity",
                                            "scheme-fruit-salad", "scheme-monochrome", "scheme-rainbow", "scheme-vibrant", "scheme-smart"};
-const std::vector<std::string> kCornerActions = {"none", "controlcenter", "media", "wallpapers", "launcher", "overview", "notifications", "power", "lock", "settings"};
+const std::vector<std::string> kCornerActions = {"none", "controlcenter", "media", "wallpapers", "launcher", "overview", "notifications", "power", "lock", "settings", "tasks"};
 const std::vector<std::string> kModules = {"workspaces", "media", "quickactions", "network", "volume", "clock", "notifications", "settings", "avatar", "battery", "systray", "resources", "launcher", "power", "tools", "weather", "aiusage", "keyboard", "activewindow", "divider", "visualizer", "updates", "bluetooth", "docktopanel", "drives", "privacy"};
 
 inline bool validNotifPosition(const std::string& p) {

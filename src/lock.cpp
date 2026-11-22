@@ -422,7 +422,7 @@ bool pamCheck(const std::string& user, std::string password) {
     return ok;
 }
 
-enum class LockAnim { None, SplitH, SplitV, Shape };
+enum class LockAnim { None, SplitH, SplitV, Shape, Zoom };
 
 struct Output {
     wl_output* output = nullptr;
@@ -616,8 +616,16 @@ double easeOutCubic(double t) {
     return 1 - (1 - t) * (1 - t) * (1 - t);
 }
 
+// Zoom comes in with a small rebound: it goes a little past the end (about 4%) and settles back.
+double easeOutBack(double t) {
+    constexpr double c1 = 1.0, c3 = c1 + 1;
+    t = std::clamp(t, 0.0, 1.0) - 1;
+    return 1 + c3 * t * t * t + c1 * t * t;
+}
+
 double entryOpen(double t) {
     t = std::clamp(t, 0.0, 1.0);
+    if (g.animMode == LockAnim::Zoom) return easeOutBack(t);
     if (g.animMode == LockAnim::Shape) return std::min(1.0, t * t * (3 - 2 * t) * 1.15);
     return easeOutCubic(t);
 }
@@ -659,6 +667,20 @@ void compose(cairo_t* cr, int W, int H, cairo_surface_t* cache, double open) {
                 cairo_fill(cr);
             }
         }
+        return;
+    }
+    if (g.animMode == LockAnim::Zoom) {  // the lock screen settles from a bigger picture, fading in over the desktop (and the other way when it goes out)
+        paintWallpaper(cr, W, H);
+        constexpr double kZoomFrom = 0.12;
+        const double scale = 1 + kZoomFrom * (1 - open), alpha = std::clamp(open * 1.6, 0.0, 1.0);
+        cairo_save(cr);
+        cairo_translate(cr, W / 2.0, H / 2.0);
+        cairo_scale(cr, scale, scale);
+        cairo_translate(cr, -W / 2.0, -H / 2.0);
+        cairo_set_source_surface(cr, cache, 0, 0);
+        cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_PAD);  // (the rebound goes under 1: the edge pixels fill what the picture no longer covers)
+        cairo_paint_with_alpha(cr, alpha);
+        cairo_restore(cr);
         return;
     }
     if (g.animMode == LockAnim::Shape) {
@@ -902,11 +924,11 @@ void readAnimConfig() {
     std::string v;
     g.animMode = LockAnim::None;
     if (jsonValue(cfg, "lockAnimation", v))
-        g.animMode = v == "split_h" ? LockAnim::SplitH : v == "split_v" ? LockAnim::SplitV : v == "shape" ? LockAnim::Shape : LockAnim::None;
+        g.animMode = v == "split_h" ? LockAnim::SplitH : v == "split_v" ? LockAnim::SplitV : v == "shape" ? LockAnim::Shape : v == "zoom" ? LockAnim::Zoom : LockAnim::None;
     if (jsonValue(cfg, "animEnabled", v) && v == "0") g.animMode = LockAnim::None;
     double speed = 100;
     if (jsonValue(cfg, "animSpeed", v) && !v.empty()) speed = std::clamp(std::atof(v.c_str()), 50.0, 200.0);
-    g.animSeconds = (g.animMode == LockAnim::Shape ? 0.75 : 0.55) * 100.0 / speed;
+    g.animSeconds = (g.animMode == LockAnim::Shape ? 0.75 : g.animMode == LockAnim::Zoom ? 0.7 : 0.55) * 100.0 / speed;
     if (jsonValue(cfg, "centeredWallpaperShape", v) && !v.empty()) g.shapeName = v;
     if (jsonValue(cfg, "centeredWallpaper", v) && v == "1") {  // the shape starts as the one the desktop shows, and outside it is the desktop's color
         g.baseRole = "primary_container";
@@ -924,7 +946,7 @@ void dumpFrames(const std::string& dir) {
     paintFrame(cc, W, H);
     cairo_destroy(cc);
     struct Case { const char* name; LockAnim mode; bool centered; };
-    for (const Case& c : {Case{"split-h", LockAnim::SplitH, false}, Case{"split-v", LockAnim::SplitV, false}, Case{"shape", LockAnim::Shape, false}, Case{"shape-centered", LockAnim::Shape, true}}) {
+    for (const Case& c : {Case{"split-h", LockAnim::SplitH, false}, Case{"split-v", LockAnim::SplitV, false}, Case{"shape", LockAnim::Shape, false}, Case{"shape-centered", LockAnim::Shape, true}, Case{"zoom", LockAnim::Zoom, false}}) {
         g.animMode = c.mode;
         g.baseRole = c.centered ? "primary_container" : "";
         g.shapeStart = c.centered ? 400 : 0;

@@ -194,7 +194,7 @@ Config sanitized(Config c) {
     c.barShadow = c.barShadow ? 1 : 0;
     c.dynamicIsland = c.dynamicIsland ? 1 : 0;
     c.islandClick = c.islandClick ? 1 : 0;
-    if (c.lockAnimation != "none" && c.lockAnimation != "split_h" && c.lockAnimation != "split_v" && c.lockAnimation != "shape") c.lockAnimation = "none";
+    if (c.lockAnimation != "none" && c.lockAnimation != "split_h" && c.lockAnimation != "split_v" && c.lockAnimation != "shape" && c.lockAnimation != "zoom") c.lockAnimation = "none";
     if (!validGroupStyle(c.groupStyle)) c.groupStyle = "free";
     c.groupSpacing = std::clamp(c.groupSpacing, 2, 6);
     if (!validGroupColor(c.groupColor)) c.groupColor = "surface_container_high";
@@ -967,7 +967,7 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
         if (value != "media" && value != "clock") return "value must be media or clock";
         next.islandView = value;
     } else if (key == "lockAnimation") {
-        if (value != "none" && value != "split_h" && value != "split_v" && value != "shape") return "value must be none, split_h, split_v or shape";
+        if (value != "none" && value != "split_h" && value != "split_v" && value != "shape" && value != "zoom") return "value must be none, split_h, split_v, shape or zoom";
         next.lockAnimation = value;
     } else if (key == "groupSpacing") {
         if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos) return "value must be an integer from 2 to 6";
