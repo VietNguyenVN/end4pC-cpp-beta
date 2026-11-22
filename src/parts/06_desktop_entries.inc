@@ -417,12 +417,12 @@ double sideModuleH(const App& app, const std::string& m) {
     if (m == "keyboard") return app.kbd.list.empty() ? 0 : 40;
     if (m == "activewindow") return 40;
     if (m == "visualizer") return kVizBars * (kVizDot + kVizGap) + (widgetStyle(app, "visualizer") == "m3" ? 2 * kVizM3Pad : 0);
-    if (isDivider(m)) return app.cfg.dividerStyle == "dot" ? 6 : 2;
+    if (isDivider(m)) return dividerWidth(dividerStyleOf(app.cfg, dividerIndex(m)));
     if (m == "battery") return app.statusT[3] > 0.001 ? sideBatteryH(app) * (1 - std::pow(1 - app.statusT[3], 3)) : 0;
     return 0;
 }
 double sideModuleGap(const App& app, const std::string& a, const std::string& b) {
-    return isDivider(a) || isDivider(b) ? app.cfg.dividerSpacing : app.cfg.sideBarSpacing;
+    return isDivider(a) || isDivider(b) ? std::max(isDivider(a) ? dividerSpacingOf(app.cfg, dividerIndex(a)) : 0, isDivider(b) ? dividerSpacingOf(app.cfg, dividerIndex(b)) : 0) : app.cfg.sideBarSpacing;
 }
 std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, double>>* spans = nullptr) {
     const App& app = *bar.app;
@@ -430,8 +430,10 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
     const double x = (kSideBarW - 40) / 2.0, L = bar.width, edge = 8;
     const bool notch = app.cfg.barStyle == "notch", split = app.cfg.barStyle == "split";
     double nY0 = 0, nLen = 0, nSpan[3] = {0, 0, 0}, nNatural = 0, nWide = 0;
+    int dividerN = 0;  // (the dividers are numbered in the order they show on the bar)
+    const std::vector<std::string> numLeft = numberDividers(app.cfg.sideLeft, dividerN), numCenter = numberDividers(app.cfg.sideCenter, dividerN), numRight = numberDividers(app.cfg.sideRight, dividerN);
     if (notch || split) {
-        const std::vector<std::string>* lists[3] = {&app.cfg.sideLeft, &app.cfg.sideCenter, &app.cfg.sideRight};
+        const std::vector<std::string>* lists[3] = {&numLeft, &numCenter, &numRight};
         int groups = 0;
         for (int k = 0; k < 3; k++) {
             std::vector<std::string> mods;
@@ -504,7 +506,7 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
             else if (m == "activewindow") v.push_back({HitActiveWindow, {x, y, 40, 40}});
             else if (m == "aiusage") { const auto s = aiShown(app); for (size_t k = 0; k < s.size(); k++) v.push_back({kHitAi + s[k], {x, y + k * 44.0, 40, 40}}); }
             else if (m == "visualizer") v.push_back({kHitViz + (vizSeen++ % 2), {x, y, 40, sideModuleH(app, m)}});
-            else if (isDivider(m)) v.push_back({HitDivider, {x, y, 40, sideModuleH(app, m)}});
+            else if (isDivider(m)) v.push_back({kHitDiv + std::max(0, dividerIndex(m)), {x, y, 40, sideModuleH(app, m)}});
             else if (m == "battery") v.push_back({kHitStatus + 3, {x, y, 40, sideBatteryH(app)}});
             else if (m == "systray") {
                 std::vector<int> pin, oth;
@@ -527,9 +529,9 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
             y += sideModuleH(app, m) + (i + 1 < mods.size() ? sideModuleGap(app, m, mods[i + 1]) : 0);
         }
     };
-    place(app.cfg.sideLeft, 0);
-    place(app.cfg.sideCenter, 1);
-    place(app.cfg.sideRight, 2);
+    place(numLeft, 0);
+    place(numCenter, 1);
+    place(numRight, 2);
     return v;
 }
 std::string resLookFor(const App& app, bool side) {
@@ -663,8 +665,9 @@ std::vector<Rect> islandRects(const Bar& bar) {
     }
     std::map<std::string, int> copies;
     std::vector<std::string> keys[3];
-    const std::vector<std::string> centerEff = centerModules(app);
-    const std::vector<std::string>* regions[3] = {&app.cfg.layoutLeft, &centerEff, &app.cfg.layoutRight};
+    int dividerN = 0;
+    const std::vector<std::string> numLeft = numberDividers(app.cfg.layoutLeft, dividerN), numCenter = numberDividers(app.cfg.barStyle == "notch" ? app.cfg.layoutCenter : centerModules(app), dividerN), numRight = numberDividers(app.cfg.layoutRight, dividerN);
+    const std::vector<std::string>* regions[3] = {&numLeft, &numCenter, &numRight};
     for (int r : {0, 2, 1})
         for (const auto& m : *regions[r]) {
             if (moduleWidth(app, m) <= 0) continue;
@@ -967,6 +970,7 @@ void drawGroupCells(cairo_t* cr, const Bar& bar) {
     if (!groupHasCells(app.cfg)) return;
     const double h = kQuickBox + 2 * kGroupPad, y = (bar.height - h) / 2.0;
     for (const GroupSpan& g : bar.groups) {
+        if (g.hidden) continue;
         roundedRectCorners(cr, g.x0, y, g.x1 - g.x0, h, g.rl, g.rr, g.rr, g.rl);
         if (hexColorText(app.cfg.groupColor)) {
             unsigned rgb = 0;
@@ -1343,9 +1347,24 @@ double aiBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, do
     pango_font_description_free(f);
     return w + outer;
 }
-void dividerPaint(cairo_t* cr, const App& app, double cx, double cy, bool tall) {
+void dividerPaint(cairo_t* cr, const App& app, double cx, double cy, bool tall, int n = -1) {
+    const std::string style = dividerStyleOf(app.cfg, n);
+    if (style == "space") return;  // (an empty gap: nothing to draw)
+    if (style == "slash" || style == "backslash") {  // / or \: the user picks the way it leans
+        constexpr double half = 8, lean = 3.5;
+        const double dir = style == "slash" ? 1 : -1;
+        cairo_save(cr);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_set_line_width(cr, 1.8);
+        cairo_move_to(cr, cx - dir * lean, cy + half);
+        cairo_line_to(cr, cx + dir * lean, cy - half);
+        setSource(cr, app.color("on_surface_variant"), 0.8);
+        cairo_stroke(cr);
+        cairo_restore(cr);
+        return;
+    }
     const Color c = app.color("on_surface_variant");
-    if (app.cfg.dividerStyle == "dot") {
+    if (style == "dot") {
         cairo_new_sub_path(cr);
         cairo_arc(cr, cx, cy, 2.5, 0, 2 * M_PI);
         setSource(cr, c, 0.8);
@@ -1780,7 +1799,7 @@ void drawSide(Bar& bar) {
             aiSidePaint(cr, app, layout, r, it.id - kHitAi, hot);
             continue;
         }
-        if (it.id == HitDivider) { dividerPaint(cr, app, r.x + r.w / 2, r.y + r.h / 2, false); continue; }
+        if (it.id >= kHitDiv && it.id < kHitDiv + 32) { dividerPaint(cr, app, r.x + r.w / 2, r.y + r.h / 2, false, it.id - kHitDiv); continue; }
         if (it.id >= kHitViz && it.id < kHitViz + 2) { vizPaint(cr, app, r.x + r.w / 2, r.y + r.h / 2, true, it.id == kHitViz + 1); continue; }
         if (it.id == HitClock && widgetStyle(app, "clock") == "m3") {
             const size_t colon = app.clockTime.find(':');
@@ -2312,7 +2331,7 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
     double tw = 0, th = 0, dw = 0, dh = 0;
     size(time, tf, tw, th);
     if (hasDate) size(app.clockDate, df, dw, dh);
-    const double cy = barH / 2, bh = kQuickBox, by = cy - bh / 2;  // (every look of the clock is as tall as the other widgets)
+    const double cy = barH / 2, bh = kQuickBox + (groupCellHidden(app.cfg, "clock") ? 2 * kGroupPad : 0), by = cy - bh / 2;  // (every look of the clock is as tall as the other widgets; in Separated, as tall as the cell that is not painted behind it)
     const Color primary = app.color("primary"), onPrimary = app.color("on_primary"), cont = app.color("primary_container"), onCont = app.color("on_primary_container");
     const Color onSurf = app.color("on_surface");
     double w = 0;
@@ -3068,7 +3087,7 @@ void draw(Bar& bar) {
     for (int k = 0;; k++) {
         const std::string dv = "divider#" + std::to_string(k);
         if (!hasSlot(bar, dv.c_str())) break;
-        dividerPaint(cr, app, slotX(bar, dv.c_str()) + moduleWidth(app, "divider") / 2.0, bar.height / 2.0, true);
+        dividerPaint(cr, app, slotX(bar, dv.c_str()) + moduleWidth(app, dv) / 2.0, bar.height / 2.0, true, k);
     }
     for (int k = 0;; k++) {
         const std::string vz = "visualizer#" + std::to_string(k);

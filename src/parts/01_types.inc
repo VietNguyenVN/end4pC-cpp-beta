@@ -76,7 +76,7 @@ struct BlurSurface {
     std::vector<BlurRect> sent;
 };
 
-struct GroupSpan { double x0, x1, rl, rr; };
+struct GroupSpan { double x0, x1, rl, rr; bool hidden = false; };  // (hidden: the widget has a look of its own in the Separated style, and the cell is not painted behind it)
 
 struct Bar {
     App* app = nullptr;
@@ -406,6 +406,8 @@ struct Config {
     int resWarnSwap = 85;
     int resWarnCpu = 90;
     std::string dividerStyle = "line";
+    std::string groupLooks;  // the looks picked from the popups of the bar in the Separated group style: "<widget>=<look>,..." (a widget without one keeps the look the group style gives it)
+    std::string dividerLooks;  // what some dividers of the bar look like on their own, by their order in the bar: "<n>:<line|dot|space|slash|backslash|->:<spacing|->,..." (a "-" follows the bar's)
     int aiClaude = 1, aiCodex = 1;
     int aiTokenLimit = 1000;
     std::string resStyle = "filled";
@@ -1329,7 +1331,8 @@ struct ClockPanel {
     int cardX = 0, cardY = 0;
     double originX = 0, originY = 0;
     double anchor = 0;
-    std::string styleMod;
+    std::string styleMod;  // the widget whose look is picked ("divider#<n>" for one divider of the bar)
+    bool sliding = false;  // the spacing slider of the divider picker is being dragged
     int kind = 0;
     int tab = 0, hover = 0, lastMin = -1, lastSec = -1;
     TabAnim ta;
@@ -2042,7 +2045,41 @@ constexpr const char* kArtistFont = "Sans 8";
 constexpr const char* kTitleFont = "Sans Bold 10";
 
 using Hit = int;
-constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitDrives = 26, HitPrivacy = 27, HitIsland = 25, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600, kHitDtp = 800;
+// One divider's own look (empty style, negative spacing: the same as the bar's).
+struct DividerLook { std::string style; int spacing = -1; };
+inline DividerLook dividerLookOf(const std::string& looks, int n) {
+    size_t at = 0;
+    while (at < looks.size()) {
+        size_t end = looks.find(',', at);
+        if (end == std::string::npos) end = looks.size();
+        const std::string item = looks.substr(at, end - at);
+        at = end + 1;
+        const size_t a = item.find(':'), b = a == std::string::npos ? a : item.find(':', a + 1);
+        if (b == std::string::npos || std::atoi(item.substr(0, a).c_str()) != n) continue;
+        DividerLook d;
+        const std::string st = item.substr(a + 1, b - a - 1), sp = item.substr(b + 1);
+        if (st == "line" || st == "dot" || st == "space" || st == "slash" || st == "backslash") d.style = st;
+        if (!sp.empty() && sp.find_first_not_of("0123456789") == std::string::npos) d.spacing = std::min(24, std::atoi(sp.c_str()));
+        return d;
+    }
+    return {};
+}
+inline std::string dividerLooksWith(const std::string& looks, int n, const DividerLook& d) {
+    std::string out;
+    size_t at = 0;
+    while (at < looks.size()) {
+        size_t end = looks.find(',', at);
+        if (end == std::string::npos) end = looks.size();
+        const std::string item = looks.substr(at, end - at);
+        at = end + 1;
+        if (!item.empty() && std::atoi(item.c_str()) != n) out += (out.empty() ? "" : ",") + item;
+    }
+    if (!d.style.empty() || d.spacing >= 0)
+        out += (out.empty() ? "" : ",") + std::to_string(n) + ":" + (d.style.empty() ? "-" : d.style) + ":" + (d.spacing < 0 ? "-" : std::to_string(d.spacing));
+    return out;
+}
+
+constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitDrives = 26, HitPrivacy = 27, HitIsland = 25, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600, kHitDtp = 800, kHitDiv = 1200;
 
 std::string widgetStyle(const App& app, const std::string& mod);
 double roundBtnW(const App& app, const char* mod) { return kQuickBox + (!sideBar(app) && widgetStyle(app, mod) == "m3" ? kM3Box - kQuickBox : 0); }
@@ -2065,9 +2102,26 @@ constexpr double kWsGap = 8, kWsDot = 10, kWsActiveW = 28;
 constexpr double kNumGap = 6, kNumW = 28, kNumActiveW = 42, kNumH = 26;
 static_assert(kMusicArt == kNumH, "cover and workspace boxes share one height");
 
+// The Separated group style (a pill for each widget) lets every widget take any of its looks, picked from its popup in the bar.
+inline bool groupSeparated(const Config& c) { return c.groupStyle == "separated" && c.barPosition != "left" && c.barPosition != "right"; }
+inline std::string groupLookOf(const Config& c, const std::string& mod) {
+    size_t at = 0;
+    while (at < c.groupLooks.size()) {
+        size_t end = c.groupLooks.find(',', at);
+        if (end == std::string::npos) end = c.groupLooks.size();
+        const size_t eq = c.groupLooks.find('=', at);
+        if (eq != std::string::npos && eq < end && c.groupLooks.compare(at, eq - at, mod) == 0) {
+            const std::string id = c.groupLooks.substr(eq + 1, end - eq - 1);
+            if (validWidgetStyle(mod, id)) return id;
+        }
+        at = end + 1;
+    }
+    return "";
+}
 std::string rawWidgetStyle(const Config& cfg, const std::string& mod) {
     const WidgetStyleSet* set = widgetStyleSet(mod);
     if (!set) return "";
+    if (groupSeparated(cfg)) { const std::string own = groupLookOf(cfg, mod); if (!own.empty()) return own; }
     const bool side = cfg.barPosition == "left" || cfg.barPosition == "right";
     if (!side) {
         if (mod == "clock") return cfg.barClock;
@@ -2117,11 +2171,10 @@ inline bool groupFreeWidget(const Config& c, const std::string& mod) {
     return mod == "island" || listHas(c.groupFree, mod) || (!groupForcedLook(mod) && mod != "resources" && mod != "visualizer" && rawWidgetStyle(c, mod) == "m3");
 }
 inline bool hasGroupCell(const Config& c, const std::string& mod) {
-    return groupHasCells(c) && mod != "divider" && !groupFreeWidget(c, mod);
+    return groupHasCells(c) && mod.rfind("divider", 0) != 0 && !groupFreeWidget(c, mod);
 }
-std::string widgetStyle(const Config& cfg, const std::string& mod) {
-    const std::string s = rawWidgetStyle(cfg, mod);
-    if (!groupActive(cfg) || groupFreeWidget(cfg, mod)) return s;
+// The look a group style gives a widget whose own look is `s` (a frameless one: the cell is the frame).
+std::string groupMappedStyle(const std::string& mod, const std::string& s) {
     if (mod == "visualizer") return s == "reflect" ? "reflect" : "dots";  // (Reflection or Dots)
     if (mod == "notifications") return s == "dot" ? "dot" : "count";  // (a dot, or the count on a small ball)
     if (mod == "media") return s == "plain" ? "plain" : "progress";  // (the ring, or the cover with artist, title and controls)
@@ -2137,6 +2190,19 @@ std::string widgetStyle(const Config& cfg, const std::string& mod) {
     for (const WidgetStyleOption& o : set->options)
         if (!o.framed) return o.id;
     return s;
+}
+std::string widgetStyle(const Config& cfg, const std::string& mod) {
+    const std::string s = rawWidgetStyle(cfg, mod);
+    if (!groupActive(cfg) || groupFreeWidget(cfg, mod)) return s;
+    if (groupSeparated(cfg) && !groupLookOf(cfg, mod).empty()) return s;  // (picked from its popup: that look, whatever it is)
+    return groupMappedStyle(mod, s);
+}
+// In the Separated style, a widget with a look picked from its popup that the group style would not have given it: its own frame is
+// the pill, so the cell behind it is not painted (and the frame grows to the size of the cell, see styleFrame).
+inline bool groupCellHidden(const Config& c, const std::string& mod) {
+    if (!groupSeparated(c)) return false;
+    const std::string own = groupLookOf(c, mod);
+    return !own.empty() && groupMappedStyle(mod, own) != own;
 }
 std::string widgetStyle(const App& app, const std::string& mod) { return widgetStyle(app.cfg, mod); }
 

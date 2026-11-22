@@ -486,6 +486,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
         if (button == kBtnLeft && app->sel.qDrag) app->sel.qDrag = false;
         if (button == kBtnLeft && (app->media.drag != 0 || app->media.eqDrag >= 0)) mediaPanelRelease(*app);
         if (button == kBtnLeft && app->cc.drag != 0) ccRelease(*app);
+        if (button == kBtnLeft && app->clockP.sliding) app->clockP.sliding = false;
         if (button == kBtnLeft) deskRelease(*app);
         if (button == kBtnLeft) dockRelease(*app);
         if (button == kBtnLeft && app->dtp.pressIdx >= 0) { dtpRelease(*app); drawAll(*app); }
@@ -513,6 +514,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     if (button == kBtnRight) {
         const Hit rh = app->hoverBar ? hitTest(*app->hoverBar, app->pointerX, app->pointerY) : HitNone;
         if (rh >= kHitTray && rh < kHitTray + 100) trayClick(*app, rh - kHitTray, true);
+        else if (rh >= kHitDiv && rh < kHitDiv + 32) toggleDividerPicker(*app, app->hoverBar, rh - kHitDiv);
         else if (const char* mod = hitModule(rh)) toggleStylePicker(*app, app->hoverBar, mod);
         return;
     }

@@ -5,7 +5,7 @@ inline double clkCardH(const ClockPanel& P) { return P.cardH > 0 ? P.cardH : kCl
 constexpr int kClkSurfW = static_cast<int>(kClkW + 2 * kClkRoom), kClkSurfH = static_cast<int>(kClkH + 2 * kClkRoom);
 constexpr int kClkMaxZones = 4, kClkMaxResults = 5;
 
-enum ClkId { ClkTab = 1, ClkPrev = 10, ClkNext = 11, ClkToday = 12, ClkTimerGo = 20, ClkTimerReset = 21, ClkFab = 40, ClkBack = 41, ClkProfile = 45, ClkWxReload = 48, ClkTasks = 49, ClkStyle = 400, ClkLayout = 300, ClkLayoutRemove = 320, ClkLayoutPick = 340, ClkRemove = 50, ClkRow = 60, ClkZone = 200, ClkPreset = 30, ClkDay = 100 };
+enum ClkId { ClkTab = 1, ClkPrev = 10, ClkNext = 11, ClkToday = 12, ClkTimerGo = 20, ClkTimerReset = 21, ClkFab = 40, ClkBack = 41, ClkProfile = 45, ClkWxReload = 48, ClkTasks = 49, ClkStyle = 400, ClkDivSlider = 440, ClkLayout = 300, ClkLayoutRemove = 320, ClkLayoutPick = 340, ClkRemove = 50, ClkRow = 60, ClkZone = 200, ClkPreset = 30, ClkDay = 100 };
 constexpr int kClkPresets[4] = {15, 25, 45, 60};
 
 std::tm clkLocalTm(time_t t = std::time(nullptr)) {
@@ -1209,6 +1209,7 @@ constexpr int kKbdPickFit = 5;
 // The looks the popup of a widget offers: with the group styles the workspaces only have Dots and M3.
 std::vector<WidgetStyleOption> styleChoices(const App& app, const std::string& mod) {
     std::vector<WidgetStyleOption> out = widgetStyleChoices(mod, sideBar(app));
+    if (groupSeparated(app.cfg)) return out;  // (Separated: every look of the widget)
     if (mod == "notifications" && groupActive(app.cfg))
         out.erase(std::remove_if(out.begin(), out.end(), [](const WidgetStyleOption& o) { return std::string(o.id) != "dot" && std::string(o.id) != "count"; }), out.end());
     if (mod == "media" && groupActive(app.cfg))
@@ -1222,7 +1223,11 @@ std::vector<WidgetStyleOption> styleChoices(const App& app, const std::string& m
     return out;
 }
 constexpr double kStyleHeadH = 64, kStyleChipH = 48, kStyleChipGap = 8;
+constexpr double kDivSliderH = 58;
+bool clkIsDividerPick(const ClockPanel& P) { return P.styleMod.rfind("divider#", 0) == 0; }
+int clkDividerOf(const ClockPanel& P) { return std::atoi(P.styleMod.c_str() + 8); }
 double clkStyleH(const App& app, const ClockPanel& P) {
+    if (clkIsDividerPick(P)) return kClkPad + kStyleHeadH + kClkGap + 3 * (kStyleChipH + kStyleChipGap) + kDivSliderH + kClkPad - kStyleChipGap;
     const int n = static_cast<int>(styleChoices(app, P.styleMod).size()), rows = (n + 1) / 2;
     return kClkPad + kStyleHeadH + kClkGap + rows * (kStyleChipH + kStyleChipGap) - kStyleChipGap + kClkPad;
 }
@@ -1322,7 +1327,62 @@ void clkKbdBody(ClkCtx& X, double x, double y, double w, double h) {
     }
 }
 
+// The picker of one divider of the bar: its style (line, dot, space, / or \\) and how much air it has around it.
+void clkDividerPaint(ClkCtx& X) {
+    cairo_t* cr = X.cr;
+    const App& app = X.app;
+    const int n = clkDividerOf(X.P);
+    const std::string current = dividerStyleOf(app.cfg, n);
+    const int spacing = dividerSpacingOf(app.cfg, n);
+    const double w = kClkW - 2 * kClkPad;
+    roundedRect(cr, kClkPad, kClkPad, w, kStyleHeadH, 24);
+    setSource(cr, app.color("primary_container"));
+    cairo_fill(cr);
+    const Color ink = app.color("on_primary_container");
+    constexpr double kBadge = 46;
+    const double bx = kClkPad + 10, by = kClkPad + (kStyleHeadH - kBadge) / 2;
+    shapePath(cr, kM3IconShape, bx, by, kBadge);
+    setSource(cr, app.color("primary"));
+    cairo_fill(cr);
+    drawIcon(cr, "palette", bx + (kBadge - 24) / 2, by + (kBadge - 24) / 2, 24, app.color("on_primary"), true);
+    X.text("Divider", 17, true, kClkPad + 68, kClkPad + 22, ink);
+    X.text("Pick a look for this divider", 12, false, kClkPad + 68, kClkPad + 44, ink, 0.78);
+    const double colW = (w - kStyleChipGap) / 2, top = kClkPad + kStyleHeadH + kClkGap;
+    static const char* const kIds[5] = {"line", "dot", "space", "slash", "backslash"};
+    static const char* const kLabels[5] = {"Line", "Dot", "Space", "/", "\\"};
+    for (int i = 0; i < 5; i++) {
+        const double cx = kClkPad + (i % 2) * (colW + kStyleChipGap), cy = top + (i / 2) * (kStyleChipH + kStyleChipGap);
+        const int id = ClkStyle + i;
+        const bool on = current == kIds[i], hot = X.hot(id);
+        X.hit(id, cx, cy, colW, kStyleChipH);
+        roundedRect(cr, cx, cy, colW, kStyleChipH, kStyleChipH / 2);
+        setSource(cr, app.color(on ? "primary" : hot ? "surface_container_highest" : "surface_container_high"));
+        cairo_fill(cr);
+        const Color tc = app.color(on ? "on_primary" : "on_surface");
+        if (on) drawIcon(cr, "check-circle", cx + 14, cy + (kStyleChipH - 22) / 2, 22, tc, true);
+        X.text(kLabels[i], 14, on, cx + (on ? 44 : 20), cy + kStyleChipH / 2, tc);
+    }
+    const double sy = top + 3 * (kStyleChipH + kStyleChipGap) + 4;
+    X.text("Spacing", 14, true, kClkPad + 8, sy + 10, app.color("on_surface"));
+    const std::string val = std::to_string(spacing) + " px";
+    const double vw = X.textRaw(val, 13, false);
+    X.text(val, 13, false, kClkPad + w - 8 - vw, sy + 10, app.color("on_surface_variant"));
+    const double tx = kClkPad + 8, tw = w - 16, ty = sy + 30;
+    X.hit(ClkDivSlider, tx - 6, ty - 8, tw + 12, 22);
+    roundedRect(cr, tx, ty - 2, tw, 4, 2);
+    setSource(cr, app.color("surface_container_highest"));
+    cairo_fill(cr);
+    const double fx = tx + tw * std::clamp(spacing, 0, 24) / 24.0;
+    roundedRect(cr, tx, ty - 2, fx - tx, 4, 2);
+    setSource(cr, app.color("primary"));
+    cairo_fill(cr);
+    cairo_arc(cr, fx, ty, X.hot(ClkDivSlider) || X.P.sliding ? 8 : 7, 0, 2 * M_PI);
+    setSource(cr, app.color("primary"));
+    cairo_fill(cr);
+}
+
 void clkStylePaint(ClkCtx& X) {
+    if (clkIsDividerPick(X.P)) { clkDividerPaint(X); return; }
     cairo_t* cr = X.cr;
     const App& app = X.app;
     const WidgetStyleSet* set = widgetStyleSet(X.P.styleMod);
@@ -1624,7 +1684,16 @@ void retractClockPanel(App& app) {
 void toggleStylePicker(App& app, Bar* bar, const std::string& mod) {
     ClockPanel& P = app.clockP;
     if (!widgetStyleSet(mod)) return;
-    if (groupActive(app.cfg) && !groupFreeWidget(app.cfg, mod) && mod != "workspaces" && mod != "resources" && mod != "visualizer" && mod != "notifications" && mod != "media") return;  // (in the group styles the cell gives the look; workspaces keep Dots / M3, resources all of theirs)
+    if (groupActive(app.cfg) && !groupSeparated(app.cfg) && !groupFreeWidget(app.cfg, mod) && mod != "workspaces" && mod != "resources" && mod != "visualizer" && mod != "notifications" && mod != "media") return;  // (in the group styles the cell gives the look; workspaces keep Dots / M3, resources all of theirs)
+    if (P.open() && (P.kind != 6 || P.styleMod != mod)) closeClockPanel(app);
+    if (!P.open()) { openClockPanel(app, bar, 6, 0, mod); return; }
+    if (P.phase >= 2) { P.phase = 1; P.from = P.reveal; P.animStart = std::chrono::steady_clock::now(); }
+    else retractClockPanel(app);
+}
+
+void toggleDividerPicker(App& app, Bar* bar, int n) {
+    ClockPanel& P = app.clockP;
+    const std::string mod = "divider#" + std::to_string(n);
     if (P.open() && (P.kind != 6 || P.styleMod != mod)) closeClockPanel(app);
     if (!P.open()) { openClockPanel(app, bar, 6, 0, mod); return; }
     if (P.phase >= 2) { P.phase = 1; P.from = P.reveal; P.animStart = std::chrono::steady_clock::now(); }
@@ -1703,8 +1772,19 @@ void clkShiftMonth(ClockPanel& P, int delta) {
     P.month = m;
 }
 
+// The spacing slider of the divider picker: the pointer (x in the card) is the value, from 0 to 24 px.
+void clkSetDividerSpacing(App& app, ClockPanel& P, double lx) {
+    const double w = kClkW - 2 * kClkPad, tx = kClkPad + 8, tw = w - 16;
+    const int v = std::clamp(static_cast<int>(std::lround((lx - tx) / tw * 24.0)), 0, 24);
+    const int n = clkDividerOf(P);
+    const DividerLook own = dividerLookOf(app.cfg.dividerLooks, n);
+    if (v == dividerSpacingOf(app.cfg, n)) return;
+    if (setConfig(app, "dividerLook", std::to_string(n) + " " + (own.style.empty() ? std::string("-") : own.style) + " " + std::to_string(v)).empty()) { applyConfig(app); drawAll(app); }
+}
+
 void clockPanelMotion(App& app) {
     ClockPanel& P = app.clockP;
+    if (P.sliding) { clkSetDividerSpacing(app, P, app.pointerX - P.originX); drawClockPanel(app); return; }
     const int h = clkHitAt(P, app.pointerX - P.originX, app.pointerY - P.originY);
     if (h == P.hover) return;
     P.hover = h;
@@ -1741,10 +1821,24 @@ void clockPanelClick(App& app) {
         P.wxRefreshing = true;
         P.wxReqAt = std::chrono::steady_clock::now();
     }
+    else if (clkIsDividerPick(P) && (id == ClkDivSlider || (id >= ClkStyle && id < ClkStyle + 5))) {
+        const int n = clkDividerOf(P);
+        const DividerLook own = dividerLookOf(app.cfg.dividerLooks, n);
+        static const char* const kIds[5] = {"line", "dot", "space", "slash", "backslash"};
+        std::string value;
+        if (id == ClkDivSlider) {
+            clkSetDividerSpacing(app, P, lx);
+            P.sliding = true;
+            drawClockPanel(app);
+            return;
+        }
+        value = std::to_string(n) + " " + kIds[id - ClkStyle] + " " + (own.spacing < 0 ? std::string("-") : std::to_string(own.spacing));
+        if (setConfig(app, "dividerLook", value).empty()) { applyConfig(app); drawAll(app); }
+    }
     else if (id >= ClkStyle && id < ClkStyle + 32) {
         const std::vector<WidgetStyleOption> choices = styleChoices(app, P.styleMod);
         const size_t i = static_cast<size_t>(id - ClkStyle);
-        if (i < choices.size() && setConfig(app, "widgetStyle", P.styleMod + "=" + choices[i].id).empty()) { applyConfig(app); drawAll(app); }
+        if (i < choices.size() && setConfig(app, groupSeparated(app.cfg) ? "groupLook" : "widgetStyle", P.styleMod + "=" + choices[i].id).empty()) { applyConfig(app); drawAll(app); }
     }
     else if (id >= ClkLayout && id < ClkLayout + 16) { kbdSwitch(app, id - ClkLayout); drawAll(app); }
     else if (id >= ClkLayoutRemove && id < ClkLayoutRemove + 16) { kbdRemove(app, id - ClkLayoutRemove); drawAll(app); }

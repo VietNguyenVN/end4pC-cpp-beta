@@ -378,7 +378,7 @@ std::vector<Page> makePages() {
         {Choice, "uiBackground", "UI background", "Themed follows the wallpaper colors. OLED turns the surfaces black.", {{"themed", "Themed"}, {"oled", "OLED"}}},
         {Choice, "uiBackground", "UI background", "Themed follows the wallpaper colors. White turns the main surfaces white.", {{"themed", "Themed"}, {"white", "White"}}},
         {Slider, "barOpacity", "Transparency", "How see-through the bar and the panels are. The blur behind them shows through.", {}, 0, 100, 5, "%"},
-        {Text, "fontFamily", "Font", "The font of the whole shell, like Google Sans Flex. Type the family name and press Enter; type - for the system default.", {}},
+        {Split, "fontFamily", "Font", "The font of the whole shell, like Google Sans Flex. Pick one of the installed fonts, or the system default.", {}},
         {Slider, "fontWeightText", "Text weight", "How heavy the normal text is, with a variable font like Google Sans Flex. 450 is the default.", {}, 300, 700, 10, ""},
         {Slider, "fontWeightTitle", "Title weight", "How heavy bold text and titles are. 550 is the default.", {}, 400, 900, 10, ""},
         {Action, "fontWeightReset", "Default weights", "Back to 450 for the text and 550 for the titles.", {}, 0, 100, 1, "Reset"},
@@ -401,9 +401,10 @@ std::vector<Page> makePages() {
         {Slider, "notchWidth", "Notch width", "How wide the Notch bar is, as a share of the screen. 0 makes it only as wide as its widgets need.", {}, 0, 100, 5, "%"},
         {Slider, "islandRounding", "Island rounding", "How round the corners of each island are, as a share of its height. 50 makes them fully round.", {}, 0, 50, 1, "%"},
         {Toggle, "dynamicIsland", "Dynamic island", "A small island in the middle of the bar that replaces the avatar, the clock and the media widget: the avatar and the time, or the cover and a visualizer while music plays. Island and Split hug bars only.", {}},
-        {Choice, "groupStyle", "Group style", "How the widgets sit on the bar. Free: each widget has its own look, as you set it in Widgets. The others put every widget on a cell of the bar (Pills: one chain per zone; Separated: a pill each; Transparent: no cells). Their widgets use a look without frame, and the look can not be changed from the popups of the bar.", {{"free", "Free"}, {"transparent", "Transparent"}, {"pills", "Pills"}, {"separated", "Separated"}}},
+        {Choice, "groupStyle", "Group style", "How the widgets sit on the bar. Free: each widget has its own look, as you set it in Widgets. The others put every widget on a cell of the bar (Pills: one chain per zone; Separated: a pill each; Transparent: no cells). Their widgets use a look without frame, and the look can not be changed from the popups of the bar, except in Separated: there you can pick any look from them.", {{"free", "Free"}, {"transparent", "Transparent"}, {"pills", "Pills"}, {"separated", "Separated"}}},
         {Swatch, "groupColor", "Group color", "The color of the cells.", {{"surface", "Layer 0"}, {"surface_container_low", "Layer 1"}, {"surface_container", "Layer 2"}, {"surface_container_high", "Surface container high"}, {"surface_container_highest", "Surface container highest"}, {"primary_container", "Primary container"}, {"secondary_container", "Secondary container"}, {"tertiary_container", "Tertiary container"}}},
         {Text, "groupColor", "Custom group color", "Or type your own color, like #1e1e2e, and press Enter. Type - for the default."},
+        {Action, "groupLooksReset", "Widget looks", "Back to the looks the Separated style gives the widgets, undoing the ones picked from their popups in the bar.", {}, 0, 100, 1, "Reset"},
         {Toggle, "islandClick", "Expand island on click", "The island opens when you click it instead of when the pointer rests on it.", {}},
         {Choice, "barScreens", "Bar on screens", "Which screens get the bar. The other ones keep their wallpaper but have no bar.", {}},
         {Toggle, "barShadow", "Bar shadow", "A soft shadow under the bar, in every style. With the bar background off, the widgets keep their own shadow.", {}},
@@ -452,8 +453,6 @@ std::vector<Page> makePages() {
         {Slider, "resWarnCpu", "CPU warning", "It turns red at this load.", {}, 50, 100, 5, "%"},
         {Slider, "resWarnMem", "RAM warning", "It turns red at this use.", {}, 50, 100, 5, "%"},
         {Slider, "resWarnSwap", "Swap warning", "It turns red at this use.", {}, 50, 100, 5, "%"},
-        {Choice, "dividerStyle", "Style", "A soft line that fades out at both ends, or a dot. Drag Divider from the Hidden tray as many times as you want.", {{"line", "Line"}, {"dot", "Dot"}}},
-        {Slider, "dividerSpacing", "Spacing", "The space between a divider and the widgets next to it. 0 by default.", {}, 0, 24, 1, "px"},
         {Toggle, "aiClaude", "Claude Code", "The tokens used in the current 5 hour window, as a percentage. It shows only while Claude Code has left data on this machine.", {}},
         {Toggle, "aiCodex", "Codex", "The usage limit Codex reports. It shows only while Codex has left data on this machine.", {}},
         {Slider, "aiTokenLimit", "Claude limit", "How many thousands of tokens count as 100 % of the window. Anthropic does not publish the number of your plan, so set the one you reach.", {}, 100, 5000, 100, "k"},
@@ -643,7 +642,7 @@ std::vector<Page> makePages() {
     for (auto& pg : p) {
         if (pg.name == "General") sections(pg, {{"language", "Language"}, {"preferredPlayer", "Apps"}, {"clock24", "Time"}, {"volumeMax", "Audio"}, {"batteryLow", "Battery"}});
         else if (pg.name == "Appearance") sections(pg, {{"colorMode", "Colors"}, {"fontFamily", "Font & Icons"}, {"theme", "Themes"}, {"presetSave", "Presets"}, {"templateKitty", "Templates"}});
-        else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"privacyAlways", "Privacy"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"dividerStyle", "Divider"}, {"aiClaude", "AI usage"}});
+        else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"privacyAlways", "Privacy"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"aiClaude", "AI usage"}});
         else if (pg.name == "Hyprland") sections(pg, {{"mon:map", "Displays"}, {"hypr:general:layout", "Layout"}, {"hypr:input:kb_layout", "Keyboard"}, {"hypr:input:sensitivity", "Mouse"}, {"hypr:input:touchpad:natural_scroll", "Touchpad"}, {"idle:lock", "Idle"}, {"hypr:decoration:rounding", "Look"}, {"borderColor", "Borders"}, {"hypr:animations:enabled", "Animations"}, {"hypr:general:resize_on_border", "Windows"}, {"hypr:misc:focus_on_activate", "Misc"}, {"rule:add", "Rules"}});
         else if (pg.name == "Niri") sections(pg, {{"niri:gaps", "Layout"}, {"niri:radius", "Windows"}, {"niri:follow", "Behavior"}, {"niri:repeatDelay", "Input"}, {"niriReset", "Reset"}});
         else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}, {"deskVizStyle", "Visualizer"}, {"customTextFont", "Text"}});
@@ -1337,6 +1336,15 @@ void loadSystem() {
                 r.opts.push_back({val, bar == std::string::npos ? sysPretty(r.key, val) : line.substr(bar + 1)});
             }
         }
+    for (auto& pg : g.pages)  // the font of the shell: the same installed fonts as the interface font, and the system default
+        for (auto& r : pg.rows) {
+            if (r.kind != Split || r.key != "fontFamily") continue;
+            r.opts = {{"-", "System default"}};
+            for (const std::string& line : sec["sys:font"]) {
+                const size_t bar = line.find('|');
+                r.opts.push_back({bar == std::string::npos ? line : line.substr(0, bar), bar == std::string::npos ? line : line.substr(bar + 1)});
+            }
+        }
     for (const char* name : {"get-appearance", "get-apps", "get-audio"})
         for (const std::string& l : sec[name]) {
             const size_t eq = l.find('=');
@@ -1507,6 +1515,17 @@ void openTranslation() {
 }
 
 bool edCenterLocked();
+// "Pending updates": the counts of the sources that are turned on (AUR and Flatpak are left out of the line when their switch is off).
+// g.val["updRaw"] keeps the three counts as the check left them ("<pacman> <aur> <flatpak>").
+void refreshUpdSummary() {
+    int a = 0, b = 0, c = 0;
+    if (!g.val.count("updRaw") || std::sscanf(g.val["updRaw"].c_str(), "%d %d %d", &a, &b, &c) != 3) { g.val["updSummary"] = "Not checked yet"; return; }
+    std::string s = std::to_string(a) + " pacman";
+    if (g.val["updatesAur"] == "1") s += " · " + std::to_string(b) + " AUR";
+    if (g.val["updatesFlatpak"] == "1") s += " · " + std::to_string(c) + " Flatpak";
+    g.val["updSummary"] = s;
+}
+
 void sendSet(const std::string& key, const std::string& value) {
     if (key.compare(0, 6, "quick:") == 0) {
         g.val[key] = value;
@@ -1527,6 +1546,7 @@ void sendSet(const std::string& key, const std::string& value) {
     if (isNiriKey(key)) { niriSend(key, value); g.dirty = true; return; }
     g.val[key] = value;
     ipc("set " + key + " " + (value.empty() ? "-" : value));
+    if (key == "updatesAur" || key == "updatesFlatpak") refreshUpdSummary();
     if ((key == "dynamicIsland" || key == "barStyle") && edCenterLocked()) g.lay[1].clear();
     if (key == "fontFamily" || key == "fontWeightText" || key == "fontWeightTitle") {  // live: this window changes at once, the shell gets the same setting
         const std::string fam = key == "fontFamily" ? (value == "-" ? "" : value) : (g.val["fontFamily"] == "-" ? "" : g.val["fontFamily"]);
@@ -2071,9 +2091,10 @@ std::string scriptPath(const char* name) { return assetsDir() + "/../scripts/" +
 void loadUpdates() {
     const std::string t = readFile(updatesPath());
     std::string a, b, c, when;
-    if (!jsonValue(t, "pacman", a) || !jsonValue(t, "aur", b) || !jsonValue(t, "flatpak", c)) { g.val["updSummary"] = "Not checked yet"; g.val["updTime"] = "0"; }
+    if (!jsonValue(t, "pacman", a) || !jsonValue(t, "aur", b) || !jsonValue(t, "flatpak", c)) { g.val.erase("updRaw"); refreshUpdSummary(); g.val["updTime"] = "0"; }
     else {
-        g.val["updSummary"] = a + " pacman · " + b + " AUR · " + c + " Flatpak";
+        g.val["updRaw"] = a + " " + b + " " + c;
+        refreshUpdSummary();
         jsonValue(t, "time", when);
         g.val["updTime"] = when.empty() ? "0" : when;
     }
@@ -2509,8 +2530,9 @@ cairo_surface_t* distroMask(int size) {
 
 std::string updatesText() {
     int a = 0, b = 0, c = 0;
-    if (!g.val.count("updSummary") || std::sscanf(g.val["updSummary"].c_str(), "%d pacman · %d AUR · %d Flatpak", &a, &b, &c) != 3) return "Not checked yet";
-    return a + b + c == 0 ? "Up to date" : std::to_string(a + b + c) + " pending";
+    if (!g.val.count("updRaw") || std::sscanf(g.val["updRaw"].c_str(), "%d %d %d", &a, &b, &c) != 3) return "Not checked yet";
+    const int total = a + (g.val["updatesAur"] == "1" ? b : 0) + (g.val["updatesFlatpak"] == "1" ? c : 0);  // (only the sources that are turned on)
+    return total == 0 ? "Up to date" : std::to_string(total) + " pending";
 }
 
 struct AboutTile { const char* icon; const char* label; std::string value; double bar; bool full; Rect r; };
@@ -2699,6 +2721,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "mon:enabled") return g_mons.size() > 1;
     if (r.key == "magnifier") return compositorName() == "Hyprland";
     if (r.key == "dockAutoHide" || r.key == "dockPin" || r.key == "dockMedia" || r.key == "dockLauncher" || r.key == "dockMagnify" || r.key == "dockIconSize" || r.key == "dockPinned") return g.val["dock"] == "1";
+    if (r.key == "groupLooksReset") return g.val["groupStyle"] == "separated" && (g.val["barPosition"] == "top" || g.val["barPosition"] == "bottom");
     if (r.key == "groupSpacing") return g.val["layoutFor"] != "v" && (g.val["groupStyle"] == "pills" || g.val["groupStyle"] == "separated");
     if (r.key == "barSpacing") return g.val["layoutFor"] != "v" && g.val["groupStyle"] != "pills" && g.val["groupStyle"] != "separated";  // (the cells set the gap)
     if (r.key == "sideBarSpacing") return g.val["layoutFor"] == "v";
@@ -2751,7 +2774,6 @@ bool rowAvailable(const Row& r) {
     }
     for (const char* k : {"resCpu", "resRam", "resTemp", "resDisk", "resSwap", "resValue", "resInterval", "resWarnCpu", "resWarnMem", "resWarnSwap"})
         if (r.key == k) return moduleUsed("resources");
-    if (r.key == "dividerStyle" || r.key == "dividerSpacing") return moduleUsed("divider");
     if (r.key == "aiClaude" || r.key == "aiCodex" || r.key == "aiTokenLimit") return moduleUsed("aiusage");
     return true;
 }
@@ -3323,6 +3345,7 @@ double maxScroll(const Layout& L) { return std::max(0.0, L.contentH - cardH()); 
 int valInt(const Row& r) { return g.val.count(r.key) ? std::atoi(g.val[r.key].c_str()) : r.min; }
 std::string valStr(const Row& r) {
     const std::string v = g.val.count(r.key) ? g.val[r.key] : "";
+    if (r.kind == Split && r.key == "fontFamily" && v.empty()) return "-";  // (no font chosen: the system default)
     return r.kind == Text && r.key == "groupColor" && (v.empty() || v[0] != '#') ? "" : v;  // (the text field only shows a color of your own)
 }
 
@@ -3338,6 +3361,38 @@ void roundedRectCornersS(cairo_t* cr, double x, double y, double w, double h, do
 }
 
 Elastic g_scrollEl, g_searchEl;  // the rubber band at the ends of a page / of the search results (g.scroll stays the real position)
+
+// A dropdown list with more than kSplitSearchMin options gets a search field at its top (M3: a text field inside the menu).
+constexpr size_t kSplitSearchMin = 20;
+constexpr double kSplitSearchH = 56;
+std::string g_splitQuery;
+size_t g_splitCaret = 0, g_splitAnchor = 0;
+int g_splitSel = 0;  // the highlighted match when the arrows are used
+bool g_splitKb = false;
+std::string lowerAscii(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+std::vector<size_t> splitMatches(const Row& r) {
+    std::vector<size_t> out;
+    const std::string q = lowerAscii(g_splitQuery);
+    for (size_t i = 0; i < r.opts.size(); i++)
+        if (q.empty() || lowerAscii(r.opts[i].second).find(q) != std::string::npos) out.push_back(i);
+    return out;
+}
+const Row* splitRowOpen() {
+    if (g_splitOpen.empty()) return nullptr;
+    for (const auto& pg : g.pages)
+        for (const auto& r : pg.rows)
+            if (r.kind == Split && r.key == g_splitOpen) return &r;
+    return nullptr;
+}
+void splitOpenReset() {
+    g_splitQuery.clear();
+    g_splitCaret = g_splitAnchor = 0;
+    g_splitSel = 0;
+    g_splitKb = false;
+}
 
 void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
     const Page& pg = g.pages[pi];
@@ -4078,10 +4133,13 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
             const RowLayout& rl = L.rows[i];
             const double oy = -scroll;
             const Rect bt = {rl.chips[0].x, rl.chips[0].y + oy, rl.chips[0].w, 40};
-            const double itemH = 48, fullH = r.opts.size() * itemH + 16;
+            const bool searchable = r.opts.size() > kSplitSearchMin;
+            const std::vector<size_t> shownOpts = searchable ? splitMatches(r) : std::vector<size_t>{};
+            const size_t nShown = searchable ? shownOpts.size() : r.opts.size();
+            const double itemH = 48, headH = searchable ? kSplitSearchH : 0, fullH = headH + std::max<size_t>(nShown, searchable ? 1 : 0) * itemH + 16;
             const double below = cardH() - (bt.y + bt.h + 6) - 12, above = bt.y - 6 - 12;
             const bool down = below >= std::min(fullH, 180.0) || below >= above;
-            const double h = std::min({fullH, 320.0, std::max(80.0, down ? below : above)});
+            const double h = std::min({fullH, searchable ? 380.0 : 320.0, std::max(80.0, down ? below : above)});
             const double ly = down ? bt.y + bt.h + 6 : bt.y - 6 - h;
             g_splitScroll = std::clamp(g_splitScroll, 0.0, std::max(0.0, fullH - h));
             const double e = 1 - std::pow(1 - g_splitT, 3), sc = 0.85 + 0.15 * e;
@@ -4104,14 +4162,20 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
             const std::string cur = valStr(r);
             const Color tonal = g.color("secondary_container"), onTonal = g.color("on_secondary_container");
             if (live) g.hits.push_back({{bt.x, ly - oy, bt.w, h}, static_cast<int>(i), -3, Split});
-            for (size_t o = 0; o < r.opts.size(); o++) {
-                const double iy = ly + 8 + o * itemH - g_splitScroll;
-                if (iy + itemH < ly || iy > ly + h) continue;
+            if (searchable && shownOpts.empty()) {
+                double nw = 0, nh = 0;
+                measure("No results", 14, false, 0, nw, nh);
+                text(cr, "No results", bt.x + (bt.w - nw) / 2, ly + headH + 8 + (itemH - nh) / 2, 14, false, g.color("on_surface_variant"));
+            }
+            for (size_t mi = 0; mi < nShown; mi++) {
+                const size_t o = searchable ? shownOpts[mi] : mi;
+                const double iy = ly + headH + 8 + mi * itemH - g_splitScroll;
+                if (iy + itemH < ly + headH || iy > ly + h) continue;
                 const bool active = r.opts[o].first == cur;
-                bool hot = false;
-                if (live && iy >= ly - 1 && iy + itemH <= ly + h + 1) {
+                bool hot = searchable && g_splitKb && static_cast<int>(mi) == g_splitSel;
+                if (live && iy >= ly + headH - 1 && iy + itemH <= ly + h + 1) {
                     g.hits.push_back({{bt.x, iy - oy, bt.w, itemH}, static_cast<int>(i), static_cast<int>(o), Split});
-                    hot = g.hoverHit == static_cast<int>(g.hits.size()) - 1;
+                    if (g.hoverHit == static_cast<int>(g.hits.size()) - 1) hot = true;
                 }
                 if (active) { cairo_rectangle(cr, bt.x, iy, bt.w, itemH); src(cr, tonal); cairo_fill(cr); }
                 if (hot) { cairo_rectangle(cr, bt.x, iy, bt.w, itemH); src(cr, active ? onTonal : onSurface, 0.08); cairo_fill(cr); }
@@ -4119,6 +4183,28 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
                 measure(r.opts[o].second, 16, false, 0, lw, lh);
                 text(cr, r.opts[o].second, bt.x + 12, iy + (itemH - lh) / 2, 16, false, active ? onTonal : onSurface, bt.w - 12 - (active ? 48 : 24));
                 if (active) icon(cr, "check-circle", bt.x + bt.w - 36, iy + (itemH - 20) / 2, 20, onTonal, true);
+            }
+            if (searchable) {  // the search field: it stays at the top while the list scrolls under it
+                cairo_rectangle(cr, bt.x, ly, bt.w, headH);
+                src(cr, g.color("surface_container"));
+                cairo_fill(cr);
+                const Rect sf = {bt.x + 8, ly + 8, bt.w - 16, 40};
+                rrect(cr, sf.x, sf.y, sf.w, sf.h, 20);
+                src(cr, g.color("surface_container_highest"));
+                cairo_fill(cr);
+                icon(cr, "magnifer", sf.x + 14, sf.y + 11, 18, g.color("on_surface_variant"));
+                const double tx = sf.x + 42, maxW = sf.w - 42 - 14;
+                if (g_splitQuery.empty()) text(cr, "Search", tx, sf.y + 11, 15, false, g.color("on_surface_variant"), maxW, 0.8);
+                else {
+                    text(cr, g_splitQuery, tx, sf.y + 11, 15, false, onSurface, maxW);
+                    double qw = 0, qh = 0;
+                    measure(g_splitQuery.substr(0, g_splitCaret), 15, false, 0, qw, qh);
+                    cairo_rectangle(cr, tx + std::min(qw, maxW), sf.y + 10, 1.5, 20);
+                    src(cr, g.color("primary"));
+                    cairo_fill(cr);
+                }
+                if (g_splitQuery.empty()) { cairo_rectangle(cr, tx - 1, sf.y + 10, 1.5, 20); src(cr, g.color("primary")); cairo_fill(cr); }
+                if (live) g.hits.push_back({{sf.x, sf.y - oy, sf.w, sf.h}, static_cast<int>(i), -3, Split});
             }
             cairo_restore(cr);
             if (fullH > h) {
@@ -5191,11 +5277,12 @@ void click() {
     }
     if (h.kind == Split) {
         commitText();
+        if (g.pages[g.page].rows[h.row].key == "fontFamily") loadSystem();  // (the list of installed fonts comes with the system bundle)
         const Row& sr = g.pages[g.page].rows[h.row];
         if (h.opt == -3) return;
         if (h.opt < 0) {
             if (g_splitOpen == sr.key) g_splitOpen.clear();
-            else { g_splitOpen = sr.key; g_splitT = 0; g_splitStart = Clock::now(); g_splitScroll = 0; }
+            else { g_splitOpen = sr.key; g_splitT = 0; g_splitStart = Clock::now(); g_splitScroll = 0; splitOpenReset(); g.caretReset = Clock::now(); }
         } else { if (h.opt < static_cast<int>(sr.opts.size())) sendSet(sr.key, sr.opts[h.opt].first); g_splitOpen.clear(); }
         g.hoverHit = -1;
         g.dirty = true;
@@ -5220,6 +5307,7 @@ void click() {
     else if (h.kind == Slider) { g.dragHit = g.hoverHit; setSliderFrom(g.dragHit, false); }
     else if (h.kind == Action) {
         if (r.key == "avatarReset") sendSet("avatarPicture", "");
+        if (r.key == "groupLooksReset") sendSet("groupLooks", "-");
         if (r.key == "fontWeightReset") { sendSet("fontWeightText", "450"); sendSet("fontWeightTitle", "550"); }
         else if (r.key == "langTemplate") openTranslation();
         else if (r.key == "collageReset") resetCollage();
@@ -5348,11 +5436,34 @@ bool searchKey(xkb_keysym_t sym, uint32_t key, bool ctrl) {
     return repeat;
 }
 
+bool splitKey(const Row& r, xkb_keysym_t sym, uint32_t key, bool ctrl) {
+    g.caretReset = Clock::now();
+    g.dirty = true;
+    const std::vector<size_t> found = splitMatches(r);
+    const int last = static_cast<int>(found.size()) - 1;
+    if (sym == XKB_KEY_Return || sym == XKB_KEY_KP_Enter) {
+        if (!found.empty()) { sendSet(r.key, r.opts[found[std::clamp(g_splitSel, 0, last)]].first); g_splitOpen.clear(); g.hoverHit = -1; }
+        return false;
+    }
+    const auto move = [&](int d) { g_splitKb = true; g_splitSel = std::clamp(g_splitSel + d, 0, std::max(0, last)); g_splitScroll = std::max(0.0, (g_splitSel + 1) * 48.0 - 200.0); };
+    if (sym == XKB_KEY_Down || sym == XKB_KEY_KP_Down) { move(1); return true; }
+    if (sym == XKB_KEY_Up || sym == XKB_KEY_KP_Up) { move(-1); return true; }
+    const std::string before = g_splitQuery;
+    const bool repeat = editKey(g_splitQuery, g_splitCaret, g_splitAnchor, sym, key, ctrl);
+    if (g_splitQuery != before) { g_splitSel = 0; g_splitKb = false; g_splitScroll = 0; }
+    return repeat;
+}
+
 bool handleKey(uint32_t key) {
     if (!g.xkbState) return false;
     const xkb_keysym_t sym = xkb_state_key_get_one_sym(g.xkbState, key + 8);
     const bool ctrl = xkb_state_mod_name_is_active(g.xkbState, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0;
     if (ctrl && (sym == XKB_KEY_w || sym == XKB_KEY_q)) { g.running = false; return false; }
+    if (!g_splitOpen.empty()) {  // an open dropdown: Esc closes it, and a long one has a search field that takes the typing
+        if (sym == XKB_KEY_Escape) { g_splitOpen.clear(); g.dirty = true; return false; }
+        const Row* sr = splitRowOpen();
+        if (sr && sr->opts.size() > kSplitSearchMin) return splitKey(*sr, sym, key, ctrl);
+    }
     if (g.searchOpen) return searchKey(sym, key, ctrl);
     if (g.focusRow < 0) {  // typing, with nothing in focus, starts a search
         const xkb_keysym_t lowSym = xkb_keysym_to_lower(sym);

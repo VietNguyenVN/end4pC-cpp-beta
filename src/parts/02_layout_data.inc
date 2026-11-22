@@ -130,7 +130,19 @@ bool inBarLayout(const App& app, const char* m) {
         if (std::find(l->begin(), l->end(), m) != l->end()) return true;
     return false;
 }
-bool isDivider(const std::string& m) { return m == "divider"; }
+// A divider of the bar is "divider#<n>" once the layout knows its order (n = 0, 1, 2... from the left of the bar); the plain "divider" is the module.
+bool isDivider(const std::string& m) { return m == "divider" || m.rfind("divider#", 0) == 0; }
+int dividerIndex(const std::string& m) { return m.rfind("divider#", 0) == 0 ? std::atoi(m.c_str() + 8) : -1; }
+std::string dividerStyleOf(const Config& c, int n) { const DividerLook d = n < 0 ? DividerLook{} : dividerLookOf(c.dividerLooks, n); return d.style.empty() ? c.dividerStyle : d.style; }
+int dividerSpacingOf(const Config& c, int n) { const DividerLook d = n < 0 ? DividerLook{} : dividerLookOf(c.dividerLooks, n); return d.spacing >= 0 ? d.spacing : c.dividerSpacing; }
+// The modules of a zone with their dividers numbered (n goes on from one zone to the next, in the order they show on the bar).
+std::vector<std::string> numberDividers(const std::vector<std::string>& mods, int& n) {
+    std::vector<std::string> out = mods;
+    for (std::string& m : out) if (m == "divider") m = "divider#" + std::to_string(n++);
+    return out;
+}
+// How wide a divider is in the bar: a line, a dot, or an empty space.
+int dividerWidth(const std::string& style) { return style == "dot" ? 6 : style == "space" ? 8 : style == "slash" || style == "backslash" ? 10 : 2; }
 bool repeatable(const std::string& m) { return m == "divider" || m == "visualizer"; }
 std::vector<int> aiShown(const App& app) {
     std::vector<int> v;
@@ -278,7 +290,7 @@ double moduleWidth(const App& app, const std::string& m) {
     if (m == "updates") return updatesShown(app) ? updatesBarW(app) : 0;
     if (m == "activewindow") return awinBarW(app);
     if (m == "keyboard") return app.kbd.list.empty() ? 0 : kbdBarW(app);
-    if (isDivider(m)) return app.cfg.dividerStyle == "dot" ? 6 : 2;
+    if (isDivider(m)) return dividerWidth(dividerStyleOf(app.cfg, dividerIndex(m)));
     if (m == "visualizer") return kVizBars * (kVizDot + kVizGap) + (!sideBar(app) && widgetStyle(app, "visualizer") == "m3" ? 2 * kVizM3Pad : 0);
     if (m == "battery") return app.batPresent || lowPeripheral(app) ? batteryW(app) : 0;
     return 0;
@@ -298,7 +310,7 @@ double cellInsetL(const App& app, const std::string& m) { return m == "network" 
 
 // The gap between two widgets keeps the visible space between their shapes: a cell reaches kGroupPad beyond the widget on each side.
 double moduleGap(const App& app, const std::string& a, const std::string& b) {
-    const double base = isDivider(a) || isDivider(b) ? app.cfg.dividerSpacing : app.cfg.barSpacing;
+    const double base = isDivider(a) || isDivider(b) ? std::max(isDivider(a) ? dividerSpacingOf(app.cfg, dividerIndex(a)) : 0, isDivider(b) ? dividerSpacingOf(app.cfg, dividerIndex(b)) : 0) : app.cfg.barSpacing;
     if (!groupHasCells(app.cfg)) return base;
     const bool ca = hasGroupCell(app.cfg, a), cb = hasGroupCell(app.cfg, b);
     const double pads = (ca ? kGroupPad : 0) + (cb ? kGroupPad : 0);
@@ -332,6 +344,7 @@ void groupCells(const App& app, Bar& bar, const std::vector<std::string>& mods, 
         if (hasGroupCell(app.cfg, mods[i])) {
             if (!open) { runStart = bar.groups.size(); open = true; }
             bar.groups.push_back({std::max(0.0, x - kGroupPad), std::min<double>(bar.width, x + w + kGroupPad), full, full});
+            bar.groups.back().hidden = groupCellHidden(app.cfg, mods[i]);
         } else if (open) close();
         x += w + (i + 1 < mods.size() ? moduleGap(app, mods[i], mods[i + 1]) : 0);
     }
@@ -377,8 +390,10 @@ void layoutBar(Bar& bar) {
         return w;
     };
 
+    int dividerN = 0;
+    const auto numL = numberDividers(app.cfg.layoutLeft, dividerN), numC = numberDividers(app.cfg.barStyle == "notch" && !sideBar(app) ? app.cfg.layoutCenter : centerModules(app), dividerN), numR = numberDividers(app.cfg.layoutRight, dividerN);
     if (app.cfg.barStyle == "split" && !sideBar(app)) {
-        const auto l = live(app.cfg.layoutLeft), c = live(centerModules(app)), r = live(app.cfg.layoutRight);
+        const auto l = live(numL), c = live(numC), r = live(numR);
         const double sl = span(l), sc = span(c), sr = span(r);
         bar.segs.clear();
         if (sl > 0) { bar.segs.push_back({0, kEdgePad + sl + bodyPad(app)}); flow(l, kEdgePad); }
@@ -387,7 +402,7 @@ void layoutBar(Bar& bar) {
         return;
     }
     if (app.cfg.barStyle == "notch" && !sideBar(app)) {
-        const auto l = live(app.cfg.layoutLeft), c = live(app.cfg.layoutCenter), r = live(app.cfg.layoutRight);
+        const auto l = live(numL), c = live(numC), r = live(numR);
         const double sl = span(l), sc = span(c), sr = span(r);
         int groups = 0;
         for (double v : {sl, sc, sr}) groups += v > 0;
@@ -402,12 +417,12 @@ void layoutBar(Bar& bar) {
         flow(c, wide > natural ? std::clamp((W - sc) / 2.0, lo, std::max(lo, hi)) : lo);
         return;
     }
-    const auto left = live(app.cfg.layoutLeft);
+    const auto left = live(numL);
     flow(left, left.empty() ? kEdgePad : edgePad(app, left.front()));
-    const auto right = live(app.cfg.layoutRight);
+    const auto right = live(numR);
     flow(right, W - (right.empty() ? kEdgePad : edgePad(app, right.back())) - span(right));
 
-    const auto center = live(centerModules(app));
+    const auto center = live(numC);
     flow(center, (W - span(center)) / 2.0);
 }
 
@@ -515,6 +530,12 @@ Hit hitTest(const Bar& bar, double x, double y) {
             const double wx = wsXOf(bar, id);
             if (x >= wx - wsGap(app) / 2 && x < wx + wsWidth(app, id) + wsGap(app) / 2) return kHitWs + id;
         }
+    for (int k = 0; k < 32; k++) {  // (last: a divider is thin, and what is next to it wins)
+        const std::string dv = "divider#" + std::to_string(k);
+        if (!hasSlot(bar, dv.c_str())) break;
+        const double dx = slotX(bar, dv.c_str()), dw = moduleWidth(app, dv);
+        if (x >= dx - 4 && x < dx + dw + 4) return kHitDiv + k;
+    }
     return HitNone;
 }
 

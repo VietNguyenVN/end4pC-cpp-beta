@@ -201,6 +201,24 @@ Config sanitized(Config c) {
     if (!validModuleList(c.groupFree)) c.groupFree = "island";
     if (c.islandView != "media" && c.islandView != "clock") c.islandView = "media";
     c.dividerSpacing = std::clamp(c.dividerSpacing, 0, 24);
+    {  // the looks picked in the Separated group style: only widgets and looks that exist are kept
+        std::string clean;
+        size_t at = 0;
+        while (at < c.groupLooks.size()) {
+            size_t end = c.groupLooks.find(',', at);
+            if (end == std::string::npos) end = c.groupLooks.size();
+            const std::string item = c.groupLooks.substr(at, end - at);
+            const size_t eq = item.find('=');
+            if (eq != std::string::npos && validWidgetStyle(item.substr(0, eq), item.substr(eq + 1))) clean += (clean.empty() ? "" : ",") + item;
+            at = end + 1;
+        }
+        c.groupLooks = clean;
+    }
+    {  // the looks of single dividers: only well-formed entries are kept
+        std::string clean;
+        for (int n = 0; n < 32; n++) clean = dividerLooksWith(clean, n, dividerLookOf(c.dividerLooks, n));
+        c.dividerLooks = clean;
+    }
     if (c.workspaceNumbers != "normal" && c.workspaceNumbers != "roman" && c.workspaceNumbers != "han") c.workspaceNumbers = "normal";
     c.sideBarSpacing = std::clamp(c.sideBarSpacing, 0, 24);
     c.animSpeed = std::clamp(c.animSpeed, 50, 200);
@@ -362,7 +380,7 @@ Config sanitized(Config c) {
     if (c.clockDaily != "badge" && c.clockDaily != "morning" && c.clockDaily != "script" && c.clockDaily != "bold") c.clockDaily = "badge";
     if (c.clockPixel != "horizontal" && c.clockPixel != "vertical") c.clockPixel = "horizontal";
     if (!validWidgetStyle("resources", c.resStyle)) c.resStyle = "filled";
-    if (c.dividerStyle != "line" && c.dividerStyle != "dot") c.dividerStyle = "line";
+    if (c.dividerStyle != "line" && c.dividerStyle != "dot" && c.dividerStyle != "space" && c.dividerStyle != "slash" && c.dividerStyle != "backslash") c.dividerStyle = "line";
     c.aiClaude = c.aiClaude ? 1 : 0;
     c.aiCodex = c.aiCodex ? 1 : 0;
     c.aiTokenLimit = std::clamp(c.aiTokenLimit, 50, 20000);
@@ -609,6 +627,8 @@ bool loadConfig(App& app) {
         readIntKey(t, "resWarnCpu", next.resWarnCpu);
         readStringKey(t, "resStyle", next.resStyle);
         readStringKey(t, "dividerStyle", next.dividerStyle);
+        readStringKey(t, "dividerLooks", next.dividerLooks);
+        readStringKey(t, "groupLooks", next.groupLooks);
         readIntKey(t, "aiClaude", next.aiClaude);
         readIntKey(t, "aiCodex", next.aiCodex);
         readIntKey(t, "aiTokenLimit", next.aiTokenLimit);
@@ -643,7 +663,7 @@ bool loadConfig(App& app) {
     }
     next = sanitized(next);
     const bool changed = deskVizChanged(next, app.cfg) || hotCornerChanged(next, app.cfg) || deskTextChanged(next, app.cfg) || next.iconScale != app.cfg.iconScale || next.overviewLive != app.cfg.overviewLive || next.overviewLauncher != app.cfg.overviewLauncher || next.switcherStyle != app.cfg.switcherStyle || next.overviewIcon != app.cfg.overviewIcon || next.overviewPosition != app.cfg.overviewPosition || next.privacyAlways != app.cfg.privacyAlways || next.privacyMic != app.cfg.privacyMic || next.privacyCam != app.cfg.privacyCam || next.privacyScreen != app.cfg.privacyScreen || next.fontWeightText != app.cfg.fontWeightText || next.fontWeightTitle != app.cfg.fontWeightTitle || next.launcherFiles != app.cfg.launcherFiles || next.islandView != app.cfg.islandView || next.dynamicIsland != app.cfg.dynamicIsland || next.islandClick != app.cfg.islandClick || next.groupStyle != app.cfg.groupStyle || next.lockAnimation != app.cfg.lockAnimation || next.groupSpacing != app.cfg.groupSpacing || next.groupColor != app.cfg.groupColor || next.groupFree != app.cfg.groupFree || next.barShadow != app.cfg.barShadow || next.dividerSpacing != app.cfg.dividerSpacing || next.workspaceNumbers != app.cfg.workspaceNumbers || next.barSpacing != app.cfg.barSpacing || next.sideBarSpacing != app.cfg.sideBarSpacing || next.animEnabled != app.cfg.animEnabled || next.animSpeed != app.cfg.animSpeed || next.animStyle != app.cfg.animStyle || next.collageBlur != app.cfg.collageBlur || next.osdPosition != app.cfg.osdPosition || next.osdTimeout != app.cfg.osdTimeout || next.barScreens != app.cfg.barScreens || next.widgetScreen != app.cfg.widgetScreen || next.customImagePath != app.cfg.customImagePath || next.clockStyle != app.cfg.clockStyle || next.theme != app.cfg.theme || next.quickActions != app.cfg.quickActions || cookieChanged(next, app.cfg) || next.themePrimary != app.cfg.themePrimary || next.themeSecondary != app.cfg.themeSecondary || next.themeTertiary != app.cfg.themeTertiary || next.clockDaily != app.cfg.clockDaily || next.clockPixel != app.cfg.clockPixel || next.cornerTL != app.cfg.cornerTL || next.cornerTR != app.cfg.cornerTR || next.cornerBL != app.cfg.cornerBL || next.cornerBR != app.cfg.cornerBR || next.widgetsLocked != app.cfg.widgetsLocked || next.widgetShadow != app.cfg.widgetShadow || next.widgetGap != app.cfg.widgetGap || next.calendarMonday != app.cfg.calendarMonday || next.resCpu != app.cfg.resCpu || next.resRam != app.cfg.resRam || next.resTemp != app.cfg.resTemp || next.resDisk != app.cfg.resDisk || next.resSwap != app.cfg.resSwap || next.resValue != app.cfg.resValue || next.resInterval != app.cfg.resInterval || next.resWarnMem != app.cfg.resWarnMem || next.resWarnSwap != app.cfg.resWarnSwap || next.resWarnCpu != app.cfg.resWarnCpu || next.resStyle != app.cfg.resStyle || next.dividerStyle != app.cfg.dividerStyle || next.aiClaude != app.cfg.aiClaude || next.aiCodex != app.cfg.aiCodex || next.aiTokenLimit != app.cfg.aiTokenLimit || next.trayPinDefault != app.cfg.trayPinDefault || next.trayTint != app.cfg.trayTint || next.trayExceptions != app.cfg.trayExceptions || next.notificationPosition != app.cfg.notificationPosition || next.clock24 != app.cfg.clock24 || next.clockDate != app.cfg.clockDate || next.workspaceApps != app.cfg.workspaceApps || next.barClock != app.cfg.barClock || next.widgetStyles != app.cfg.widgetStyles || next.batteryPercent != app.cfg.batteryPercent || next.templateKitty != app.cfg.templateKitty || next.templateGtk != app.cfg.templateGtk || next.templateKde != app.cfg.templateKde || next.fontFamily != app.cfg.fontFamily || next.islandRounding != app.cfg.islandRounding || next.sideWidgetStyles != app.cfg.sideWidgetStyles || next.language != app.cfg.language || next.volumeMax != app.cfg.volumeMax || next.volumeStep != app.cfg.volumeStep || next.batteryLow != app.cfg.batteryLow || next.batteryCritical != app.cfg.batteryCritical || next.batteryNotify != app.cfg.batteryNotify || next.weatherInterval != app.cfg.weatherInterval || next.borderColor != app.cfg.borderColor || next.borderActive != app.cfg.borderActive || next.borderInactive != app.cfg.borderInactive || next.borderActiveOpacity != app.cfg.borderActiveOpacity || next.borderInactiveOpacity != app.cfg.borderInactiveOpacity || next.barBackground != app.cfg.barBackground || next.systray != app.cfg.systray || next.peripheralNotify != app.cfg.peripheralNotify || next.peripheralLow != app.cfg.peripheralLow || next.peripheralCritical != app.cfg.peripheralCritical || next.workspaces != app.cfg.workspaces || next.weatherTheme != app.cfg.weatherTheme || next.iconStyle != app.cfg.iconStyle || next.materialIcons != app.cfg.materialIcons || next.uiBackground != app.cfg.uiBackground || next.dock != app.cfg.dock || next.dockPinned != app.cfg.dockPinned || next.dockIconSize != app.cfg.dockIconSize || next.dockMagnify != app.cfg.dockMagnify || next.dockMagnification != app.cfg.dockMagnification || next.dockAutoHide != app.cfg.dockAutoHide || next.dockPin != app.cfg.dockPin || next.dockMedia != app.cfg.dockMedia || next.dockLauncher != app.cfg.dockLauncher || next.dockHug != app.cfg.dockHug || next.dockRounding != app.cfg.dockRounding || next.dockSpacing != app.cfg.dockSpacing || next.dockBorder != app.cfg.dockBorder || next.dockBorderColor != app.cfg.dockBorderColor || next.dockPosition != app.cfg.dockPosition || next.dockScreen != app.cfg.dockScreen || next.keepAwake != app.cfg.keepAwake || next.avatarPicture != app.cfg.avatarPicture || next.accent != app.cfg.accent || next.avatarPath != app.cfg.avatarPath || next.frame != app.cfg.frame || next.notificationTimeout != app.cfg.notificationTimeout || next.notificationAppIcons != app.cfg.notificationAppIcons || next.conflictCheck != app.cfg.conflictCheck || next.doNotDisturb != app.cfg.doNotDisturb || next.hotCorners != app.cfg.hotCorners || next.updatesEnable != app.cfg.updatesEnable || next.updatesAur != app.cfg.updatesAur || next.updatesFlatpak != app.cfg.updatesFlatpak || next.updatesInterval != app.cfg.updatesInterval || next.updatesMinShow != app.cfg.updatesMinShow || next.barOpacity != app.cfg.barOpacity || next.notchWidth != app.cfg.notchWidth || next.fakeRounding != app.cfg.fakeRounding || next.unlockKeyring != app.cfg.unlockKeyring || next.barFollowsFrame != app.cfg.barFollowsFrame || next.frameColor != app.cfg.frameColor || next.lockOnStart != app.cfg.lockOnStart || next.fakeRoundingSize != app.cfg.fakeRoundingSize || next.centeredWallpaper != app.cfg.centeredWallpaper || next.centeredWallpaperSize != app.cfg.centeredWallpaperSize || next.centeredWallpaperShape != app.cfg.centeredWallpaperShape || next.centeredWallpaperColor != app.cfg.centeredWallpaperColor || next.collage != app.cfg.collage || next.collageGap != app.cfg.collageGap || next.collageMargin != app.cfg.collageMargin || next.collageRadius != app.cfg.collageRadius || next.collagePrimary != app.cfg.collagePrimary || next.collageTree != app.cfg.collageTree || next.networkAlways != app.cfg.networkAlways || next.networkSpeed != app.cfg.networkSpeed || next.screenshotCopy != app.cfg.screenshotCopy || next.recordAudio != app.cfg.recordAudio || next.recordDesktop != app.cfg.recordDesktop || next.recordFps != app.cfg.recordFps || next.screenshotDir != app.cfg.screenshotDir || next.recordDir != app.cfg.recordDir || next.barPosition != app.cfg.barPosition || next.barStyle != app.cfg.barStyle || next.workspaceStyle != app.cfg.workspaceStyle || next.colorScheme != app.cfg.colorScheme ||
-                         next.colorMode != app.cfg.colorMode || next.wallpaperDir != app.cfg.wallpaperDir || next.selectorFolders != app.cfg.selectorFolders || next.wallpaperTransition != app.cfg.wallpaperTransition ||
+                         next.colorMode != app.cfg.colorMode || next.wallpaperDir != app.cfg.wallpaperDir || next.dividerLooks != app.cfg.dividerLooks || next.groupLooks != app.cfg.groupLooks || next.selectorFolders != app.cfg.selectorFolders || next.wallpaperTransition != app.cfg.wallpaperTransition ||
                          next.wallpaperTransitionMs != app.cfg.wallpaperTransitionMs || next.wallpaperAuto != app.cfg.wallpaperAuto || next.wallpaperAutoFavs != app.cfg.wallpaperAutoFavs || next.wallpaperAutoMin != app.cfg.wallpaperAutoMin || next.selectorShape != app.cfg.selectorShape || next.notificationShape != app.cfg.notificationShape || next.preferredPlayer != app.cfg.preferredPlayer || next.terminal != app.cfg.terminal || next.worldClocks != app.cfg.worldClocks || next.searchEngine != app.cfg.searchEngine || next.weatherCity != app.cfg.weatherCity || next.weatherUnit != app.cfg.weatherUnit || next.lyricsProvider != app.cfg.lyricsProvider || !std::equal(next.prefixes, next.prefixes + kPrefixCount, app.cfg.prefixes) ||
                          next.sideLeft != app.cfg.sideLeft || next.sideCenter != app.cfg.sideCenter || next.sideRight != app.cfg.sideRight || next.layoutLeft != app.cfg.layoutLeft || next.layoutCenter != app.cfg.layoutCenter || next.layoutRight != app.cfg.layoutRight;
     app.cfg = next;
@@ -804,6 +824,8 @@ void saveConfig(const App& app) {
           << "  \"resWarnCpu\": " << app.cfg.resWarnCpu << ",\n"
           << "  \"resStyle\": \"" << app.cfg.resStyle << "\",\n"
           << "  \"dividerStyle\": \"" << app.cfg.dividerStyle << "\",\n"
+          << "  \"dividerLooks\": \"" << app.cfg.dividerLooks << "\",\n"
+          << "  \"groupLooks\": \"" << app.cfg.groupLooks << "\",\n"
           << "  \"aiClaude\": " << app.cfg.aiClaude << ",\n"
           << "  \"aiCodex\": " << app.cfg.aiCodex << ",\n"
           << "  \"aiTokenLimit\": " << app.cfg.aiTokenLimit << ",\n"
@@ -1118,8 +1140,19 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
     } else if (key == "overviewIcon") {
         if (value != "left" && value != "center" && value != "right") return "value must be left, center or right";
         next.overviewIcon = value;
+    } else if (key == "dividerLook") {  // <n> <style|-> <spacing|->: one divider's own look
+        int n = -1;
+        char st[16] = {0}, sp[16] = {0};
+        if (std::sscanf(value.c_str(), "%d %15s %15s", &n, st, sp) != 3 || n < 0 || n >= 32) return "value must be: <number 0-31> <line|dot|space|slash|backslash|-> <spacing 0-24|->";
+        const std::string style = st, spacing = sp;
+        if (style != "-" && style != "line" && style != "dot" && style != "space" && style != "slash" && style != "backslash") return "the style must be line, dot, space, slash, backslash or -";
+        if (spacing != "-" && (spacing.find_first_not_of("0123456789") != std::string::npos || std::atoi(spacing.c_str()) > 24)) return "the spacing must be 0 to 24 or -";
+        DividerLook d;
+        if (style != "-") d.style = style;
+        if (spacing != "-") d.spacing = std::atoi(spacing.c_str());
+        next.dividerLooks = dividerLooksWith(next.dividerLooks, n, d);
     } else if (key == "dividerStyle") {
-        if (value != "line" && value != "dot") return "value must be line or dot";
+        if (value != "line" && value != "dot" && value != "space" && value != "slash" && value != "backslash") return "value must be line, dot, space, slash or backslash";
         next.dividerStyle = value;
     } else if (key == "resStyle") {
         if (!validWidgetStyle("resources", value)) return "value must be filled, outline, text, bars, pill or m3";
@@ -1218,6 +1251,23 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
         const std::string v = value == "-" ? "" : value;
         if (!validLanguage(v)) return "a language like es or pt-BR (or - for the system language)";
         next.language = v;
+    } else if (key == "groupLooks") {  // "-": back to the looks the Separated style gives the widgets
+        if (value != "-") return "value must be - (it clears the looks picked from the popups)";
+        next.groupLooks.clear();
+    } else if (key == "groupLook") {  // <widget>=<look>: a look picked from the popup of a widget in the Separated group style
+        const size_t eq = value.find('=');
+        const std::string mod = eq == std::string::npos ? "" : value.substr(0, eq), id = eq == std::string::npos ? "" : value.substr(eq + 1);
+        if (!validWidgetStyle(mod, id)) return "value must be widget=look, like volume=pill";
+        std::string out;
+        size_t at = 0;
+        while (at < next.groupLooks.size()) {
+            size_t end = next.groupLooks.find(',', at);
+            if (end == std::string::npos) end = next.groupLooks.size();
+            const std::string item = next.groupLooks.substr(at, end - at);
+            if (!item.empty() && item.compare(0, mod.size() + 1, mod + "=") != 0) out += (out.empty() ? "" : ",") + item;
+            at = end + 1;
+        }
+        next.groupLooks = out + (out.empty() ? "" : ",") + mod + "=" + id;
     } else if (key == "widgetStyle") {
         const size_t eq = value.find('=');
         const std::string mod = eq == std::string::npos ? "" : value.substr(0, eq), id = eq == std::string::npos ? "" : value.substr(eq + 1);

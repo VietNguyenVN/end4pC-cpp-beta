@@ -271,6 +271,7 @@ bool refreshWsApps(App& app);
 void drawAll(App& app);
 
 Color styleFrame(cairo_t* cr, const App& app, const std::string& style, double x, double y, double w, double h, bool hot, bool side = false) {
+    if (!side && groupSeparated(app.cfg) && genericFrame(style)) { x -= kGroupPad; y -= kGroupPad; w += 2 * kGroupPad; h += 2 * kGroupPad; }  // (Separated: a look picked from the popup is as big as a cell, which is not painted behind it)
     const double r = side ? 16 : h / 2;
     auto fill = [&](double rr, const Color& c, double a = 1) { roundedRect(cr, x, y, w, h, rr); setSource(cr, c, a); cairo_fill(cr); };
     if (style == "m3soft" || style == "m3filled") {
@@ -297,6 +298,7 @@ Color styleFrame(cairo_t* cr, const App& app, const std::string& style, double x
 
 Color roundButtonFrame(cairo_t* cr, const App& app, const std::string& style, double x, double y, double w, double h, bool hot) {
     if (style != "pill") return styleFrame(cr, app, style, x, y, w, h, hot);
+    if (groupSeparated(app.cfg)) { x -= kGroupPad; y -= kGroupPad; w += 2 * kGroupPad; h += 2 * kGroupPad; }  // (as in styleFrame: the picked look is as big as the cell that is not painted)
     roundedRect(cr, x, y, w, h, h / 2);
     setSource(cr, app.color("secondary_container"));
     cairo_fill(cr);
