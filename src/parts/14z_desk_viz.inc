@@ -2,7 +2,7 @@
 // layer. That layer sits under the bottom one of the desktop widgets, and the surface lets every click through. It is fed by the cava stream the
 // bar's visualizer already reads (13_media_panel.inc), so it costs nothing while nothing plays; with a window fullscreen on its screen it stops.
 
-constexpr double kDvBarFill = 0.62, kDvIdleAlpha = 0.32, kDvAttack = 0.55, kDvRelease = 0.2, kDvPeakFall = 0.9;
+constexpr double kDvBarFill = 0.62, kDvGradientGain = 1.8, kDvAttack = 0.55, kDvRelease = 0.2, kDvPeakFall = 0.9;
 
 std::string deskVizFile() {
     const char* home = std::getenv("HOME");
@@ -119,33 +119,60 @@ void deskVizFadeFill(cairo_t* cr, cairo_pattern_t* src, double yTop, double yEnd
     cairo_pattern_destroy(mask);
 }
 
+// A bar that grows up from its base: only the top is rounded, the base is flat (the painting frame turns it to the side of the screen).
+void deskVizBarTop(cairo_t* cr, double x, double y, double w, double h) {
+    const double r = std::min(w / 2, h);
+    cairo_new_sub_path(cr);
+    cairo_move_to(cr, x, y + h);
+    cairo_line_to(cr, x, y + r);
+    cairo_arc(cr, x + r, y + r, r, M_PI, 1.5 * M_PI);
+    cairo_arc(cr, x + w - r, y + r, r, 1.5 * M_PI, 2 * M_PI);
+    cairo_line_to(cr, x + w, y + h);
+    cairo_close_path(cr);
+}
+// The same, hanging down from its base (the reflection): the top is flat, the bottom is round.
+void deskVizBarBottom(cairo_t* cr, double x, double y, double w, double h) {
+    const double r = std::min(w / 2, h);
+    cairo_new_sub_path(cr);
+    cairo_move_to(cr, x, y);
+    cairo_line_to(cr, x + w, y);
+    cairo_line_to(cr, x + w, y + h - r);
+    cairo_arc(cr, x + w - r, y + h - r, r, 0, 0.5 * M_PI);
+    cairo_arc(cr, x + r, y + h - r, r, 0.5 * M_PI, M_PI);
+    cairo_close_path(cr);
+}
+// The colour of one bar. The gradient is the one of the Quickshell visualizer: a low bar has the primary container's colour, a tall one the primary.
+Color deskVizBarColor(const App& app, double intensity) {
+    const std::string& c = app.cfg.deskVizColor;
+    if (c == "gradient") return mixColor(app.color("primary"), app.color("primary_container"), std::clamp(intensity * kDvGradientGain, 0.0, 1.0));
+    return app.color(c.c_str());
+}
+
 void deskVizBars(App& app, cairo_t* cr, double Lw, double Lh, bool reflect) {
     const DeskViz& V = app.dv;
     const int n = static_cast<int>(V.shown.size());
     const double pitch = Lw / n, bw = std::max(2.0, pitch * kDvBarFill), x0 = (pitch - bw) / 2;
     const double base = reflect ? Lh * 0.66 : Lh;
     const double reach = reflect ? base * 0.94 : Lh * 0.94;
-    cairo_pattern_t* across = deskVizAcross(app, Lw);
     for (int i = 0; i < n; i++) {
         const double h = std::max(bw, V.shown[i] * reach), x = x0 + i * pitch;
-        roundedRect(cr, x, base - h, bw, h, bw / 2);
+        deskVizBarTop(cr, x, base - h, bw, h);
+        setSource(cr, deskVizBarColor(app, V.shown[i]));
+        cairo_fill(cr);
     }
-    cairo_set_source(cr, across);
-    cairo_fill(cr);
     if (reflect) {  // the reflection: the same bars upside down, fading away under the base
         const double room = Lh - base - 2;
         cairo_push_group(cr);
         for (int i = 0; i < n; i++) {
             const double h = std::min(room, std::max(bw, V.shown[i] * reach) * 0.6), x = x0 + i * pitch;
-            roundedRect(cr, x, base + 3, bw, h, bw / 2);
+            deskVizBarBottom(cr, x, base + 3, bw, h);
+            setSource(cr, deskVizBarColor(app, V.shown[i]));
+            cairo_fill(cr);
         }
-        cairo_set_source(cr, across);
-        cairo_fill(cr);
         cairo_pattern_t* group = cairo_pop_group(cr);
         deskVizFadeFill(cr, group, base, base + std::max(8.0, room), 0.45, 0.0);
         cairo_pattern_destroy(group);
     }
-    cairo_pattern_destroy(across);
 }
 
 void deskVizWave(App& app, cairo_t* cr, double Lw, double Lh) {
@@ -187,20 +214,16 @@ void deskVizDots(App& app, cairo_t* cr, double Lw, double Lh) {
     const double pitch = Lw / n, d = std::max(3.0, pitch * 0.5), vp = d * 1.5, reach = Lh * 0.94;
     const int rows = std::max(1, static_cast<int>(reach / vp));
     cairo_pattern_t* across = deskVizAcross(app, Lw);
-    for (int pass = 0; pass < 2; pass++) {  // 0: the dots that are off, 1: the lit ones
-        for (int i = 0; i < n; i++) {
-            const int lit = std::max(1, static_cast<int>(std::lround(V.shown[i] * rows)));
-            const double cx = (i + 0.5) * pitch;
-            for (int r = 0; r < rows; r++) {
-                if ((r < lit) != (pass == 1)) continue;
-                cairo_new_sub_path(cr);
-                cairo_arc(cr, cx, Lh - d / 2 - r * vp, d / 2, 0, 2 * M_PI);
-            }
+    for (int i = 0; i < n; i++) {  // only the lit dots: the ones that are off are not drawn
+        const int lit = std::max(1, static_cast<int>(std::lround(V.shown[i] * rows)));
+        const double cx = (i + 0.5) * pitch;
+        for (int r = 0; r < lit && r < rows; r++) {
+            cairo_new_sub_path(cr);
+            cairo_arc(cr, cx, Lh - d / 2 - r * vp, d / 2, 0, 2 * M_PI);
         }
-        cairo_set_source(cr, across);
-        if (pass == 0) { cairo_save(cr); cairo_clip_preserve(cr); cairo_paint_with_alpha(cr, 0.1); cairo_restore(cr); cairo_new_path(cr); }
-        else cairo_fill(cr);
     }
+    cairo_set_source(cr, across);
+    cairo_fill(cr);
     cairo_pattern_destroy(across);
 }
 
@@ -214,16 +237,12 @@ void deskVizWinamp(App& app, cairo_t* cr, double Lw, double Lh) {
         const double f = static_cast<double>(r) / (rows - 1), k = f < 0.5 ? f / 0.5 : (f - 0.5) / 0.5;
         const Color c = f < 0.5 ? mixColor(low, mid, k) : mixColor(mid, high, k);
         const double y = Lh - segH - r * seg;
-        for (int pass = 0; pass < 2; pass++) {  // 0: off, 1: lit or the peak cap
-            for (int i = 0; i < n; i++) {
-                const int lit = static_cast<int>(std::lround(V.shown[i] * rows)), cap = std::min(rows - 1, static_cast<int>(V.peaks[i] * rows));
-                const bool on = r < lit || (r == cap && cap >= lit);
-                if (on != (pass == 1)) continue;
-                cairo_rectangle(cr, x0 + i * pitch, y, bw, segH);
-            }
-            setSource(cr, c, pass == 1 ? 0.95 : 0.09);
-            cairo_fill(cr);
+        for (int i = 0; i < n; i++) {  // only the lit segments and the peak caps: the ones that are off are not drawn
+            const int lit = static_cast<int>(std::lround(V.shown[i] * rows)), cap = std::min(rows - 1, static_cast<int>(V.peaks[i] * rows));
+            if (r < lit || (r == cap && cap >= lit)) cairo_rectangle(cr, x0 + i * pitch, y, bw, segH);
         }
+        setSource(cr, c, 0.95);
+        cairo_fill(cr);
     }
 }
 
@@ -275,10 +294,10 @@ void deskVizRing(App& app, cairo_t* cr, double ox, double oy, double S, double b
 
 void deskVizPaint(App& app, cairo_t* cr, bool playing) {
     DeskViz& V = app.dv;
-    if (V.shown.empty()) return;
+    if (V.shown.empty() || !playing) return;  // (nothing is shown while no music plays)
     const std::string& style = app.cfg.deskVizStyle;
-    if (style == "ring") {  // (the cover stays solid when the music rests; only the bars fade)
-        deskVizRing(app, cr, 0, 0, std::min(V.W, V.H), playing ? 1.0 : kDvIdleAlpha);
+    if (style == "ring") {
+        deskVizRing(app, cr, 0, 0, std::min(V.W, V.H), 1.0);
         return;
     }
     cairo_push_group(cr);
@@ -298,7 +317,7 @@ void deskVizPaint(App& app, cairo_t* cr, bool playing) {
         else deskVizBars(app, cr, Lw, Lh, style == "reflect");
     }
     cairo_pop_group_to_source(cr);
-    cairo_paint_with_alpha(cr, playing ? 1.0 : kDvIdleAlpha);
+    cairo_paint(cr);
 }
 
 void deskVizFrameDone(void* d, wl_callback* cb, uint32_t);

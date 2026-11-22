@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Prints what is capturing right now, one line per kind: "mic <apps>", "cam <apps>", "screen <apps>" (apps joined by ", "; the line is
 # left out when nothing uses it). Reads PipeWire's graph: a capture stream that is linked to a microphone, a camera or a screen cast.
-# Usage: privacy_scan.sh <out file>   (written atomically)
+# A video source is a camera only when it is a device (v4l2, libcamera); the portal's screen cast is a Video/Source too, and counts as a screen.
+# Usage: privacy_scan.sh <out file>   (written atomically; PRIVACY_DUMP=file reads that pw-dump instead, to test)
 out="${1:?out file}"
 tmp="$out.$$"
-pw-dump 2>/dev/null | jq -r '
+{ if [ -n "$PRIVACY_DUMP" ]; then cat "$PRIVACY_DUMP"; else pw-dump 2>/dev/null; fi; } | jq -r '
   [.[] | select(.type == "PipeWire:Interface:Node")] as $nodes
   | [.[] | select(.type == "PipeWire:Interface:Link" and .info.state == "active")] as $links
   | def cls($id): ($nodes[] | select(.id == $id) | .info.props["media.class"]) // "";
     def app($n): ($n.info.props["application.name"] // $n.info.props["node.name"] // "?");
+    def iscam($s): (($s.info.props["device.api"] // "") | test("v4l2|libcamera")) or (($s.info.props["node.name"] // "") | test("^(v4l2|libcamera)_input"));
     def linked($n): [$links[] | select(.info["input-node-id"] == $n.id or .info["output-node-id"] == $n.id)
                     | (if .info["input-node-id"] == $n.id then .info["output-node-id"] else .info["input-node-id"] end)];
     [ $nodes[]
@@ -19,7 +21,9 @@ pw-dump 2>/dev/null | jq -r '
       | if $c == "Stream/Input/Audio" and ($peers | length) > 0 and ([$peers[] | cls(.)] | any(. == "Audio/Source" or . == "Audio/Source/Virtual" or . == "Audio/Duplex"))
           and ([$peers[] | . as $p | $nodes[] | select(.id == $p) | .info.props["device.class"] // ""] | all(. != "monitor"))
         then {k: "mic", a: app($n)}
-        elif $c == "Stream/Input/Video" and ($peers | length) > 0 and ([$peers[] | cls(.)] | any(. == "Video/Source")) then {k: "cam", a: app($n)}
+        elif $c == "Stream/Input/Video" and ($peers | length) > 0 and ([$peers[] | cls(.)] | any(. == "Video/Source"))
+        then ([$peers[] | . as $p | $nodes[] | select(.id == $p and (.info.props["media.class"] // "") == "Video/Source")]) as $src
+             | (if ($src | any(.[]; iscam(.))) then {k: "cam", a: app($n)} else {k: "screen", a: app($n)} end)
         elif $c == "Stream/Output/Video" and ($peers | length) > 0 then {k: "screen", a: app($n)}
         else empty end ]
     | group_by(.k)[] | "\(.[0].k) \([.[].a] | unique | join(", "))"' > "$tmp" 2>/dev/null

@@ -227,9 +227,10 @@ void handleClient(App& app, int listenFd) {
         DeskWidget* found = nullptr;
         for (DeskWidget* d : deskList(app)) if (d->name == name) found = d;
         if (found && state == "edit") { if (found->open()) deskToggleEdit(app, *found); reply = "ok"; }
-        else if (!found || (state != "on" && state != "off")) reply = "usage: widget NAME on|off|edit [W H LEFT TOP]";
+        else if (found && state == "move" && sized && found->open() && deskGlideTo(app, *found, std::clamp(w, 100, 1600), std::clamp(h, 60, 1200), std::clamp(l, 0, 4000), std::clamp(t, 0, 4000))) reply = "ok";
+        else if (!found || (state != "on" && state != "off" && state != "move")) reply = "usage: widget NAME on|off|edit|move [W H LEFT TOP]";
         else {
-            if (found->open()) deskClose(app, *found);
+            if (found->open()) deskClose(app, *found);  // ("move" of a widget that cannot glide opens it at the new place, like "on")
             if (sized) {
                 found->w = std::clamp(w, 100, 1600);
                 found->h = std::clamp(h, 60, 1200);
@@ -237,7 +238,7 @@ void handleClient(App& app, int listenFd) {
                 found->mt = std::clamp(t, 0, 4000);
                 found->pinned = found->ml >= 0;
             }
-            if (state == "on") deskOpen(app, *found); else found->enabled = false;
+            if (state == "on" || state == "move") deskOpen(app, *found); else found->enabled = false;
             deskSave(*found);
             reply = "ok";
         }

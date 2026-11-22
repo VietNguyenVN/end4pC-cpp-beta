@@ -500,6 +500,56 @@ void deskLeaveFull(App& app, DeskWidget& d) {
     deskDraw(app, d, true);
 }
 
+constexpr double kDeskGlideSeconds = 0.55;
+
+// Moves an open widget to another place and size with a glide. The widget takes the whole-screen surface that a drag uses, so no
+// surface is resized on the way; the last frame gives the small surface back.
+bool deskGlideTo(App& app, DeskWidget& d, int w, int h, int l, int t) {
+    if (!d.open() || !d.configured || d.ml < 0 || d.drag || d.editing || d.glide.on) return false;
+    w = d.resizable ? std::clamp(w, d.minW, d.maxW) : d.w;
+    h = d.resizable ? std::clamp(h, d.minH, d.maxH) : d.h;
+    if (w == d.w && h == d.h && l == d.ml && t == d.mt) return true;
+    d.glide = {true, std::chrono::steady_clock::now(), d.ml, d.mt, d.w, d.h, l, t, w, h};
+    d.pinned = true;
+    if (!d.full) deskRaiseFull(app, d);
+    return true;
+}
+
+void deskGlideStep(App& app, DeskWidget& d, std::chrono::steady_clock::time_point now) {
+    auto& g = d.glide;
+    const double raw = std::chrono::duration<double>(now - g.t0).count() / kDeskGlideSeconds;
+    const double u = std::clamp(raw, 0.0, 1.0), e = 1 - std::pow(1 - u, 4);
+    auto mix = [&](int a, int b) { return a + static_cast<int>(std::lround((b - a) * e)); };
+    const int ow = d.w, oh = d.h;
+    d.ml = mix(g.fl, g.tl);
+    d.mt = mix(g.ft, g.tt);
+    d.w = mix(g.fw, g.tw);
+    d.h = mix(g.fh, g.th);
+    if ((d.w != ow || d.h != oh) && d.onResize) d.onResize(app, d, ow, oh);
+    if (u >= 1.0) {
+        g.on = false;
+        d.ml = g.tl; d.mt = g.tt; d.w = g.tw; d.h = g.th;
+        deskLeaveFull(app, d);
+        deskSave(d);
+        return;
+    }
+    d.busy = true;
+    d.busySince = now;
+    d.wantFrame = true;
+    deskDraw(app, d);
+}
+
+void deskGlideTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs) {
+    for (DeskWidget* d : deskList(app)) {
+        if (!d->glide.on) continue;
+        if (!d->open()) { d->glide.on = false; continue; }
+        timeoutMs = timeoutMs < 0 ? 16 : std::min(timeoutMs, 16);
+        if (!d->fullReady) continue;
+        if (d->busy && now - d->busySince < std::chrono::milliseconds(100)) continue;  // (the compositor has not shown the last picture yet)
+        deskGlideStep(app, *d, now);
+    }
+}
+
 void deskMotion(App& app, DeskWidget& d) {
     if (d.motion && d.motion(app, d)) return;
     if (d.pressed && !d.drag) {

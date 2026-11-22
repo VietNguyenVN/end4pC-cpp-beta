@@ -1221,6 +1221,7 @@ struct DeskWidget {
     bool pressed = false;
     double pressX = 0, pressY = 0;
     bool moved = false;
+    struct Glide { bool on = false; std::chrono::steady_clock::time_point t0{}; int fl = 0, ft = 0, fw = 0, fh = 0, tl = 0, tt = 0, tw = 0, th = 0; } glide;  // (a preset moves the open widget to its other place and size, live)
     bool open() const { return surface != nullptr; }
 };
 
@@ -2024,6 +2025,7 @@ void userWInit(UserW& X);
 void imageWInit(ImageW& X);
 void userWTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs);
 void clockWTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs);
+void deskGlideTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs);
 void calWTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs);
 void resWTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs);
 void deskOpen(App& app, DeskWidget& d);

@@ -201,12 +201,23 @@ def ipc(command: str) -> str:
         return ""
 
 
+# A widget that is open now and is open in the preset too glides to the preset's place and size (the shell animates it) instead of
+# closing and opening again. The clock reshapes itself when its face changes, so it still closes first.
+GLIDES = {"todo", "weather", "player", "resources", "calendar", "clock", "usercard", "image"}
+
+
+def glides(name: str, state: dict) -> bool:
+    return name in GLIDES and bool(state.get("enabled")) and "size" in state and "pos" in state and bool(widget_state(name)["enabled"])
+
+
 def close_widgets(widgets: dict) -> list:
     """Closes the open desktop widgets the preset covers, before the settings change: a widget that is open while its face changes
-    (the clock's style) reshapes itself and saves that shape, which is not the one the preset has."""
+    (the clock's style) reshapes itself and saves that shape, which is not the one the preset has. The ones that glide stay open."""
     todo = [name for name in WIDGETS if name in widgets]
     closed = False
     for name in todo:
+        if glides(name, widgets[name]):
+            continue
         if widget_state(name)["enabled"]:
             ipc(name + " toggle")
             closed = True
@@ -215,12 +226,14 @@ def close_widgets(widgets: dict) -> list:
     return todo
 
 
-def open_widgets(widgets: dict, todo: list) -> None:
+def open_widgets(widgets: dict, todo: list, gliding: set) -> None:
     """Shows the widgets the preset had on, in the size and place it saved them, and hides the rest (through the shell: it keeps the
-    place in memory, so a changed file would be ignored)."""
+    place in memory, so a changed file would be ignored). The ones that were already open glide to their place."""
     for name in todo:
         state = widgets[name]
-        if state.get("enabled") and "size" in state and "pos" in state:
+        if name in gliding:
+            ipc("widget %s move %d %d %d %d" % (name, state["size"][0], state["size"][1], state["pos"][0], state["pos"][1]))
+        elif state.get("enabled") and "size" in state and "pos" in state:
             ipc("widget %s on %d %d %d %d" % (name, state["size"][0], state["size"][1], state["pos"][0], state["pos"][1]))
         elif state.get("enabled"):
             ipc("widget %s on" % name)
@@ -235,6 +248,7 @@ def cmd_apply(name: str) -> int:
         return 1
     meta = preset.pop("_preset", {})
     widgets = preset.pop("_widgets", {})
+    gliding = {name for name in WIDGETS if name in widgets and glides(name, widgets[name])}
     todo = close_widgets(widgets)
     cfg = read_config()
     for key, value in preset.items():
@@ -244,7 +258,7 @@ def cmd_apply(name: str) -> int:
     wallpaper = meta.get("wallpaper", "")
     time.sleep(0.8)  # The shell reads the new config.json first, then generates the colors for the wallpaper and mode
     ipc("applytheme " + (wallpaper if wallpaper and os.path.exists(wallpaper) else ""))
-    open_widgets(widgets, todo)
+    open_widgets(widgets, todo, gliding)
     return 0
 
 

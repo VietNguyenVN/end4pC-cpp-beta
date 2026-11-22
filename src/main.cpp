@@ -657,6 +657,7 @@ int main(int argc, char** argv) {
         calWTick(app, before, timeoutMs);
         clockWTick(app, before, timeoutMs);
         dockWTick(app, before, timeoutMs);
+        deskGlideTick(app, before, timeoutMs);
         userWTick(app, before, timeoutMs);
         identifyTick(before, timeoutMs);
         if (app.launcher.sliding) timeoutMs = 16;
