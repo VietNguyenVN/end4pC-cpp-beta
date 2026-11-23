@@ -100,7 +100,82 @@ def default_for(mime):
     return ""
 
 
+# ---- the file manager that "Show in folder" uses
+# xdg-mime only decides what opens a folder. Firefox's "Open containing folder" (and other apps' "Show in folder") ask the session bus for
+# org.freedesktop.FileManager1, and every file manager installed brings a service file for that name: the bus starts the one it finds first
+# (Nautilus, when both Nautilus and Dolphin are installed), whatever the default app is. A service file of the user's own wins over the system's,
+# so the default file manager gets a copy of its own service file there.
+FM_NAME = "org.freedesktop.FileManager1"
+SERVICE_DIRS = ["/usr/local/share/dbus-1/services", "/usr/share/dbus-1/services"]
+
+
+def service_files():
+    """(path, Exec program, text) of the system's service files for the FileManager1 name."""
+    out = []
+    for d in SERVICE_DIRS:
+        for path in glob.glob(os.path.join(d, "*.service")):
+            try:
+                with open(path, errors="ignore") as f:
+                    text = f.read()
+            except OSError:
+                continue
+            if not re.search(r"^Name=" + re.escape(FM_NAME) + r"\s*$", text, re.M):
+                continue
+            m = re.search(r"^Exec=(\S+)", text, re.M)
+            if m:
+                out.append((path, os.path.basename(m.group(1)), text))
+    return out
+
+
+def exec_program(desktop):
+    """The program of the Exec line of a desktop file ("dolphin" for `dolphin %u`)."""
+    for d in APP_DIRS:
+        try:
+            with open(os.path.join(d, desktop), errors="ignore") as f:
+                in_entry = False
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("["):
+                        in_entry = line == "[Desktop Entry]"
+                    elif in_entry and line.startswith("Exec="):
+                        for tok in line[5:].split():
+                            if tok != "env" and "=" not in tok and not tok.startswith("-"):
+                                return os.path.basename(tok)
+                        return ""
+        except OSError:
+            continue
+    return ""
+
+
+def reload_bus():
+    """The session bus rereads its service files (it does not watch a folder that did not exist when it started)."""
+    run("busctl", "--user", "call", "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "ReloadConfig")
+
+
+def files_sync():
+    """Makes the default file manager the one the bus starts for FileManager1. Idempotent; without a matching service file the override goes."""
+    mine = os.path.join(DATA, "dbus-1", "services", FM_NAME + ".service")
+    prog = exec_program(default_for("inode/directory"))
+    text = next((t for _, p, t in service_files() if prog and p == prog), None)
+    if text is None:
+        if os.path.exists(mine):
+            os.remove(mine)
+            reload_bus()
+        return
+    try:
+        with open(mine, errors="ignore") as f:
+            if f.read() == text:
+                return
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(mine), exist_ok=True)
+    with open(mine, "w") as f:
+        f.write(text)
+    reload_bus()
+
+
 def apps_get():
+    files_sync()  # (what was chosen before this existed gets its service file the first time the page is read)
     for kind, (_, key) in KINDS.items():
         print(f"{kind}={default_for(key)}")
 
@@ -119,6 +194,8 @@ def apps_set(kind, desktop):
         return
     for mime in KINDS[kind][0]:
         run("xdg-mime", "default", desktop, mime)
+    if kind == "files":
+        files_sync()
 
 
 # ---- audio
