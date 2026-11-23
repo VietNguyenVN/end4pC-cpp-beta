@@ -366,6 +366,15 @@ int main(int argc, char** argv) {
     app.conflictCheckAt = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     startNotifications(app);
     startPolkit(app);
+    {  // the apps of Tools > Autostart: once per login, not each time the shell restarts (scripts/autostart.py waits for each app's window)
+        const char* rt = std::getenv("XDG_RUNTIME_DIR");
+        const std::string marker = std::string(rt ? rt : "/tmp") + "/end4pC-autostarted";
+        if (access(marker.c_str(), F_OK) != 0) {
+            if (FILE* m = std::fopen(marker.c_str(), "w")) std::fclose(m);
+            const std::string script = assetsDir() + "/../scripts/autostart.py";
+            runDetached({script.c_str()});
+        }
+    }
     if (app.cfg.lockOnStart) {
         const char* rt = std::getenv("XDG_RUNTIME_DIR");
         const std::string marker = std::string(rt ? rt : "/tmp") + "/end4pC-started";

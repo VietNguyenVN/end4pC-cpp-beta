@@ -445,6 +445,8 @@ private:
 #include "tools/page_phone.inc"
 #include "tools/page_tasks.inc"
 #include "tools/page_power.inc"
+#include "tools/autostart_store.inc"
+#include "tools/page_autostart.inc"
 
 void buildPages() {
     if (g.solo) {
@@ -464,6 +466,7 @@ void buildPages() {
     g.pages.push_back(std::make_unique<TimersPage>(1));
     g.pages.push_back(std::make_unique<TimersPage>(2));
     g.pages.push_back(std::make_unique<KeybindsPage>());
+    g.pages.push_back(std::make_unique<AutostartPage>());
     g.pages.push_back(std::make_unique<PhonePage>());
     for (auto& p : g.pages) p->init();
 }
