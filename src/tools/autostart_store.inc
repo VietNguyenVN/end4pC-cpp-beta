@@ -12,7 +12,7 @@ struct AsApp {
     std::string name, icon, cmd;
 };
 struct AsDesk {
-    std::string id, name, icon, cmd, path;  // path: the .desktop file (cmd is only what is shown)
+    std::string id, name, icon, cmd, path, wmClass;  // path: the .desktop file (cmd is only what is shown); wmClass: StartupWMClass
 };
 
 std::string asPath() { return configDir() + "/autostart.tsv"; }
@@ -101,6 +101,7 @@ void asScan(const std::string& dir, const std::string& idPrefix, int depth, std:
             if (!main) continue;
             if (line.rfind("Name=", 0) == 0 && a.name.empty()) a.name = line.substr(5);
             else if (line.rfind("Icon=", 0) == 0) a.icon = line.substr(5);
+            else if (line.rfind("StartupWMClass=", 0) == 0) a.wmClass = line.substr(15);
             else if (line.rfind("Exec=", 0) == 0 && exec.empty()) exec = line.substr(5);
             else if (line == "NoDisplay=true" || line == "Hidden=true") skip = true;
             else if (line.rfind("Type=", 0) == 0 && line != "Type=Application") skip = true;
@@ -127,5 +128,100 @@ std::vector<AsDesk> asInstalled() {
         for (char& c : b) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         return a < b;
     });
+    return out;
+}
+
+// ---- the apps that are open now (Hyprland): "Save open apps" -----------------------------------------------------------------------------
+
+std::string asLower(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+std::string asQuote(const std::string& s) {  // one word for sh
+    if (!s.empty() && s.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-./:=@%+,") == std::string::npos) return s;
+    std::string q = "'";
+    for (const char c : s) { if (c == '\'') q += "'\\''"; else q += c; }
+    return q + "'";
+}
+
+struct AsOpen {
+    AsApp app;
+    bool known = false;  // true: found as a desktop entry; false: only the command line of the process
+    bool dup = false;    // already in the list
+};
+
+// The desktop entry of a window: by its StartupWMClass, its file name (also the last part of it) or the program of its Exec.
+const AsDesk* asMatch(const std::vector<AsDesk>& all, const std::string& cls, const std::string& initial) {
+    for (const std::string& c : {initial, cls}) {
+        const std::string l = asLower(c);
+        if (l.empty()) continue;
+        for (const AsDesk& e : all) if (!e.wmClass.empty() && asLower(e.wmClass) == l) return &e;
+        for (const AsDesk& e : all) if (asLower(e.id) == l) return &e;
+        for (const AsDesk& e : all) { const std::string id = asLower(e.id); if (id.size() > l.size() && id.compare(id.size() - l.size() - 1, std::string::npos, "." + l) == 0) return &e; }
+        for (const AsDesk& e : all) {
+            const size_t sp = e.cmd.find(' ');
+            std::string prog = e.cmd.substr(0, sp);
+            const size_t slash = prog.rfind('/');
+            if (slash != std::string::npos) prog = prog.substr(slash + 1);
+            if (asLower(prog) == l) return &e;
+        }
+    }
+    return nullptr;
+}
+
+std::string asProcCmdline(int pid) {
+    std::ifstream in("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
+    std::string raw((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::string out, arg;
+    for (const char c : raw) {
+        if (c != '\0') { arg += c; continue; }
+        if (!out.empty()) out += ' ';
+        out += asQuote(arg);
+        arg.clear();
+    }
+    return out;
+}
+
+// What is open on the screen now, one entry per app and workspace. Without Hyprland (or jq) there is nothing to read.
+std::vector<AsOpen> asCaptureOpen(const std::vector<AsApp>& existing) {
+    std::vector<AsOpen> out;
+    if (!std::getenv("HYPRLAND_INSTANCE_SIGNATURE")) return out;
+    std::string raw;
+    if (!trRunSync({"sh", "-c", "hyprctl -j clients 2>/dev/null | jq -r '.[] | select(.mapped) | [.class, .initialClass, (.pid | tostring), (.workspace.id | tostring), .workspace.name] | @tsv'"}, "", &raw, 4000)) return out;
+    const std::vector<AsDesk> installed = asInstalled();
+    std::istringstream in(raw);
+    std::string line;
+    while (std::getline(in, line)) {
+        std::vector<std::string> f;
+        size_t p = 0;
+        for (;;) {
+            const size_t t = line.find('\t', p);
+            if (t == std::string::npos) { f.push_back(line.substr(p)); break; }
+            f.push_back(line.substr(p, t - p));
+            p = t + 1;
+        }
+        if (f.size() < 5 || (f[0].empty() && f[1].empty())) continue;
+        if (f[0].rfind("end4pC", 0) == 0 || f[1].rfind("end4pC", 0) == 0) continue;  // (the shell's own windows)
+        AsOpen o;
+        const int wsId = std::atoi(f[3].c_str());
+        o.app.ws = f[4].rfind("special", 0) == 0 ? kAsSpecial : wsId > 0 ? std::min(wsId, kAsMaxWs) : 0;
+        if (const AsDesk* e = asMatch(installed, f[0], f[1])) {
+            o.known = true;
+            o.app.name = e->name;
+            o.app.icon = e->icon;
+            o.app.cmd = asLaunch(e->path);
+        } else {
+            o.app.cmd = asProcCmdline(std::atoi(f[2].c_str()));
+            o.app.name = f[0].empty() ? f[1] : f[0];
+            o.app.icon = asLower(o.app.name);
+        }
+        if (o.app.cmd.empty()) continue;
+        const bool same = std::any_of(out.begin(), out.end(), [&](const AsOpen& x) { return x.app.cmd == o.app.cmd && x.app.ws == o.app.ws; });
+        if (same) continue;
+        o.dup = std::any_of(existing.begin(), existing.end(), [&](const AsApp& x) { return x.cmd == o.app.cmd && x.ws == o.app.ws; });
+        out.push_back(o);
+    }
+    const auto key = [](int ws) { return ws > 0 ? ws : ws == kAsSpecial ? 99 : 0; };
+    std::stable_sort(out.begin(), out.end(), [&](const AsOpen& a, const AsOpen& b) { return key(a.app.ws) < key(b.app.ws); });
     return out;
 }

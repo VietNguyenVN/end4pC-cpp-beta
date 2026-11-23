@@ -323,3 +323,5 @@ Zoom out
 Zoom out (keypad -)
 Force quit
 Overview
+app added
+apps added

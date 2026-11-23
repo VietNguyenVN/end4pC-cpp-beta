@@ -6,9 +6,10 @@
 std::string asT(const char* s) { return std::string(i18n::tr(s)); }
 
 struct AutostartPage final : ToolPage {
-    enum Id { None, Add, RemoveAll, Row, RowToggle, RowUp, RowDown, RowEdit, RowDel,
+    enum Id { None, Add, RemoveAll, SaveOpen, Row, RowToggle, RowUp, RowDown, RowEdit, RowDel,
               DlgScrim, DlgCard, DlgField, DlgWs, DlgSave, DlgCancel, DlgDelete,
-              PickScrim, PickCard, PickItem, PickCustom, PickClose };
+              PickScrim, PickCard, PickItem, PickCustom, PickClose,
+              CapScrim, CapCard, CapToggle, CapAdd, CapCancel };
     struct Hit { Rect r; int id, arg; };
     struct Hover { int id = None, arg = 0; };
 
@@ -28,6 +29,14 @@ struct AutostartPage final : ToolPage {
     size_t curName = 0, curCmd = 0;
     AsApp d;
 
+    // "Save open apps": what is open now, to choose from
+    bool cap = false;
+    std::vector<AsOpen> caps;
+    std::vector<char> capOn;
+    Elastic capScroll;
+    Rect capArea{};
+    double capH = 0;
+
     // the picker
     bool pick = false;
     std::vector<AsDesk> installed;
@@ -41,7 +50,7 @@ struct AutostartPage final : ToolPage {
     const char* icon() const override { return "rocket"; }
     void init() override { rows = asLoad(); }
     bool roundClip() const override { return false; }  // (the Add button sits in the top right corner)
-    bool animating() const override { return listScroll.busy() || pickScroll.busy(); }
+    bool animating() const override { return listScroll.busy() || pickScroll.busy() || capScroll.busy(); }
     bool grabsKeys() const override { return false; }
 
     // ---- small pieces (as in the Keybinds page) ----------------------------------------------------------------------------------
@@ -238,11 +247,18 @@ struct AutostartPage final : ToolPage {
         const Rect add{W - addW, 0, addW, h};
         pill(cr, add, addL, "add-circle", g.color("primary"), g.color("on_primary"), hot(add, Add));
         double left = W - addW;
+        if (std::getenv("HYPRLAND_INSTANCE_SIGNATURE")) {  // "Save open apps": the windows open now, with their workspaces
+            const std::string l = asT("Save open apps");
+            const double w = pillW(l, true) + 8;
+            const Rect so{left - 8 - w, 0, w, h};
+            pill(cr, so, l, "download-minimalistic", g.color("secondary_container"), g.color("on_secondary_container"), hot(so, SaveOpen));
+            left = so.x;
+        }
         if (rows.size() > 2) {  // "Remove all": only with more than two apps; the first click arms it, the second removes them
             const bool armed = Clock::now() < clearArmed;
             const std::string l = asT(armed ? "Click again to remove all" : "Remove all");
             const double w = pillW(l, true) + 8;
-            const Rect ra{W - addW - 8 - w, 0, w, h};
+            const Rect ra{left - 8 - w, 0, w, h};
             pill(cr, ra, l, "trash-bin-minimalistic", armed ? g.color("error") : g.color("surface_container_high"), armed ? g.color("on_error") : g.color("error"), hot(ra, RemoveAll));
             left = ra.x;
         }
@@ -374,6 +390,91 @@ struct AutostartPage final : ToolPage {
         cairo_restore(cr);
     }
 
+    // ---- "Save open apps" ------------------------------------------------------------------------------------------------------------
+    int capCount() const {
+        int n = 0;
+        for (size_t i = 0; i < caps.size(); i++) if (capOn[i] && !caps[i].dup) n++;
+        return n;
+    }
+    void openCapture() {
+        caps = asCaptureOpen(rows);
+        if (caps.empty()) { say(asT("No open apps found")); return; }
+        capOn.assign(caps.size(), 1);
+        cap = true;
+        capScroll.reset();
+    }
+    void addCaptured() {
+        int n = 0;
+        for (size_t i = 0; i < caps.size(); i++) if (capOn[i] && !caps[i].dup) { rows.push_back(caps[i].app); n++; }
+        cap = false;
+        if (n == 0) return;
+        commit();
+        say(std::to_string(n) + " " + asT(n == 1 ? "app added" : "apps added"));
+    }
+    void drawCapture(cairo_t* cr, Rect r) {
+        hits.push_back({r, CapScrim, 0});
+        src(cr, Color{0, 0, 0}, 0.5);
+        rrect(cr, r.x, r.y, r.w, r.h, 28);
+        cairo_fill(cr);
+        const double cw = std::min(700.0, r.w - 48), ch = std::min(r.h - 20, 660.0);
+        const Rect card{r.x + (r.w - cw) / 2, r.y + (r.h - ch) / 2, cw, ch};
+        hits.push_back({card, CapCard, 0});
+        src(cr, g.color("surface_container_high"));
+        rrect(cr, card.x, card.y, card.w, card.h, 30);
+        cairo_fill(cr);
+        const double pad = 26;
+        text(cr, asT("Save open apps"), card.x + pad, card.y + 20, 22, true, g.color("on_surface"));
+        trLine(cr, asT("The apps open now, each with its workspace. Choose the ones to add to the list."), card.x + pad, card.y + 52, card.w - 2 * pad - 50, 13, false, g.color("on_surface_variant"), 0.85);
+        const Rect close{card.x + card.w - pad - 36, card.y + 16, 40, 40};
+        iconBtn(cr, close, "close-circle", g.color("on_surface_variant"), hot(close, CapCancel, 1));
+        const double fy = card.y + card.h - 74;
+        src(cr, g.color("outline_variant"), 0.5);
+        cairo_rectangle(cr, card.x + pad, fy - 6, card.w - 2 * pad, 1);
+        cairo_fill(cr);
+        const int n = capCount();
+        const std::string addL = n > 0 ? asT("Add") + " " + std::to_string(n) : asT("Add");
+        const std::string cancelL = asT("Cancel");
+        const double aW = pillW(addL, false) + 24, cW = pillW(cancelL, false) + 16;
+        const Rect add{card.x + card.w - pad - aW, fy + 6, aW, 48}, cancel{add.x - 10 - cW, fy + 6, cW, 48};
+        pill(cr, add, addL, nullptr, n > 0 ? g.color("primary") : g.color("surface_container_highest"), n > 0 ? g.color("on_primary") : g.color("on_surface_variant"), n > 0 && hot(add, CapAdd), n > 0 ? 1 : 0.6);
+        if (n == 0) hits.push_back({add, CapCard, 0});
+        pill(cr, cancel, cancelL, nullptr, g.color("surface_container_highest"), g.color("on_surface"), hot(cancel, CapCancel));
+        capArea = {card.x + pad, card.y + 82, card.w - 2 * pad, fy - 8 - (card.y + 82)};
+        cairo_save(cr);
+        cairo_rectangle(cr, capArea.x, capArea.y, capArea.w, capArea.h);
+        cairo_clip(cr);
+        const double rowH = 58;
+        capH = caps.size() * rowH;
+        capScroll.max = std::max(0.0, capH - capArea.h);
+        capScroll.fit();
+        double y = capArea.y - capScroll.off();
+        for (size_t i = 0; i < caps.size(); i++, y += rowH) {
+            if (y + rowH < capArea.y || y > capArea.y + capArea.h) continue;
+            const AsOpen& o = caps[i];
+            const double al = o.dup ? 0.5 : 1;
+            const Rect row{capArea.x, y, capArea.w, rowH - 4};
+            const bool over = hot(row, CapToggle, static_cast<int>(i)) && capArea.contains(g.px - kPad, g.py - kBarH);
+            src(cr, over && !o.dup ? mix(g.color("on_surface"), g.color("surface_container"), 0.06) : g.color("surface_container"));
+            rrect(cr, row.x, row.y, row.w, row.h, 18);
+            cairo_fill(cr);
+            drawAppIcon(cr, o.app.icon, o.app.name, row.x + 30, row.y + row.h / 2, 28, al);
+            const Rect sw{row.x + row.w - 12 - 42, row.y + (row.h - 24) / 2, 42, 24};
+            toggle(cr, sw, capOn[i] && !o.dup, false);
+            const std::string wl = o.dup ? asT("Already in the list") : wsText(o.app.ws);
+            double wtw = 0, wth = 0;
+            measure(wl, 13, true, 0, wtw, wth);
+            const Rect wc{sw.x - 12 - (wtw + 24), row.y + (row.h - 26) / 2, wtw + 24, 26};
+            src(cr, o.dup || o.app.ws == 0 ? g.color("surface_container_highest") : g.color("secondary_container"), al);
+            rrect(cr, wc.x, wc.y, wc.w, wc.h, 13);
+            cairo_fill(cr);
+            text(cr, wl, wc.x + 12, wc.y + (26 - wth) / 2, 13, true, o.dup || o.app.ws == 0 ? g.color("on_surface_variant") : g.color("on_secondary_container"), 0, al);
+            const double tx = row.x + 58, tw = std::max(80.0, wc.x - tx - 12);
+            trLine(cr, o.app.name, tx, row.y + 9, tw, 15, true, g.color("on_surface"), al);
+            trLine(cr, o.known ? cmdText(o.app.cmd) : asT("Command of the running process") + ": " + o.app.cmd, tx, row.y + 30, tw, 12, false, g.color("on_surface_variant"), 0.7 * al);
+        }
+        cairo_restore(cr);
+    }
+
     void drawToast(cairo_t* cr, Rect r) {
         if (Clock::now() >= toastUntil || toast.empty()) return;
         double tw = 0, th = 0;
@@ -396,14 +497,16 @@ struct AutostartPage final : ToolPage {
         drawToast(cr, r);
         if (dlg) drawDialog(cr, r);
         else if (pick) drawPicker(cr, r);
+        else if (cap) drawCapture(cr, r);
     }
 
     // ---- input -----------------------------------------------------------------------------------------------------------------------
     Hover hitAt(double x, double y) const {
         for (auto it = hits.rbegin(); it != hits.rend(); ++it) {
             if (!it->r.contains(x, y)) continue;
-            if (it->id == DlgCard || it->id == PickCard) return {};  // (a click on the card is not a click on the scrim)
-            if ((dlg || pick) && it->id < DlgScrim) continue;
+            if (it->id == DlgCard || it->id == PickCard || it->id == CapCard) return {};  // (a click on the card is not a click on the scrim)
+            if ((dlg || pick || cap) && it->id < DlgScrim) continue;
+            if (cap && it->id == CapToggle && !capArea.contains(x, y)) continue;
             if (pick && !dlg && it->id == PickItem && it->arg >= 0 && !pickArea.contains(x, y)) continue;
             if (it->id == Row || it->id == RowToggle || it->id == RowUp || it->id == RowDown || it->id == RowEdit || it->id == RowDel) { if (!listArea.contains(x, y)) continue; }
             return {it->id, it->arg};
@@ -424,7 +527,7 @@ struct AutostartPage final : ToolPage {
     Cursor cursor(double x, double y) const override {
         const Hover h = hitAt(x, y);
         if (h.id == DlgField || (h.id == PickItem && h.arg < 0)) return Cursor::Text;
-        if (h.id == None || h.id == DlgScrim || h.id == PickScrim) return Cursor::Default;
+        if (h.id == None || h.id == DlgScrim || h.id == PickScrim || h.id == CapScrim) return Cursor::Default;
         return Cursor::Pointer;
     }
 
@@ -474,6 +577,10 @@ struct AutostartPage final : ToolPage {
     bool act(const Hover& h) {
         switch (h.id) {
             case Add: openPicker(); break;
+            case SaveOpen: openCapture(); break;
+            case CapScrim: case CapCancel: cap = false; break;
+            case CapToggle: if (h.arg >= 0 && h.arg < static_cast<int>(caps.size()) && !caps[static_cast<size_t>(h.arg)].dup) capOn[static_cast<size_t>(h.arg)] = !capOn[static_cast<size_t>(h.arg)]; break;
+            case CapAdd: addCaptured(); break;
             case RemoveAll:
                 if (Clock::now() < clearArmed) { rows.clear(); clearArmed = {}; commit(); say(asT("All apps removed")); }
                 else clearArmed = Clock::now() + std::chrono::seconds(4);
@@ -513,6 +620,7 @@ struct AutostartPage final : ToolPage {
     }
     bool scroll(double x, double y, double dy) override {
         if (dlg) return false;
+        if (cap) { if (capArea.contains(x, y)) { capScroll.by(dy * 3); return true; } return false; }
         if (pick) { if (pickArea.contains(x, y)) { pickScroll.by(dy * 3); return true; } return false; }
         if (listArea.contains(x, y)) { listScroll.by(dy * 3); return true; }
         return false;
@@ -553,6 +661,11 @@ struct AutostartPage final : ToolPage {
             if (k.sym == XKB_KEY_Return || k.sym == XKB_KEY_KP_Enter) { saveEditor(); return true; }
             return focus == 1 ? typeInto(d.name, curName, k, 80) : typeInto(d.cmd, curCmd, k, 600);
         }
+        if (cap) {
+            if (k.sym == XKB_KEY_Escape) { cap = false; return true; }
+            if (k.sym == XKB_KEY_Return || k.sym == XKB_KEY_KP_Enter) { if (capCount() > 0) addCaptured(); return true; }
+            return false;
+        }
         if (pick) {
             if (k.sym == XKB_KEY_Escape) { pick = false; return true; }
             if (k.sym == XKB_KEY_Return || k.sym == XKB_KEY_KP_Enter) { const std::vector<int> m = pickMatches(); if (!m.empty()) choose(m[0]); return true; }
@@ -568,6 +681,7 @@ struct AutostartPage final : ToolPage {
     bool tick() override {
         bool changed = listScroll.step();
         if (pickScroll.step()) changed = true;
+        if (capScroll.step()) changed = true;
         if (!toast.empty() && Clock::now() >= toastUntil) { toast.clear(); changed = true; }
         if (clearArmed != Clock::time_point{} && Clock::now() >= clearArmed) { clearArmed = {}; changed = true; }
         const bool caretOn = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - lastKey).count() / 530 % 2 == 0;
