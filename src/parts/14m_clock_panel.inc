@@ -685,7 +685,8 @@ int clkAiKind(const App& app, const ClockPanel& P) { return clkAiKindOfTab(app, 
 void clkAiHero(ClkCtx& X, double x, double y, int kind) {
     cairo_t* cr = X.cr;
     const App::BarAi& a = X.app.barAi[kind];
-    const double w = kClkW - 2 * kClkPad, h = kClkHeroH, pct = std::clamp(a.pct, 0.0, 1.0);
+    const double w = kClkW - 2 * kClkPad, h = kClkHeroH;
+    const double used = std::clamp(a.pct, 0.0, 1.0), shown = aiBarFraction(X.app, kind);
     cairo_save(cr);
     roundedRect(cr, x, y, w, h, 24);
     setSource(cr, X.app.color("primary_container"));
@@ -699,13 +700,13 @@ void clkAiHero(ClkCtx& X, double x, double y, int kind) {
     cairo_restore(cr);
     const std::string title = kind == 0 ? std::string("Claude Code · ") + i18n::tr("5 h window") : std::string("Codex · ") + i18n::tr("Account limit");
     X.literal(title, 14, true, x + 20, y + 26, ink, 0.92);
-    const int tw = X.literal(std::to_string(static_cast<int>(std::lround(pct * 100))), 76, false, x + 16, y + 80, ink, 1.0, 0, 0, true);
+    const int tw = X.literal(std::to_string(static_cast<int>(std::lround(shown * 100))), 76, false, x + 16, y + 80, ink, 1.0, 0, 0, true);
     X.literal("%", 30, false, x + 20 + tw, y + 98, ink, 0.85, 0, 0, true);
-    const char* state = pct >= 0.9 ? "Near limit" : pct >= 0.7 ? "High" : "Normal";
+    const char* state = used >= 0.9 ? "Near limit" : used >= 0.7 ? "High" : "Normal";
     const std::string chip = i18n::tr(state);
     const int cw = X.textRaw(chip, 13, true);
     roundedRect(cr, x + 20, y + 126, cw + 24, 28, 14);
-    setSource(cr, pct >= 0.9 ? X.app.color("error") : ink, pct >= 0.9 ? 0.3 : 0.14);
+    setSource(cr, used >= 0.9 ? X.app.color("error") : ink, used >= 0.9 ? 0.3 : 0.14);
     cairo_fill(cr);
     X.literal(chip, 13, true, x + 32, y + 140, ink, 0.95);
     std::string info;
@@ -713,7 +714,11 @@ void clkAiHero(ClkCtx& X, double x, double y, int kind) {
         const long long left = a.resetsAt - static_cast<long long>(std::time(nullptr));
         info = std::to_string(a.sessions) + " " + i18n::tr(a.sessions == 1 ? "session" : "sessions");
         if (a.resetsAt > 0 && left > 0) info += " · " + std::string(i18n::tr("resets in")) + " " + clkDuration(left);
-    } else info = std::to_string(static_cast<int>(std::lround((1 - pct) * 100))) + "% " + i18n::tr("Available");
+    } else {
+        const bool showAvailable = X.app.cfg.aiCodexPercent == "available";
+        const double other = showAvailable ? used : 1.0 - used;
+        info = std::to_string(static_cast<int>(std::lround(other * 100))) + "% " + i18n::tr(showAvailable ? "Used" : "Available");
+    }
     X.literal(info, 13, false, x + 22, y + 172, ink, 0.78);
 }
 
@@ -748,8 +753,8 @@ void clkAiBody(ClkCtx& X, double x, double y, double w, double h, int kind) {
     const char* accent = pct >= 0.9 ? "error" : "primary";
     if (kind == 1) {
         const double th = (h - gap) / 2;
-        clkAiTile(X, x, y, tw, h, "Account limit");
-        clkAiRing(X, x + tw / 2, y + h / 2 + 8, std::min(tw / 2 - 22, 64.0), pct, accent);
+        clkAiTile(X, x, y, tw, h, X.app.cfg.aiCodexPercent == "available" ? "Available" : "Used");
+        clkAiRing(X, x + tw / 2, y + h / 2 + 8, std::min(tw / 2 - 22, 64.0), aiBarFraction(X.app, kind), accent);
         clkAiTile(X, x + tw + gap, y, tw, th, "Used");
         X.literal(std::to_string(static_cast<int>(std::lround(pct * 100))) + "%", 34, false, x + tw + gap + 16, y + th - 34, X.app.color("on_surface"));
         clkAiTile(X, x + tw + gap, y + th + gap, tw, th, "Available");
