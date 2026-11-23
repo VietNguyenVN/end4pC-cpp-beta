@@ -9,6 +9,7 @@
 #include <string>
 
 struct BubbleColor { double r = 0, g = 0, b = 0; };
+struct BubbleBounds { double left = 0, top = 0, right = 0, bottom = 0; };
 
 struct Bubble {
     std::string key, text;
@@ -27,9 +28,12 @@ inline void bubbleHide(Bubble& b) { b.key.clear(); }
 
 inline double bubbleSpring(double t) { return t <= 0 ? 0 : 1 - std::exp(-7.5 * t) * std::cos(15.0 * t); }
 
-inline bool bubbleDraw(cairo_t* cr, const Bubble& b, BubbleColor bg, BubbleColor fg) {
+inline bool bubbleDraw(cairo_t* cr, const Bubble& b, BubbleColor bg, BubbleColor fg,
+                       BubbleBounds* animationBounds = nullptr, double duration = 0.7) {
+    if (animationBounds) *animationBounds = {};
     if (b.key.empty()) return false;
-    const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - b.since).count();
+    const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - b.since).count();
+    const double t = elapsed * (0.7 / duration);
     PangoLayout* layout = pango_cairo_create_layout(cr);
     PangoFontDescription* f = pango_font_description_from_string("Sans Bold");
     pango_font_description_set_absolute_size(f, 13 * PANGO_SCALE);
@@ -44,12 +48,29 @@ inline bool bubbleDraw(cairo_t* cr, const Bubble& b, BubbleColor bg, BubbleColor
     const double bx = std::clamp(tcx - bw / 2, 8.0, std::max(8.0, b.viewW - bw - 8));
     const double by = above ? b.ay - bh - tip - gap : b.ay + b.ah + tip + gap;
     const double tipY = above ? by + bh + tip : by - tip;
-    const double s = std::max(0.0, bubbleSpring(t)), alpha = std::min(1.0, t / 0.09);
+    const double s = t < 0.7 ? std::max(0.0, bubbleSpring(t)) : 1.0;
+    const double alpha = std::min(1.0, t / 0.09);
 
     cairo_save(cr);
     cairo_translate(cr, tcx, tipY);
     cairo_scale(cr, s, s);
     cairo_translate(cr, -tcx, -tipY);
+    // Keep the temporary Cairo group to the tooltip, even on a full-screen surface.
+    const double left = std::min(bx, tcx - tip) - 2;
+    const double top = std::min(by, tipY) - 2;
+    const double right = std::max(bx + bw + 1, tcx + tip) + 2;
+    const double bottom = std::max(by + bh + 3, tipY) + 2;
+    // The spring starts at the tip and its overshoot stays below 1.5×.
+    if (animationBounds) {
+        *animationBounds = {
+            tcx + 1.5 * (std::min(left, tcx) - tcx) - 2,
+            tipY + 1.5 * (std::min(top, tipY) - tipY) - 2,
+            tcx + 1.5 * (std::max(right, tcx) - tcx) + 2,
+            tipY + 1.5 * (std::max(bottom, tipY) - tipY) + 2,
+        };
+    }
+    cairo_rectangle(cr, left, top, right - left, bottom - top);
+    cairo_clip(cr);
     auto box = [&](double x, double y, double w, double h, double r) {
         cairo_new_sub_path(cr);
         cairo_arc(cr, x + w - r, y + r, r, -M_PI / 2, 0);

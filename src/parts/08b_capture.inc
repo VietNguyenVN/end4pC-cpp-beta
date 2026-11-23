@@ -113,6 +113,7 @@ int capStyleAt(const Capture& c, double x, double y) {
 void closeCapture(App& app) {
     Capture& c = app.cap;
     if (!c.open()) return;
+    if (c.frame) wl_callback_destroy(c.frame);
     if (c.layer) zwlr_layer_surface_v1_destroy(c.layer);
     hidpi::detach(c.scale);
     wl_surface_destroy(c.surface);
@@ -278,7 +279,7 @@ void drawCapture(App& app);
 void captureBufRelease(void* d, wl_buffer*) {
     auto* b = static_cast<CapBuf*>(d);
     b->busy = false;
-    if (b->app && b->app->cap.open() && b->app->cap.dirty && !b->app->cap.framePending) drawCapture(*b->app);
+    if (b->app && b->app->cap.dirty) drawCapture(*b->app);
 }
 const wl_buffer_listener kCapBufListener = {captureBufRelease};
 
@@ -289,12 +290,10 @@ CapBuf* capFreeBuf(App& app) {
     const size_t size = static_cast<size_t>(PW) * 4 * PH;
     for (CapBuf& b : c.bufs) {
         if (b.busy) continue;
-        if (b.buf && b.size != size) {  // (made at another scale: the screen changed its scale since)
+        if (b.buf && (b.width != PW || b.height != PH)) {
             wl_buffer_destroy(b.buf);
             munmap(b.data, b.size);
-            b.buf = nullptr;
-            b.data = nullptr;
-            b.size = 0;
+            b = CapBuf{};
         }
         if (!b.buf) {
             const int fd = memfd_create("end4pC-capture", MFD_CLOEXEC);
@@ -306,6 +305,8 @@ CapBuf* capFreeBuf(App& app) {
             close(fd);
             b.data = data;
             b.size = size;
+            b.width = PW;
+            b.height = PH;
             b.app = &app;
             wl_buffer_add_listener(b.buf, &kCapBufListener, &b);
         }
@@ -335,19 +336,23 @@ void capMakeBase(Capture& c) {
 void captureFrameDone(void* d, wl_callback* cb, uint32_t) {
     wl_callback_destroy(cb);
     App* app = static_cast<App*>(d);
-    app->cap.framePending = false;
-    if (app->cap.open() && app->cap.dirty) drawCapture(*app);
+    Capture& c = app->cap;
+    c.frame = nullptr;
+    // Animate on compositor frames. A busy buffer will retry on release.
+    c.dirty = c.dirty || c.bubbleMoving;
+    if (c.dirty) drawCapture(*app);
 }
 const wl_callback_listener kCapFrameListener = {captureFrameDone};
 
 void captureRedraw(App& app) {
+    ++app.cap.scene;
     app.cap.dirty = true;
-    if (!app.cap.framePending) drawCapture(app);
+    drawCapture(app);
 }
 
 void drawCapture(App& app) {
     Capture& c = app.cap;
-    if (!c.open() || !c.configured || c.w <= 0 || c.h <= 0 || !c.shot) return;
+    if (!c.open() || !c.configured || c.frame || c.w <= 0 || c.h <= 0 || !c.shot) return;
     CapBuf* cb = capFreeBuf(app);
     if (!cb) return;
     capMakeBase(c);
@@ -358,6 +363,18 @@ void drawCapture(App& app) {
     cairo_surface_t* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(cb->data), CAIRO_FORMAT_ARGB32, PW, PH, PW * 4);
     cairo_surface_set_device_scale(surface, sc, sc);
     cairo_t* cr = mkcr(surface);
+    int left = 0, top = 0, right = PW, bottom = PH;
+    // Reused buffers already contain this scene. Only replace the tooltip
+    // footprint during animation, including its largest spring overshoot.
+    if (cb->scene == c.scene && c.bubbleBounds.right > c.bubbleBounds.left) {
+        const BubbleBounds& b = c.bubbleBounds;
+        left = std::clamp(static_cast<int>(std::floor(b.left * sc)), 0, PW);
+        top = std::clamp(static_cast<int>(std::floor(b.top * sc)), 0, PH);
+        right = std::clamp(static_cast<int>(std::ceil(b.right * sc)), left, PW);
+        bottom = std::clamp(static_cast<int>(std::ceil(b.bottom * sc)), top, PH);
+        cairo_rectangle(cr, left / sc, top / sc, (right - left) / sc, (bottom - top) / sc);
+        cairo_clip(cr);
+    }
     const double iw = cairo_image_surface_get_width(c.shot), ih = cairo_image_surface_get_height(c.shot);
 
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
@@ -600,19 +617,19 @@ void drawCapture(App& app) {
             bubbleShow(c.bubble, std::string("cap") + std::to_string(c.hoverBtn), names[c.hoverBtn], r.x, r.y, r.w, r.h, W, H);
         } else bubbleHide(c.bubble);
         const Color bg = app.color("inverse_surface"), fg = app.color("inverse_on_surface");
-        c.bubbleMoving = bubbleDraw(cr, c.bubble, {bg.r, bg.g, bg.b}, {fg.r, fg.g, fg.b});
+        c.bubbleMoving = bubbleDraw(cr, c.bubble, {bg.r, bg.g, bg.b}, {fg.r, fg.g, fg.b}, &c.bubbleBounds, 0.18);
     }
 
     g_object_unref(layout);
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
     cb->busy = true;
+    cb->scene = c.scene;
     wl_surface_attach(c.surface, cb->buf, 0, 0);
-    wl_surface_damage_buffer(c.surface, 0, 0, PW, PH);
+    wl_surface_damage_buffer(c.surface, left, top, right - left, bottom - top);
     if (c.scale.viewport) wp_viewport_set_destination(c.scale.viewport, W, H);
-    wl_callback* frame = wl_surface_frame(c.surface);
-    wl_callback_add_listener(frame, &kCapFrameListener, &app);
-    c.framePending = true;
+    c.frame = wl_surface_frame(c.surface);
+    wl_callback_add_listener(c.frame, &kCapFrameListener, &app);
     wl_surface_commit(c.surface);
 }
 
@@ -833,7 +850,7 @@ void openCapture(App& app, bool record) {
     g_object_unref(pb);
     c.shotFile = shot;
     c.surface = wl_compositor_create_surface(app.compositor);
-    attachScale(app, c.scale, c.surface, [&app] { app.cap.dirty = true; drawCapture(app); });
+    attachScale(app, c.scale, c.surface, [&app] { captureRedraw(app); });
     c.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, c.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-capture");
     zwlr_layer_surface_v1_set_anchor(c.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
     zwlr_layer_surface_v1_set_size(c.layer, 0, 0);
@@ -846,7 +863,7 @@ void openCapture(App& app, bool record) {
             a->cap.w = static_cast<int>(w);
             a->cap.h = static_cast<int>(h);
             a->cap.configured = true;
-            drawCapture(*a);
+            captureRedraw(*a);
         },
         [](void* d, zwlr_layer_surface_v1*) { closeCapture(*static_cast<App*>(d)); }};
     zwlr_layer_surface_v1_add_listener(c.layer, &kCaptureListener, &app);
@@ -887,9 +904,13 @@ void captureMotion(App& app) {
             if (a.pts.empty() || std::hypot(px - a.pts.back().first, py - a.pts.back().second) >= 1.5) a.pts.push_back({px, py});
         } else { a.x1 = px; a.y1 = py; }
     }
-    c.hoverBtn = capButtonAt(c, app.pointerX, app.pointerY);
-    c.hoverStyle = capStyleAt(c, app.pointerX, app.pointerY);
-    captureRedraw(app);
+    const int hoverBtn = capButtonAt(c, app.pointerX, app.pointerY);
+    const int hoverStyle = capStyleAt(c, app.pointerX, app.pointerY);
+    if (c.mode != 0 || hoverBtn != c.hoverBtn || hoverStyle != c.hoverStyle) {
+        c.hoverBtn = hoverBtn;
+        c.hoverStyle = hoverStyle;
+        captureRedraw(app);
+    }
     updateCursor(app);
 }
 

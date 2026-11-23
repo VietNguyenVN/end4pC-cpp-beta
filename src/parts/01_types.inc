@@ -832,7 +832,15 @@ struct Selector {
     bool open() const { return surface != nullptr; }
 };
 
-struct CapBuf { wl_buffer* buf = nullptr; void* data = nullptr; size_t size = 0; bool busy = false; struct App* app = nullptr; };
+struct CapBuf {
+    wl_buffer* buf = nullptr;
+    void* data = nullptr;
+    size_t size = 0;
+    int width = 0, height = 0;
+    bool busy = false;
+    struct App* app = nullptr;
+    uint64_t scene = 0;
+};
 
 struct CapAnnot {
     int type = 0;
@@ -875,7 +883,10 @@ struct Capture {
     int hoverStyle = -1;
     CapBuf bufs[2];
     cairo_surface_t* base = nullptr;
-    bool dirty = false, framePending = false;
+    BubbleBounds bubbleBounds;
+    uint64_t scene = 1;
+    bool dirty = false;
+    wl_callback* frame = nullptr;
     bool open() const { return surface != nullptr; }
 };
 
