@@ -262,7 +262,7 @@ std::vector<std::string> centerModules(const App& app) {
 double moduleWidth(const App& app, const std::string& m) {
     if (m == "island") return islandActive(app) ? islandW(app) : 0;
     if (m == "workspaces") return wsTotalW(app);
-    if (m == "media") return musicW(app);
+    if (m == "media") return !mediaBarVisible(app) ? 0 : mediaHorizontalCompact(app) ? kMediaCompactWidth : musicW(app);
     if (m == "quickactions") return quickW(app);
     if (m == "network") return netVisible(app) ? netExtent(app, false) : 0;
     if (m == "volume") return volumeW(app);
@@ -301,7 +301,7 @@ double moduleWidth(const App& app, const std::string& m) {
 double cellInsetR(const App& app, const std::string& m) {
     if (!hasGroupCell(app.cfg, m)) return 0;
     if (m == "activewindow") return kCellTitleInset;
-    if (m == "media") return musicProgress(app) ? kCellTextInset : 0;  // (the cover look has its own pad: musicPad)
+    if (m == "media") return !mediaHorizontalCompact(app) && musicProgress(app) ? kCellTextInset : 0;  // (the cover look has its own pad: musicPad)
     return m == "visualizer" ? kVizCellPad : m == "aiusage" || m == "resources" || m == "weather" || m == "updates" || m == "network" ? kCellTextInset : 0;
 }
 // (the icon of the network widget already has air on its left)
@@ -505,7 +505,9 @@ Hit hitTest(const Bar& bar, double x, double y) {
             const double ix = quickX(bar) + quickPadX(app) + quickItemX(app, i);
             if (x >= ix - slack && x < ix + quickItemW(app, quickShown(app)[i]) + slack) return kHitQuick + quickShown(app)[i];
         }
-    if (hasSlot(bar, "media") && musicProgress(app)) {
+    if (hasSlot(bar, "media") && mediaHorizontalCompact(app)) {
+        if (x >= musicX(bar) && x < musicX(bar) + kMediaCompactWidth) return HitMedia;
+    } else if (hasSlot(bar, "media") && musicProgress(app)) {
         if (x >= musicX(bar) && x < musicX(bar) + musicW(app)) return HitMedia;
     } else if (hasSlot(bar, "media") && musicM3(app)) {
         const double px = musicX(bar) + musicCtrlX(app);
@@ -513,7 +515,7 @@ Hit hitTest(const Bar& bar, double x, double y) {
         if (x >= px + kMediaNextX - 1 && x < px + kMediaNextX + kM3Disc + 2) return HitNext;
         if (x >= musicX(bar) && x < px - kMusicGap / 2) return HitMedia;
     }
-    if (hasSlot(bar, "media") && !musicM3(app)) {
+    if (hasSlot(bar, "media") && !mediaHorizontalCompact(app) && !musicM3(app)) {
         const double cx = musicX(bar) + musicPad(app) + musicCtrlX(app);
         const Hit ids[3] = {HitPrev, HitPlay, HitNext};
         for (int i = 0; i < 3; i++)

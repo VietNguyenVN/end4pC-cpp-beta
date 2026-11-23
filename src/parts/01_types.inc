@@ -349,6 +349,8 @@ struct Config {
     std::string notificationPosition = "top_right";
     int doNotDisturb = 0;
     int notificationTimeout = 4000;
+    int mediaAlways = 0;
+    std::string mediaHorizontalStyle = "classic";
     int privacyAlways = 0, privacyMic = 1, privacyCam = 1, privacyScreen = 1;  // privacy indicators: show them even when idle; which of the three to watch
     std::string overviewPosition = "top";  // the overview strip: top, bottom, left or right
     std::string switcherStyle = "grid";   // Alt + Tab: "grid" of cards, or a "row" across the middle
@@ -2262,6 +2264,11 @@ std::string musicArtistShown(const App& app) { return app.musicStatus.empty() ? 
 std::string musicTitleShown(const App& app) {
     if (!app.musicStatus.empty()) return app.musicTitle;
     return widgetStyle(app, "media") == "compact" ? std::string(i18n::tr("Play something")) : std::string(i18n::tr("Something"));
+}
+constexpr double kMediaCompactWidth = 40;
+bool mediaHorizontalCompact(const App& app) { return !sideBar(app) && app.cfg.mediaHorizontalStyle == "compact"; }
+bool mediaBarVisible(const App& app) {
+    return app.cfg.mediaAlways || !app.musicStatus.empty() || (!sideBar(app) && !mediaHorizontalCompact(app));
 }
 bool musicProgress(const App& app) { return widgetStyle(app, "media") == "progress"; }
 // The Progress look: a ring that fills with the song, then "Title • Artist". No controls (middle click plays/pauses, right click skips).

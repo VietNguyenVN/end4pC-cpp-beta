@@ -22,6 +22,8 @@
   "collagePrimary": 1,
   "collageTree": "{\"t\":\"leaf\",\"id\":1,\"img\":\"\"}",
   "networkAlways": 0,
+  "mediaAlways": 0,
+  "mediaHorizontalStyle": "classic",
   "networkSpeed": 0,
   "screenshotCopy": 1,
   "recordAudio": 0,
