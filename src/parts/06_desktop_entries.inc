@@ -1077,7 +1077,13 @@ void popWithShadow(cairo_t* cr, const App& app) {
 
 std::string weatherBarIcon(const App& app) { std::string label, ic; weatherDescribe(app.barWeather.code, app.barWeather.day, label, ic); return ic; }
 std::string weatherBarText(const App& app) { return std::to_string(app.barWeather.temp) + "\xC2\xB0"; }
-std::string aiBarText(const App& app, int kind) { return std::to_string(static_cast<int>(std::lround(std::clamp(app.barAi[kind].pct, 0.0, 1.0) * 100))) + "%"; }
+double aiBarFraction(const App& app, int kind) {
+    const double used = std::clamp(app.barAi[kind].pct, 0.0, 1.0);
+    return kind == 1 && app.cfg.aiCodexPercent == "available" ? 1.0 - used : used;
+}
+std::string aiBarText(const App& app, int kind) {
+    return std::to_string(static_cast<int>(std::lround(aiBarFraction(app, kind) * 100))) + "%";
+}
 Color aiBarColor(const App& app, int kind) {
     const App::BarAi& a = app.barAi[kind];
     if (a.pct >= 0.9) return app.color("error");
@@ -1247,7 +1253,7 @@ double aiM3Content(cairo_t* cr, const App& app, PangoLayout* layout, double x, d
 double aiPillContent(cairo_t* cr, const App& app, PangoLayout* layout, double x, double cy, int kind, const std::string& style, const Color& ink) {
     if (style == "m3") return aiM3Content(cr, app, layout, x, cy, kind, ink);
     constexpr double ic = 16, gap = 4, ringD = 24, capW = 44, capH = 16;
-    const double pct = std::clamp(app.barAi[kind].pct, 0.0, 1.0);
+    const double pct = aiBarFraction(app, kind);
     const std::string num = aiBarText(app, kind);
     pango_layout_set_text(layout, num.c_str(), -1);
     int tw = 0, th = 0;

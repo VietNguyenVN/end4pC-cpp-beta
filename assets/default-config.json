@@ -91,6 +91,7 @@
   "dividerStyle": "dot",
   "aiClaude": 1,
   "aiCodex": 0,
+  "aiCodexPercent": "used",
   "aiTokenLimit": 1000,
   "clockStyle": "digital",
   "theme": "",
