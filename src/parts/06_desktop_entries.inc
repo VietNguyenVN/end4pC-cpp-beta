@@ -2364,7 +2364,7 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
         const double px = bx + lead + dateW, py = cy - bh / 2, ampmX = px + timeW - kM3Overlap;
         w = lead + dateW + timeW + (ampmW > 0 ? ampmW - kM3Overlap : 0) + inset;
         fillRR(bx, cy - kM3Box / 2, w, kM3Box, kM3Box / 2, kM3Box / 2, kM3Box / 2, kM3Box / 2, cont);
-        if (hasDate) text(app.clockDate, mdf, bx + lead, cy, onCont);
+        if (hasDate) dateOnTimeBaseline(app.clockDate, bx + lead, onCont, 1);
         fillRR(px, py, timeW, bh, bh / 2, bh / 2, bh / 2, bh / 2, primary);
         text(app.clockTime, mf, px + kClockPadL, cy, onPrimary);
         if (ampmW > 0) {
@@ -2457,7 +2457,7 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
         }
         const Color ink = hover ? onPrimary : onCont;
         text(time, tf, bx + left + face + 8, cy, ink);
-        if (hasDate) text(app.clockDate, df, bx + left + face + 8 + tw + 8, cy, ink, 0.8);
+        if (hasDate) dateOnTimeBaseline(app.clockDate, bx + left + face + 8 + tw + 8, ink, 0.8);
     } else if (style == "split") {
         const double tseg = 24 + tw, dseg = hasDate ? 20 + dw : 0, r = bh / 2, rs = 5, gap = 2;
         w = tseg + (hasDate ? gap + dseg : 0);
@@ -2465,7 +2465,7 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
         text(time, tf, bx + 12, cy, hover ? onPrimary : onCont);
         if (hasDate) {
             fillRR(bx + tseg + gap, by, dseg, bh, rs, r, r, rs, app.color(hover ? "secondary" : "secondary_container"));
-            text(app.clockDate, df, bx + tseg + gap + 10, cy, app.color(hover ? "on_secondary" : "on_secondary_container"));
+            dateOnTimeBaseline(app.clockDate, bx + tseg + gap + 10, app.color(hover ? "on_secondary" : "on_secondary_container"), 1);
         }
     } else if (style == "compact") {
         w = 20 + tw;
@@ -2568,7 +2568,7 @@ double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx
         if (cr) drawIcon(cr, "schedule", bx + kClockPadL, by + (bh - kClockIcon) / 2.0, kClockIcon, ink, hover);
         const double tx = bx + kClockPadL + kClockIcon + kClockGap;
         text(time, tf, tx, cy, ink);
-        if (hasDate) text(app.clockDate, df, tx + tw + kClockGap, cy, ink, 0.8);
+        if (hasDate) dateOnTimeBaseline(app.clockDate, tx + tw + kClockGap, ink, 0.8);
     }
     pango_font_description_free(tf);
     pango_font_description_free(df);
