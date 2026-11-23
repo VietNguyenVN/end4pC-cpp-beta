@@ -1080,12 +1080,14 @@ std::string weatherBarText(const App& app) { return std::to_string(app.barWeathe
 const App::BarAi& aiBarUsage(const App& app, int kind) {
     return kind == 1 && app.cfg.aiCodexWindow == "weekly" ? app.codexWeekly : app.barAi[kind];
 }
-double codexLeft(const App::BarAi& usage) {
-    return usage.seen ? 1.0 - std::clamp(usage.pct, 0.0, 1.0) : 0.0;
+double codexFraction(const Config& cfg, const App::BarAi& usage) {
+    if (!usage.seen) return 0.0;
+    const double used = std::clamp(usage.pct, 0.0, 1.0);
+    return cfg.aiCodexPercent == "available" ? 1.0 - used : used;
 }
 double aiBarFraction(const App& app, int kind) {
     const auto& usage = aiBarUsage(app, kind);
-    return kind == 1 ? codexLeft(usage) : std::clamp(usage.pct, 0.0, 1.0);
+    return kind == 1 ? codexFraction(app.cfg, usage) : std::clamp(usage.pct, 0.0, 1.0);
 }
 std::string aiPercentText(double fraction) {
     return std::to_string(static_cast<int>(std::lround(fraction * 100))) + "%";

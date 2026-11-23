@@ -413,6 +413,7 @@ struct Config {
     std::string groupLooks;  // the looks picked from the popups of the bar in the Separated group style: "<widget>=<look>,..." (a widget without one keeps the look the group style gives it)
     std::string dividerLooks;  // what some dividers of the bar look like on their own, by their order in the bar: "<n>:<line|dot|space|slash|backslash|->:<spacing|->,..." (a "-" follows the bar's)
     int aiClaude = 1, aiCodex = 1;
+    std::string aiCodexPercent = "used";
     std::string aiCodexWindow = "5h";
     int aiTokenLimit = 1000;
     std::string resStyle = "filled";

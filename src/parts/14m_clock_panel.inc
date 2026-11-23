@@ -694,16 +694,17 @@ void clkCodexSummary(ClkCtx& X, double x, double y) {
     X.literal(std::string("Codex · ") + i18n::tr("Account limit"), 14, true, x + 20, y + 26, ink);
     drawIcon(cr, "openai", x + w - 44, y + 14, 24, ink, false);
 
+    const char* mode = X.app.cfg.aiCodexPercent == "available" ? "left" : "used";
     auto window = [&](const App::BarAi& usage, const char* label, double left) {
-        const double remaining = codexLeft(usage);
+        const double fraction = codexFraction(X.app.cfg, usage);
         std::string text = std::string(i18n::tr(label)) + " ";
-        text += usage.seen ? aiPercentText(remaining) + " " + i18n::tr("left") : "—";
+        text += usage.seen ? aiPercentText(fraction) + " " + i18n::tr(mode) : "—";
         X.literal(text, 16, true, left, y + 74, ink);
         roundedRect(cr, left, y + 96, track, 8, 4);
         setSource(cr, ink, 0.18);
         cairo_fill(cr);
-        if (remaining > 0) {
-            roundedRect(cr, left, y + 96, track * remaining, 8, 4);
+        if (fraction > 0) {
+            roundedRect(cr, left, y + 96, track * fraction, 8, 4);
             setSource(cr, usage.pct >= 0.9 ? X.app.color("error") : ink);
             cairo_fill(cr);
         }
