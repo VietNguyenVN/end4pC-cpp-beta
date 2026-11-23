@@ -67,7 +67,7 @@ bool barModulesRead(App& app) {
     const std::string c = wsObject(j, "claude"), x = wsObject(j, "codex");
     App::BarAi ai[2];
     ai[0] = {avail(c), avail(c) ? num(c, "tokens") / (std::max(1, app.cfg.aiTokenLimit) * 1000.0) : 0.0, static_cast<int>(num(c, "sessions")), static_cast<long long>(num(c, "resetsAt"))};
-    ai[1] = {avail(x), avail(x) ? num(x, "percentage") : 0.0, 0, 0};
+    ai[1] = {avail(x), avail(x) ? num(x, "percentage") : 0.0, 0, static_cast<long long>(num(x, "resetsAt"))};
     for (int k = 0; k < 2; k++)
         if (ai[k].seen != app.barAi[k].seen || std::abs(ai[k].pct - app.barAi[k].pct) > 0.0005 || ai[k].sessions != app.barAi[k].sessions) { app.barAi[k] = ai[k]; changed = true; }
         else app.barAi[k].resetsAt = ai[k].resetsAt;
