@@ -445,6 +445,7 @@ private:
 #include "tools/page_phone.inc"
 #include "tools/page_tasks.inc"
 #include "tools/page_power.inc"
+#include "tools/icon_theme.inc"
 #include "tools/autostart_store.inc"
 #include "tools/page_autostart.inc"
 

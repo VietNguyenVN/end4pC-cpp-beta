@@ -129,7 +129,12 @@ struct AutostartPage final : ToolPage {
     // The icon of an app (28 px), or a letter on a disc when the theme does not have it.
     void drawAppIcon(cairo_t* cr, const std::string& iconName, const std::string& label, double cx, double cy, double size, double alpha) {
         auto it = icons.find(iconName);
-        cairo_surface_t* ic = it != icons.end() ? it->second : (icons[iconName] = tkLoadIcon(iconName, static_cast<int>(size)));
+        if (it == icons.end()) {  // the icon theme in use first (its own icon for the name), then the plain lookup
+            const std::string file = thLookupIcon(iconName, static_cast<int>(size) * 2);
+            cairo_surface_t* made = file.empty() ? nullptr : tkLoadIcon(file, static_cast<int>(size));
+            it = icons.emplace(iconName, made ? made : tkLoadIcon(iconName, static_cast<int>(size))).first;
+        }
+        cairo_surface_t* ic = it->second;
         if (ic) {
             cairo_save(cr);
             cairo_translate(cr, cx - size / 2, cy - size / 2);
