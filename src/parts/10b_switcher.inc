@@ -275,11 +275,25 @@ std::chrono::steady_clock::time_point switcherWake(const App& app) {
 
 void swCommit(App& app) {
     Switcher& S = app.sw;
-    if (!S.open()) return;
+    if (!S.open() || popIsOut(S.anim)) return;
     const std::string addr = S.sel >= 0 && S.sel < static_cast<int>(S.wins.size()) ? S.wins[S.sel].address : "";
+    if (!addr.empty() && S.configured && S.layer && wmKind() == Wm::Hyprland) {
+        // Hyprland refuses window focus while an exclusive layer holds the keyboard.
+        // Wait for the layer commit before sending focus over the separate IPC socket.
+        zwlr_layer_surface_v1_set_keyboard_interactivity(S.layer, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE);
+        wl_surface_commit(S.surface);
+        static const wl_callback_listener focusAfterRelease = {
+            [](void* data, wl_callback* callback, uint32_t) {
+                std::unique_ptr<std::string> target(static_cast<std::string*>(data));
+                wl_callback_destroy(callback);
+                wmFocusWindow(*target);
+            }};
+        wl_callback_add_listener(wl_display_sync(app.display), &focusAfterRelease, new std::string(addr));
+        retractSwitcher(app);
+        return;
+    }
     retractSwitcher(app);
-    if (addr.empty()) return;
-    wmFocusWindow(addr);
+    if (!addr.empty()) wmFocusWindow(addr);
 }
 
 void swMove(App& app, int delta) {
