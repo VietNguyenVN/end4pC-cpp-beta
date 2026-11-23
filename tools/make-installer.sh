@@ -16,7 +16,7 @@ CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
 REPO_MODE=0
 if [ "${1:-}" = "--repo" ]; then REPO_MODE=1; shift; fi  # --repo: refresh installer/dots and installer/fonts in this repository instead of making a zip
 OUT="${1:-$HOME/Public}"
-STAMP="$(tr -d '[:space:]' < "$PROJECT/VERSION")"  # the release (VERSION): beta-1, beta-2 ...
+STAMP="$(tr -d '[:space:]' < "$PROJECT/VERSION")"  # the release (VERSION): pre-alpha, ...
 WORK="$(mktemp -d)"
 NAME="end4pC-installer"
 STAGE="$WORK/$NAME"

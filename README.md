@@ -11,7 +11,7 @@ No Qt, no QML, no GTK widgets: just `cairo` + `pango` in one small process.
 ![sway](https://img.shields.io/badge/SwayFX-supported-7aa2f7?style=flat-square)
 ![C++](https://img.shields.io/badge/C%2B%2B-meson%20%2B%20ninja-f7768e?style=flat-square)
 ![License](https://img.shields.io/badge/license-GPL--3.0-bb9af7?style=flat-square)
-![Status](https://img.shields.io/badge/status-beta-e0af68?style=flat-square)
+![Status](https://img.shields.io/badge/status-pre--alpha-e0af68?style=flat-square)
 
 [Install](#install) · [CLI reference](#command-line-reference) · [Keybinds](#keybinds) · [Configuration](#configuration) · [Languages](#languages) · [Troubleshooting](#troubleshooting)
 
