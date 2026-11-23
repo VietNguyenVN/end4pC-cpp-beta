@@ -454,9 +454,10 @@ std::vector<Page> makePages() {
         {Slider, "resWarnMem", "RAM warning", "It turns red at this use.", {}, 50, 100, 5, "%"},
         {Slider, "resWarnSwap", "Swap warning", "It turns red at this use.", {}, 50, 100, 5, "%"},
         {Toggle, "aiClaude", "Claude Code", "The tokens used in the current 5 hour window, as a percentage. It shows only while Claude Code has left data on this machine.", {}},
-        {Toggle, "aiCodex", "Codex", "The usage limit Codex reports. It shows only while Codex has left data on this machine.", {}},
-        {Choice, "aiCodexPercent", "Codex percentage", "Show how much of the Codex limit has been used or is still available.", {{"used", "Used"}, {"available", "Available"}}},
         {Slider, "aiTokenLimit", "Claude limit", "How many thousands of tokens count as 100 % of the window. Anthropic does not publish the number of your plan, so set the one you reach.", {}, 100, 5000, 100, "k"},
+        {Toggle, "aiCodex", "Codex", "The usage limit Codex reports. It shows only while Codex has left data on this machine.", {}},
+        {Choice, "aiCodexPercent", "Codex percentage", "Show the percentage left or used for Codex.", {{"available", "Remaining"}, {"used", "Used"}}},
+        {Choice, "aiCodexWindow", "Codex bar limit", "Choose which Codex limit the bar displays.", {{"5h", "5h"}, {"weekly", "Weekly"}}},
     }});
     p.push_back({"Interface", "layers-minimalistic", {
         {Toggle, "animEnabled", "Animations", "Popups, menus, the launcher and the wallpaper picker grow and settle with a motion. Off: they appear and go at once.", {}},
@@ -832,6 +833,7 @@ void loadConfig() {
         g.val.insert(d);
     if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
     g.val.insert({"aiCodexPercent", "used"});
+    g.val.insert({"aiCodexWindow", "5h"});
     g.val.insert({"lyricsProvider", "auto"});
     g.val.insert({"updatesEnable", "1"});
     for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"hotCornerWidth", "6"}, {"hotCornerHeight", "6"}, {"hotCornerVisible", "0"}, {"hotCornerHover", "0"}}) g.val.insert(d);
@@ -2784,7 +2786,7 @@ bool rowAvailable(const Row& r) {
     }
     for (const char* k : {"resCpu", "resRam", "resTemp", "resDisk", "resSwap", "resValue", "resInterval", "resWarnCpu", "resWarnMem", "resWarnSwap"})
         if (r.key == k) return moduleUsed("resources");
-    if (r.key == "aiCodexPercent") return moduleUsed("aiusage") && g.val["aiCodex"] == "1";
+    if (r.key == "aiCodexWindow" || r.key == "aiCodexPercent") return moduleUsed("aiusage") && g.val["aiCodex"] == "1";
     if (r.key == "aiClaude" || r.key == "aiCodex" || r.key == "aiTokenLimit") return moduleUsed("aiusage");
     return true;
 }

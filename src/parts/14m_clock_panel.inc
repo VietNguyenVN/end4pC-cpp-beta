@@ -682,11 +682,48 @@ int clkAiKindOfTab(const App& app, int tab) {
 }
 int clkAiKind(const App& app, const ClockPanel& P) { return clkAiKindOfTab(app, P.tab); }
 
-void clkAiHero(ClkCtx& X, double x, double y, int kind) {
+void clkCodexSummary(ClkCtx& X, double x, double y) {
     cairo_t* cr = X.cr;
-    const App::BarAi& a = X.app.barAi[kind];
+    const auto& primary = X.app.barAi[1];
+    const auto& weekly = X.app.codexWeekly;
+    const double w = kClkW - 2 * kClkPad, track = (w - 52) / 2;
+    const Color ink = X.app.color("on_primary_container");
+    roundedRect(cr, x, y, w, kClkHeroH, 24);
+    setSource(cr, X.app.color("primary_container"));
+    cairo_fill(cr);
+    X.literal(std::string("Codex · ") + i18n::tr("Account limit"), 14, true, x + 20, y + 26, ink);
+    drawIcon(cr, "openai", x + w - 44, y + 14, 24, ink, false);
+
+    const char* mode = X.app.cfg.aiCodexPercent == "available" ? "left" : "used";
+    auto window = [&](const App::BarAi& usage, const char* label, double left) {
+        const double fraction = codexFraction(X.app.cfg, usage);
+        std::string text = std::string(i18n::tr(label)) + " ";
+        text += usage.seen ? aiPercentText(fraction) + " " + i18n::tr(mode) : "—";
+        X.literal(text, 16, true, left, y + 74, ink);
+        roundedRect(cr, left, y + 96, track, 8, 4);
+        setSource(cr, ink, 0.18);
+        cairo_fill(cr);
+        if (fraction > 0) {
+            roundedRect(cr, left, y + 96, track * fraction, 8, 4);
+            setSource(cr, usage.pct >= 0.9 ? X.app.color("error") : ink);
+            cairo_fill(cr);
+        }
+        const long long reset = usage.resetsAt - static_cast<long long>(std::time(nullptr));
+        if (usage.seen && usage.pct >= 0.7)
+            X.text(usage.pct >= 0.9 ? "Near limit" : "High", 13, true, left, y + 124, ink);
+        if (usage.seen && reset > 0)
+            X.literal(std::string(i18n::tr("resets in")) + " " + clkDuration(reset), 12, false, left, y + 149, ink);
+    };
+    window(primary, "5h", x + 20);
+    window(weekly, "Weekly", x + 32 + track);
+}
+
+void clkAiHero(ClkCtx& X, double x, double y, int kind) {
+    if (kind == 1) { clkCodexSummary(X, x, y); return; }
+    cairo_t* cr = X.cr;
+    const App::BarAi& a = X.app.barAi[0];
     const double w = kClkW - 2 * kClkPad, h = kClkHeroH;
-    const double used = std::clamp(a.pct, 0.0, 1.0), shown = aiBarFraction(X.app, kind);
+    const double used = std::clamp(a.pct, 0.0, 1.0);
     cairo_save(cr);
     roundedRect(cr, x, y, w, h, 24);
     setSource(cr, X.app.color("primary_container"));
@@ -696,11 +733,11 @@ void clkAiHero(ClkCtx& X, double x, double y, int kind) {
     setSource(cr, X.app.color("primary"), 0.2);
     cairo_fill(cr);
     const Color ink = X.app.color("on_primary_container");
-    drawIcon(cr, kind == 0 ? "claude" : "openai", x + w - 78 - 32, y + 84 - 32, 64, ink, false);
+    drawIcon(cr, "claude", x + w - 78 - 32, y + 84 - 32, 64, ink, false);
     cairo_restore(cr);
-    const std::string title = kind == 0 ? std::string("Claude Code · ") + i18n::tr("5 h window") : std::string("Codex · ") + i18n::tr("Account limit");
+    const std::string title = std::string("Claude Code · ") + i18n::tr("5 h window");
     X.literal(title, 14, true, x + 20, y + 26, ink, 0.92);
-    const int tw = X.literal(std::to_string(static_cast<int>(std::lround(shown * 100))), 76, false, x + 16, y + 80, ink, 1.0, 0, 0, true);
+    const int tw = X.literal(std::to_string(static_cast<int>(std::lround(used * 100))), 76, false, x + 16, y + 80, ink, 1.0, 0, 0, true);
     X.literal("%", 30, false, x + 20 + tw, y + 98, ink, 0.85, 0, 0, true);
     const char* state = used >= 0.9 ? "Near limit" : used >= 0.7 ? "High" : "Normal";
     const std::string chip = i18n::tr(state);
@@ -709,16 +746,9 @@ void clkAiHero(ClkCtx& X, double x, double y, int kind) {
     setSource(cr, used >= 0.9 ? X.app.color("error") : ink, used >= 0.9 ? 0.3 : 0.14);
     cairo_fill(cr);
     X.literal(chip, 13, true, x + 32, y + 140, ink, 0.95);
-    std::string info;
-    if (kind == 0) {
-        const long long left = a.resetsAt - static_cast<long long>(std::time(nullptr));
-        info = std::to_string(a.sessions) + " " + i18n::tr(a.sessions == 1 ? "session" : "sessions");
-        if (a.resetsAt > 0 && left > 0) info += " · " + std::string(i18n::tr("resets in")) + " " + clkDuration(left);
-    } else {
-        const bool showAvailable = X.app.cfg.aiCodexPercent == "available";
-        const double other = showAvailable ? used : 1.0 - used;
-        info = std::to_string(static_cast<int>(std::lround(other * 100))) + "% " + i18n::tr(showAvailable ? "Used" : "Available");
-    }
+    const long long left = a.resetsAt - static_cast<long long>(std::time(nullptr));
+    std::string info = std::to_string(a.sessions) + " " + i18n::tr(a.sessions == 1 ? "session" : "sessions");
+    if (a.resetsAt > 0 && left > 0) info += " · " + std::string(i18n::tr("resets in")) + " " + clkDuration(left);
     X.literal(info, 13, false, x + 22, y + 172, ink, 0.78);
 }
 
@@ -746,21 +776,11 @@ void clkAiTile(ClkCtx& X, double x, double y, double w, double h, const char* la
     X.text(label, 12, false, x + 16, y + 22, X.app.color("on_surface_variant"), 0.95);
 }
 
-void clkAiBody(ClkCtx& X, double x, double y, double w, double h, int kind) {
+void clkClaudeBody(ClkCtx& X, double x, double y, double w, double h) {
     cairo_t* cr = X.cr;
-    const App::BarAi& a = X.app.barAi[kind];
+    const App::BarAi& a = X.app.barAi[0];
     const double gap = 8, tw = (w - gap) / 2, pct = std::clamp(a.pct, 0.0, 1.0);
     const char* accent = pct >= 0.9 ? "error" : "primary";
-    if (kind == 1) {
-        const double th = (h - gap) / 2;
-        clkAiTile(X, x, y, tw, h, X.app.cfg.aiCodexPercent == "available" ? "Available" : "Used");
-        clkAiRing(X, x + tw / 2, y + h / 2 + 8, std::min(tw / 2 - 22, 64.0), aiBarFraction(X.app, kind), accent);
-        clkAiTile(X, x + tw + gap, y, tw, th, "Used");
-        X.literal(std::to_string(static_cast<int>(std::lround(pct * 100))) + "%", 34, false, x + tw + gap + 16, y + th - 34, X.app.color("on_surface"));
-        clkAiTile(X, x + tw + gap, y + th + gap, tw, th, "Available");
-        X.literal(std::to_string(static_cast<int>(std::lround((1 - pct) * 100))) + "%", 34, false, x + tw + gap + 16, y + th + gap + th - 34, X.app.color("on_surface"));
-        return;
-    }
     const double th = (h - gap) / 2;
     clkAiTile(X, x, y, tw, th, "Window");
     clkAiRing(X, x + tw / 2, y + th / 2 + 10, std::min(th / 2 - 26, 46.0), pct, accent);
@@ -1239,6 +1259,8 @@ double clkStyleH(const App& app, const ClockPanel& P) {
 
 double clkWantedH(const App& app, const ClockPanel& P) {
     if (P.kind == 6) return clkStyleH(app, P);
+    if (P.kind == 2 && clkAiKind(app, P) == 1)
+        return 2 * kClkPad + kClkHeroH + (aiShown(app).size() > 1 ? kClkGap + kClkTabsH : 0);
     if (P.kind != 5) return 0;
     if (P.adding) {
         const int rows = std::clamp(static_cast<int>(kbdMatches(app, P.query).size()), 1, kKbdPickFit);
@@ -1457,10 +1479,14 @@ void clkPaintCard(ClkCtx& X) {
     const bool noTabs = P.kind == 4 || P.kind == 5 || (P.kind == 2 && aiShown(X.app).size() < 2);
     const double bodyY = noTabs ? tabsY : tabsY + kClkTabsH + kClkGap, bodyH = noTabs ? kClkBodyH + kClkTabsH + kClkGap : kClkBodyH;
     if (!noTabs) clkTabs(X, kClkPad, tabsY);
+    if (P.kind == 2 && aiKind == 1) return;
     if (P.kind == 4) { clkBatBody(X, kClkPad, bodyY, bodyW, bodyH); return; }
     if (P.kind == 5) { clkKbdBody(X, kClkPad, bodyY, bodyW, bodyH); return; }
     auto bodyFor = [&](int tab) {
-        if (P.kind == 2) { clkAiBody(X, kClkPad, bodyY, bodyW, bodyH, clkAiKindOfTab(X.app, tab)); return; }
+        if (P.kind == 2) {
+            if (clkAiKindOfTab(X.app, tab) == 0) clkClaudeBody(X, kClkPad, bodyY, bodyW, bodyH);
+            return;
+        }
         if (P.kind == 3) { clkResBody(X, kClkPad, bodyY, bodyW, bodyH, tab); return; }
         cairo_save(cr);
         cairo_rectangle(cr, kClkPad - 2, bodyY - 2, bodyW + 4, kClkBodyH + 4);
@@ -1493,8 +1519,12 @@ void clkPaintCard(ClkCtx& X) {
 void drawClockPanel(App& app) {
     ClockPanel& P = app.clockP;
     if (!P.open() || !P.configured) return;
+    const double oldHeight = clkCardH(P);
     P.cardH = clkWantedH(app, P);
-    if (!sideBar(app) && app.cfg.barPosition == "bottom") P.cardY = static_cast<int>(kClkSurfH - kClkRoom - clkCardH(P));
+    if (!sideBar(app) && app.cfg.barPosition == "bottom") {
+        P.cardY = static_cast<int>(kClkSurfH - kClkRoom - clkCardH(P));
+        if (P.kind == 2) P.growY += clkCardH(P) - oldHeight;
+    }
     const int W = kClkSurfW, H = kClkSurfH;
     hidpi::Frame hf;
     if (!hidpi::begin(hf, W, H, P.scale.factor(), "end4pC-clock")) return;
@@ -1624,8 +1654,8 @@ void openClockPanel(App& app, Bar* bar, int kind = 0, int provider = 0, const st
     P = ClockPanel{};
     P.kind = kind;
     P.styleMod = styleMod;
-    P.cardH = clkWantedH(app, P);
     P.tab = kind == 2 ? provider : kind == 3 ? clkResTab(provider) : 0;
+    P.cardH = clkWantedH(app, P);
     P.ta.snap(P.tab);
     const std::tm now = clkLocalTm();
     P.year = now.tm_year + 1900;
@@ -1641,7 +1671,9 @@ void openClockPanel(App& app, Bar* bar, int kind = 0, int provider = 0, const st
     const double along = kClkW;
     if (vert) {
         const double along2 = clkCardH(P);
-        const double top = std::clamp(centre - along2 / 2, inset, std::max(inset, screenLen - inset - along2));
+        // Leave room for the taller Claude panel when both providers can be selected.
+        const double maxHeight = kind == 2 && aiShown(app).size() > 1 ? kClkH : along2;
+        const double top = std::clamp(centre - along2 / 2, inset, std::max(inset, screenLen - inset - maxHeight));
         P.anchor = std::clamp(centre - top, 36.0, along2 - 36.0);
         P.cardX = static_cast<int>(room);
         P.cardY = static_cast<int>(room);

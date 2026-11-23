@@ -104,6 +104,7 @@ def codex():
         reset = window.get("resets_at") or 0
         return 0 if reset and reset < now else (window.get("used_percent") or 0) / 100
     return {"available": True, "percentage": pct(primary), "resetsAt": primary.get("resets_at") or 0,
+            "weeklyAvailable": isinstance(secondary.get("used_percent"), (int, float)),
             "weeklyPercentage": pct(secondary), "weeklyResetsAt": secondary.get("resets_at") or 0}
 
 
