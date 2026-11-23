@@ -655,8 +655,9 @@ std::vector<Page> makePages() {
         else if (pg.name == "System") sections(pg, {{"sys:cursor", "Cursor"}, {"sys:icons", "Icons"}, {"sys:font", "Fonts"}, {"sys:app:browser", "Default Apps"}, {"screenshotDir", "Capture"}, {"doNotDisturb", "Notifications"}, {"periphSummary", "Devices"}});
         else if (pg.name == "Interface") sections(pg, {{"animEnabled", "Animations"}, {"hotCorners", "Hot Corners"}, {"lockOnStart", "Lock screen"}, {"dock", "Dock"}, {"osdPosition", "OSD"}, {"overviewLive", "Overview"}, {"switcherStyle", "Window switcher"}, {"magnifier", "Accessibility"}});
         else if (pg.name == "Services") sections(pg, {{"weatherUnit", "Weather"}, {"updatesEnable", "Updates"}, {"lyricsProvider", "Lyrics"}, {"webappAdd", "Webapps"}, {"searchEngine", "Search"}});
-        if (pg.name == "System")
-            for (auto& r : pg.rows) if (r.key.compare(0, 8, "sys:app:") == 0) r.splitW = 280;
+        // Every dropdown of System and the font of the shell has the same width: it must not depend on the options, which arrive later (the list of installed
+        // fonts is read when the page opens), or the button grows when they do.
+        for (auto& r : pg.rows) if (r.kind == Split && (r.key.compare(0, 4, "sys:") == 0 || r.key == "fontFamily")) r.splitW = 280;
     }
     if (compositorName() != "Hyprland" && compositorName() != "Niri")
         for (auto& pg : p) std::erase_if(pg.rows, [](const Row& r) { return r.key == "borderColor"; });
