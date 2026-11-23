@@ -738,6 +738,7 @@ bool cwpStep(App& app, std::chrono::steady_clock::time_point now) {
 
 void placeNotifSurface(App& app);
 void applyConfig(App& app) {
+    videoPauseSync(app, true);  // (the pause settings may have changed)
     applyCorners(app);
     app.dtp.dirty = true;
     {

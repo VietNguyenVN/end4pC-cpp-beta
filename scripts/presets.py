@@ -117,11 +117,23 @@ def set_widget_state(name: str, state: dict) -> None:
         f.write("\n".join(out) + "\n")
 
 
+VIDEO_FILE = STATE + "/end4pC/video-wallpaper.txt"
+
+
+def current_video() -> str:
+    """The video wallpaper that is playing (scripts/video_wallpaper.sh), or "" when the wallpaper is a picture."""
+    try:
+        with open(VIDEO_FILE, encoding="utf-8") as f:
+            return f.readline().strip()
+    except OSError:
+        return ""
+
+
 def snapshot(description: str) -> dict:
     cfg = read_config()
     data = {k: v for k, v in cfg.items() if k not in EXCLUDE and not k.startswith("prefix")}
     data["_widgets"] = {name: widget_state(name) for name in WIDGETS}
-    data["_preset"] = {"description": description, "wallpaper": current_wallpaper(), "saved": int(time.time())}
+    data["_preset"] = {"description": description, "wallpaper": current_wallpaper(), "video": current_video(), "saved": int(time.time())}
     return data
 
 
@@ -256,6 +268,15 @@ def cmd_apply(name: str) -> int:
             cfg[key] = value
     write_json(CONFIG, cfg)
     wallpaper = meta.get("wallpaper", "")
+    video = meta.get("video", "")
+    if not video and "/video-stills/" in wallpaper:  # (saved before presets knew about videos: the still remembers its video)
+        try:
+            with open(wallpaper + ".src", encoding="utf-8") as f:
+                video = f.readline().strip()
+        except OSError:
+            pass
+    if video and os.path.exists(video):
+        wallpaper = video  # (the shell paints its first frame and plays it; a picture would stop a video)
     time.sleep(0.8)  # The shell reads the new config.json first, then generates the colors for the wallpaper and mode
     ipc("applytheme " + (wallpaper if wallpaper and os.path.exists(wallpaper) else ""))
     open_widgets(widgets, todo, gliding)

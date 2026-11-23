@@ -6,10 +6,14 @@
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <librsvg/rsvg.h>
 #include <pango/pangocairo.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <pwd.h>
 #include <security/pam_appl.h>
+#include <signal.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -469,8 +473,81 @@ struct App {
 
 std::map<std::string, cairo_surface_t*> g_bgCache;
 
+// The video wallpaper behind the lock screen (Settings -> Desktop: "Play the video on the lock screen"). A layer surface such as mpvpaper's is hidden
+// while the session is locked, so the video is decoded here: one ffmpeg per screen size writes raw frames of exactly that size into a pipe, and the
+// newest complete one is what background() returns. Without ffmpeg, or when the video cannot be read, the still picture stays.
+std::string g_videoPath;  // empty: the lock screen shows the picture
+struct VideoFeed {
+    pid_t pid = -1;
+    int fd = -1, w = 0, h = 0;
+    std::vector<unsigned char> acc;
+    size_t have = 0;
+    cairo_surface_t* frame = nullptr;
+};
+std::map<std::string, VideoFeed> g_feeds;
+constexpr int kLockVideoFps = 24;
+
+void startFeed(VideoFeed& f, int w, int h) {
+    f.w = w;
+    f.h = h;
+    int p[2];
+    if (pipe2(p, O_CLOEXEC) < 0) return;
+    const pid_t pid = fork();
+    if (pid < 0) { close(p[0]); close(p[1]); return; }
+    if (pid == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);  // (the player never outlives the lock screen)
+        dup2(p[1], STDOUT_FILENO);
+        const int nul = open("/dev/null", O_RDWR);
+        dup2(nul, STDIN_FILENO);
+        dup2(nul, STDERR_FILENO);
+        char vf[160];
+        std::snprintf(vf, sizeof vf, "fps=%d,scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d", kLockVideoFps, w, h, w, h);
+        execlp("ffmpeg", "ffmpeg", "-nostdin", "-loglevel", "quiet", "-re", "-stream_loop", "-1", "-i", g_videoPath.c_str(), "-an", "-vf", vf,
+               "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1", nullptr);
+        _exit(127);
+    }
+    close(p[1]);
+    fcntl(p[0], F_SETFL, fcntl(p[0], F_GETFL) | O_NONBLOCK);
+    f.pid = pid;
+    f.fd = p[0];
+    f.acc.assign(static_cast<size_t>(w) * h * 4, 0);
+}
+
+// Reads what the players have written; true when a new picture is ready.
+bool readFeeds() {
+    bool fresh = false;
+    for (auto& [key, f] : g_feeds) {
+        if (f.fd < 0) continue;
+        const size_t size = f.acc.size();
+        for (;;) {
+            const ssize_t n = read(f.fd, f.acc.data() + f.have, size - f.have);
+            if (n > 0) {
+                f.have += static_cast<size_t>(n);
+                if (f.have < size) continue;
+                f.have = 0;
+                if (!f.frame) f.frame = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, f.w, f.h);
+                cairo_surface_flush(f.frame);
+                unsigned char* dst = cairo_image_surface_get_data(f.frame);
+                const int stride = cairo_image_surface_get_stride(f.frame);
+                for (int y = 0; y < f.h; y++) std::memcpy(dst + static_cast<size_t>(y) * stride, f.acc.data() + static_cast<size_t>(y) * f.w * 4, static_cast<size_t>(f.w) * 4);
+                cairo_surface_mark_dirty(f.frame);
+                fresh = true;
+                continue;
+            }
+            if (n == 0 || (errno != EAGAIN && errno != EINTR)) { close(f.fd); f.fd = -1; }  // (ended: the last picture stays)
+            break;
+        }
+    }
+    return fresh;
+}
+
 cairo_surface_t* background(int w, int h) {
     const std::string key = std::to_string(w) + "x" + std::to_string(h);
+    if (!g_videoPath.empty()) {
+        VideoFeed& f = g_feeds[key];
+        if (f.pid < 0) startFeed(f, w, h);
+        if (f.frame) return f.frame;
+    }
     if (auto it = g_bgCache.find(key); it != g_bgCache.end()) return it->second;
     std::string path = readFile(stateDir() + "/wallpaper.txt");
     while (!path.empty() && (path.back() == '\n' || path.back() == ' ')) path.pop_back();
@@ -767,9 +844,36 @@ void createLockSurface(Output& o) {
     ext_session_lock_surface_v1_add_listener(o.lockSurface, &kLockSurfaceListener, &o);
 }
 
+// The shell stops the video wallpaper while this runs: a marker with our pid, and a nudge to the shell (it looks at the marker).
+std::string lockMarker() {
+    const char* rt = std::getenv("XDG_RUNTIME_DIR");
+    return std::string(rt ? rt : "/tmp") + "/end4pC-locked";
+}
+void tellShell() {
+    char exe[PATH_MAX];
+    const ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (n <= 0) return;
+    exe[n] = 0;
+    std::string shell = exe;
+    shell = shell.substr(0, shell.rfind('/')) + "/end4pC";
+    if (access(shell.c_str(), X_OK) != 0) return;
+    const pid_t first = fork();
+    if (first == 0) {  // (twice: nobody has to wait for the shell's answer)
+        if (fork() == 0) {
+            const int nul = open("/dev/null", O_RDWR);
+            dup2(nul, STDOUT_FILENO);
+            dup2(nul, STDERR_FILENO);
+            execl(shell.c_str(), shell.c_str(), "videosync", nullptr);
+        }
+        _exit(0);
+    }
+    if (first > 0) waitpid(first, nullptr, 0);
+}
 void onLocked(void*, ext_session_lock_v1*) {
     g.locked = true;
     g.lockedAt = std::chrono::steady_clock::now();
+    if (FILE* m = std::fopen(lockMarker().c_str(), "w")) { std::fprintf(m, "%d\n", static_cast<int>(getpid())); std::fclose(m); }
+    tellShell();
 }
 void onFinished(void*, ext_session_lock_v1*) { g.finished = true; }
 const ext_session_lock_v1_listener kLockListener = {onLocked, onFinished};
@@ -886,6 +990,8 @@ void unlockAndExit() {
     ext_session_lock_v1_unlock_and_destroy(g.lock);
     g.lock = nullptr;
     wl_display_roundtrip(g.display);
+    unlink(lockMarker().c_str());
+    tellShell();
     g.done = true;
 }
 
@@ -929,6 +1035,11 @@ void readAnimConfig() {
     double speed = 100;
     if (jsonValue(cfg, "animSpeed", v) && !v.empty()) speed = std::clamp(std::atof(v.c_str()), 50.0, 200.0);
     g.animSeconds = (g.animMode == LockAnim::Shape ? 0.75 : g.animMode == LockAnim::Zoom ? 0.7 : 0.55) * 100.0 / speed;
+    if (jsonValue(cfg, "lockVideo", v) && v == "1") {
+        std::string path = readFile(stateDir() + "/video-wallpaper.txt");
+        while (!path.empty() && (path.back() == '\n' || path.back() == ' ')) path.pop_back();
+        if (!path.empty() && access(path.c_str(), R_OK) == 0) g_videoPath = path;
+    }
     if (jsonValue(cfg, "centeredWallpaperShape", v) && !v.empty()) g.shapeName = v;
     if (jsonValue(cfg, "centeredWallpaper", v) && v == "1") {  // the shape starts as the one the desktop shows, and outside it is the desktop's color
         g.baseRole = "primary_container";
@@ -998,13 +1109,18 @@ int main(int argc, char** argv) {
     while (!g.done && !g.finished) {
         wl_display_flush(g.display);
         while (wl_display_prepare_read(g.display) != 0) wl_display_dispatch_pending(g.display);
-        pollfd fds[2] = {{wl_display_get_fd(g.display), POLLIN, 0}, {g_wake[0], POLLIN, 0}};
-        if (poll(fds, 2, g.animPhase != App::AnimIdle ? 30 : 1000) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
+        std::vector<pollfd> fds = {{wl_display_get_fd(g.display), POLLIN, 0}, {g_wake[0], POLLIN, 0}};
+        for (const auto& [key, f] : g_feeds) if (f.fd >= 0) fds.push_back({f.fd, POLLIN, 0});
+        if (poll(fds.data(), fds.size(), g.animPhase != App::AnimIdle ? 30 : 1000) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
         if (fds[0].revents & POLLIN) wl_display_read_events(g.display);
         else wl_display_cancel_read(g.display);
         wl_display_dispatch_pending(g.display);
 
         bool redraw = false;
+        if (!g_feeds.empty() && readFeeds()) {
+            redraw = true;
+            for (auto& o : g.outputs) o->cacheDirty = true;
+        }
         if (fds[1].revents & POLLIN) {
             char b[16];
             const ssize_t n = read(g_wake[0], b, sizeof b);
@@ -1031,5 +1147,6 @@ int main(int argc, char** argv) {
     }
     if (g.finished && g.lock) std::fprintf(stderr, "end4pC-lock: the compositor ended the lock\n");
     std::fflush(nullptr);
+    unlink(lockMarker().c_str());
     _exit(g.done ? 0 : 1);
 }

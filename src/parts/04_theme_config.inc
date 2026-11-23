@@ -252,6 +252,9 @@ Config sanitized(Config c) {
     c.islandRounding = std::clamp(c.islandRounding, 0, 50);
     c.fakeRounding = std::clamp(c.fakeRounding, 0, 2);
     c.unlockKeyring = c.unlockKeyring ? 1 : 0;
+    c.lockVideo = c.lockVideo ? 1 : 0;
+    c.videoPauseFullscreen = c.videoPauseFullscreen ? 1 : 0;
+    c.videoPauseBattery = c.videoPauseBattery ? 1 : 0;
     c.barFollowsFrame = c.barFollowsFrame ? 1 : 0;
     if (!validFrameColor(c.frameColor)) c.frameColor = "black";
     c.lockOnStart = c.lockOnStart ? 1 : 0;
@@ -412,6 +415,7 @@ Config sanitized(Config c) {
     if (c.colorMode != "dark" && c.colorMode != "light") c.colorMode = "dark";
     if (std::find(kSchemes.begin(), kSchemes.end(), c.colorScheme) == kSchemes.end()) c.colorScheme = "scheme-neutral";
     if (c.wallpaperDir.empty()) c.wallpaperDir = "~/Pictures/Wallpapers";
+    if (c.videoDir.empty()) c.videoDir = "~/Pictures/Videos";
     if (!validWallpaperTransition(c.wallpaperTransition)) c.wallpaperTransition = "fade";
     if (c.selectorFolders != "first" && c.selectorFolders != "last") c.selectorFolders = "sidebar";
     c.wallpaperTransitionMs = std::clamp(c.wallpaperTransitionMs, 100, 3000);
@@ -474,6 +478,9 @@ bool loadConfig(App& app) {
         readIntKey(t, "islandRounding", next.islandRounding);
         readIntKey(t, "fakeRounding", next.fakeRounding);
         readIntKey(t, "unlockKeyring", next.unlockKeyring);
+        readIntKey(t, "lockVideo", next.lockVideo);
+        readIntKey(t, "videoPauseFullscreen", next.videoPauseFullscreen);
+        readIntKey(t, "videoPauseBattery", next.videoPauseBattery);
         readIntKey(t, "barFollowsFrame", next.barFollowsFrame);
         readStringKey(t, "frameColor", next.frameColor);
         readIntKey(t, "lockOnStart", next.lockOnStart);
@@ -514,6 +521,7 @@ bool loadConfig(App& app) {
         readStringKey(t, "colorScheme", next.colorScheme);
         readStringKey(t, "colorMode", next.colorMode);
         readStringKey(t, "wallpaperDir", next.wallpaperDir);
+        readStringKey(t, "videoDir", next.videoDir);
         readStringKey(t, "wallpaperTransition", next.wallpaperTransition);
         readIntKey(t, "wallpaperTransitionMs", next.wallpaperTransitionMs);
         readIntKey(t, "wallpaperAuto", next.wallpaperAuto);
@@ -663,10 +671,11 @@ bool loadConfig(App& app) {
     }
     next = sanitized(next);
     const bool changed = deskVizChanged(next, app.cfg) || hotCornerChanged(next, app.cfg) || deskTextChanged(next, app.cfg) || next.iconScale != app.cfg.iconScale || next.overviewLive != app.cfg.overviewLive || next.overviewLauncher != app.cfg.overviewLauncher || next.switcherStyle != app.cfg.switcherStyle || next.overviewIcon != app.cfg.overviewIcon || next.overviewPosition != app.cfg.overviewPosition || next.privacyAlways != app.cfg.privacyAlways || next.privacyMic != app.cfg.privacyMic || next.privacyCam != app.cfg.privacyCam || next.privacyScreen != app.cfg.privacyScreen || next.fontWeightText != app.cfg.fontWeightText || next.fontWeightTitle != app.cfg.fontWeightTitle || next.launcherFiles != app.cfg.launcherFiles || next.islandView != app.cfg.islandView || next.dynamicIsland != app.cfg.dynamicIsland || next.islandClick != app.cfg.islandClick || next.groupStyle != app.cfg.groupStyle || next.lockAnimation != app.cfg.lockAnimation || next.groupSpacing != app.cfg.groupSpacing || next.groupColor != app.cfg.groupColor || next.groupFree != app.cfg.groupFree || next.barShadow != app.cfg.barShadow || next.dividerSpacing != app.cfg.dividerSpacing || next.workspaceNumbers != app.cfg.workspaceNumbers || next.barSpacing != app.cfg.barSpacing || next.sideBarSpacing != app.cfg.sideBarSpacing || next.animEnabled != app.cfg.animEnabled || next.animSpeed != app.cfg.animSpeed || next.animStyle != app.cfg.animStyle || next.collageBlur != app.cfg.collageBlur || next.osdPosition != app.cfg.osdPosition || next.osdTimeout != app.cfg.osdTimeout || next.barScreens != app.cfg.barScreens || next.widgetScreen != app.cfg.widgetScreen || next.customImagePath != app.cfg.customImagePath || next.clockStyle != app.cfg.clockStyle || next.theme != app.cfg.theme || next.quickActions != app.cfg.quickActions || cookieChanged(next, app.cfg) || next.themePrimary != app.cfg.themePrimary || next.themeSecondary != app.cfg.themeSecondary || next.themeTertiary != app.cfg.themeTertiary || next.clockDaily != app.cfg.clockDaily || next.clockPixel != app.cfg.clockPixel || next.cornerTL != app.cfg.cornerTL || next.cornerTR != app.cfg.cornerTR || next.cornerBL != app.cfg.cornerBL || next.cornerBR != app.cfg.cornerBR || next.widgetsLocked != app.cfg.widgetsLocked || next.widgetShadow != app.cfg.widgetShadow || next.widgetGap != app.cfg.widgetGap || next.calendarMonday != app.cfg.calendarMonday || next.resCpu != app.cfg.resCpu || next.resRam != app.cfg.resRam || next.resTemp != app.cfg.resTemp || next.resDisk != app.cfg.resDisk || next.resSwap != app.cfg.resSwap || next.resValue != app.cfg.resValue || next.resInterval != app.cfg.resInterval || next.resWarnMem != app.cfg.resWarnMem || next.resWarnSwap != app.cfg.resWarnSwap || next.resWarnCpu != app.cfg.resWarnCpu || next.resStyle != app.cfg.resStyle || next.dividerStyle != app.cfg.dividerStyle || next.aiClaude != app.cfg.aiClaude || next.aiCodex != app.cfg.aiCodex || next.aiTokenLimit != app.cfg.aiTokenLimit || next.trayPinDefault != app.cfg.trayPinDefault || next.trayTint != app.cfg.trayTint || next.trayExceptions != app.cfg.trayExceptions || next.notificationPosition != app.cfg.notificationPosition || next.clock24 != app.cfg.clock24 || next.clockDate != app.cfg.clockDate || next.workspaceApps != app.cfg.workspaceApps || next.barClock != app.cfg.barClock || next.widgetStyles != app.cfg.widgetStyles || next.batteryPercent != app.cfg.batteryPercent || next.templateKitty != app.cfg.templateKitty || next.templateGtk != app.cfg.templateGtk || next.templateKde != app.cfg.templateKde || next.fontFamily != app.cfg.fontFamily || next.islandRounding != app.cfg.islandRounding || next.sideWidgetStyles != app.cfg.sideWidgetStyles || next.language != app.cfg.language || next.volumeMax != app.cfg.volumeMax || next.volumeStep != app.cfg.volumeStep || next.batteryLow != app.cfg.batteryLow || next.batteryCritical != app.cfg.batteryCritical || next.batteryNotify != app.cfg.batteryNotify || next.weatherInterval != app.cfg.weatherInterval || next.borderColor != app.cfg.borderColor || next.borderActive != app.cfg.borderActive || next.borderInactive != app.cfg.borderInactive || next.borderActiveOpacity != app.cfg.borderActiveOpacity || next.borderInactiveOpacity != app.cfg.borderInactiveOpacity || next.barBackground != app.cfg.barBackground || next.systray != app.cfg.systray || next.peripheralNotify != app.cfg.peripheralNotify || next.peripheralLow != app.cfg.peripheralLow || next.peripheralCritical != app.cfg.peripheralCritical || next.workspaces != app.cfg.workspaces || next.weatherTheme != app.cfg.weatherTheme || next.iconStyle != app.cfg.iconStyle || next.materialIcons != app.cfg.materialIcons || next.uiBackground != app.cfg.uiBackground || next.dock != app.cfg.dock || next.dockPinned != app.cfg.dockPinned || next.dockIconSize != app.cfg.dockIconSize || next.dockMagnify != app.cfg.dockMagnify || next.dockMagnification != app.cfg.dockMagnification || next.dockAutoHide != app.cfg.dockAutoHide || next.dockPin != app.cfg.dockPin || next.dockMedia != app.cfg.dockMedia || next.dockLauncher != app.cfg.dockLauncher || next.dockHug != app.cfg.dockHug || next.dockRounding != app.cfg.dockRounding || next.dockSpacing != app.cfg.dockSpacing || next.dockBorder != app.cfg.dockBorder || next.dockBorderColor != app.cfg.dockBorderColor || next.dockPosition != app.cfg.dockPosition || next.dockScreen != app.cfg.dockScreen || next.keepAwake != app.cfg.keepAwake || next.avatarPicture != app.cfg.avatarPicture || next.accent != app.cfg.accent || next.avatarPath != app.cfg.avatarPath || next.frame != app.cfg.frame || next.notificationTimeout != app.cfg.notificationTimeout || next.notificationAppIcons != app.cfg.notificationAppIcons || next.conflictCheck != app.cfg.conflictCheck || next.doNotDisturb != app.cfg.doNotDisturb || next.hotCorners != app.cfg.hotCorners || next.updatesEnable != app.cfg.updatesEnable || next.updatesAur != app.cfg.updatesAur || next.updatesFlatpak != app.cfg.updatesFlatpak || next.updatesInterval != app.cfg.updatesInterval || next.updatesMinShow != app.cfg.updatesMinShow || next.barOpacity != app.cfg.barOpacity || next.notchWidth != app.cfg.notchWidth || next.fakeRounding != app.cfg.fakeRounding || next.unlockKeyring != app.cfg.unlockKeyring || next.barFollowsFrame != app.cfg.barFollowsFrame || next.frameColor != app.cfg.frameColor || next.lockOnStart != app.cfg.lockOnStart || next.fakeRoundingSize != app.cfg.fakeRoundingSize || next.centeredWallpaper != app.cfg.centeredWallpaper || next.centeredWallpaperSize != app.cfg.centeredWallpaperSize || next.centeredWallpaperShape != app.cfg.centeredWallpaperShape || next.centeredWallpaperColor != app.cfg.centeredWallpaperColor || next.collage != app.cfg.collage || next.collageGap != app.cfg.collageGap || next.collageMargin != app.cfg.collageMargin || next.collageRadius != app.cfg.collageRadius || next.collagePrimary != app.cfg.collagePrimary || next.collageTree != app.cfg.collageTree || next.networkAlways != app.cfg.networkAlways || next.networkSpeed != app.cfg.networkSpeed || next.screenshotCopy != app.cfg.screenshotCopy || next.recordAudio != app.cfg.recordAudio || next.recordDesktop != app.cfg.recordDesktop || next.recordFps != app.cfg.recordFps || next.screenshotDir != app.cfg.screenshotDir || next.recordDir != app.cfg.recordDir || next.barPosition != app.cfg.barPosition || next.barStyle != app.cfg.barStyle || next.workspaceStyle != app.cfg.workspaceStyle || next.colorScheme != app.cfg.colorScheme ||
-                         next.colorMode != app.cfg.colorMode || next.wallpaperDir != app.cfg.wallpaperDir || next.dividerLooks != app.cfg.dividerLooks || next.groupLooks != app.cfg.groupLooks || next.selectorFolders != app.cfg.selectorFolders || next.wallpaperTransition != app.cfg.wallpaperTransition ||
+                         next.colorMode != app.cfg.colorMode || next.wallpaperDir != app.cfg.wallpaperDir || next.videoDir != app.cfg.videoDir || next.lockVideo != app.cfg.lockVideo || next.videoPauseFullscreen != app.cfg.videoPauseFullscreen || next.videoPauseBattery != app.cfg.videoPauseBattery || next.dividerLooks != app.cfg.dividerLooks || next.groupLooks != app.cfg.groupLooks || next.selectorFolders != app.cfg.selectorFolders || next.wallpaperTransition != app.cfg.wallpaperTransition ||
                          next.wallpaperTransitionMs != app.cfg.wallpaperTransitionMs || next.wallpaperAuto != app.cfg.wallpaperAuto || next.wallpaperAutoFavs != app.cfg.wallpaperAutoFavs || next.wallpaperAutoMin != app.cfg.wallpaperAutoMin || next.selectorShape != app.cfg.selectorShape || next.notificationShape != app.cfg.notificationShape || next.preferredPlayer != app.cfg.preferredPlayer || next.terminal != app.cfg.terminal || next.worldClocks != app.cfg.worldClocks || next.searchEngine != app.cfg.searchEngine || next.weatherCity != app.cfg.weatherCity || next.weatherUnit != app.cfg.weatherUnit || next.lyricsProvider != app.cfg.lyricsProvider || !std::equal(next.prefixes, next.prefixes + kPrefixCount, app.cfg.prefixes) ||
                          next.sideLeft != app.cfg.sideLeft || next.sideCenter != app.cfg.sideCenter || next.sideRight != app.cfg.sideRight || next.layoutLeft != app.cfg.layoutLeft || next.layoutCenter != app.cfg.layoutCenter || next.layoutRight != app.cfg.layoutRight;
     app.cfg = next;
+    applyM3Box(app.cfg);
     for (int i = 0; i < kPrefixCount; i++) *kPrefixSlots[i] = next.prefixes[i][0];
     g_iconStyle = next.iconStyle;
     g_iconScale = next.iconScale;
@@ -704,6 +713,9 @@ void saveConfig(const App& app) {
           << "  \"islandRounding\": " << app.cfg.islandRounding << ",\n"
           << "  \"fakeRounding\": " << app.cfg.fakeRounding << ",\n"
           << "  \"unlockKeyring\": " << app.cfg.unlockKeyring << ",\n"
+          << "  \"lockVideo\": " << app.cfg.lockVideo << ",\n"
+          << "  \"videoPauseFullscreen\": " << app.cfg.videoPauseFullscreen << ",\n"
+          << "  \"videoPauseBattery\": " << app.cfg.videoPauseBattery << ",\n"
           << "  \"barFollowsFrame\": " << app.cfg.barFollowsFrame << ",\n"
           << "  \"frameColor\": \"" << app.cfg.frameColor << "\",\n"
           << "  \"lockOnStart\": " << app.cfg.lockOnStart << ",\n"
@@ -774,6 +786,7 @@ void saveConfig(const App& app) {
           << "  \"colorScheme\": \"" << app.cfg.colorScheme << "\",\n"
           << "  \"colorMode\": \"" << app.cfg.colorMode << "\",\n"
           << "  \"wallpaperDir\": \"" << app.cfg.wallpaperDir << "\",\n"
+          << "  \"videoDir\": \"" << app.cfg.videoDir << "\",\n"
           << "  \"selectorFolders\": \"" << app.cfg.selectorFolders << "\",\n"
           << "  \"wallpaperTransition\": \"" << app.cfg.wallpaperTransition << "\",\n"
           << "  \"wallpaperTransitionMs\": " << app.cfg.wallpaperTransitionMs << ",\n"
@@ -1208,6 +1221,12 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
     } else if (key == "wallpaperDir") {
         if (value.empty()) return "empty path";
         next.wallpaperDir = value;
+    } else if (key == "videoDir") {
+        if (value.empty()) return "empty path";
+        next.videoDir = value;
+    } else if (key == "lockVideo" || key == "videoPauseFullscreen" || key == "videoPauseBattery") {
+        if (value != "0" && value != "1") return "value must be 0 or 1";
+        (key == "lockVideo" ? next.lockVideo : key == "videoPauseFullscreen" ? next.videoPauseFullscreen : next.videoPauseBattery) = value == "1" ? 1 : 0;
     } else if (key == "barStyle") {
         if (value != "panel" && value != "float" && value != "island" && value != "hug" && value != "notch" && value != "split") return "value must be panel, float, island, hug, notch or split";
         next.barStyle = value;
@@ -1298,6 +1317,7 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
         return "unknown key";
     }
     app.cfg = sanitized(next);
+    applyM3Box(app.cfg);
     g_iconStyle = app.cfg.iconStyle;
     g_iconScale = app.cfg.iconScale;
     g_animEnabled = app.cfg.animEnabled;

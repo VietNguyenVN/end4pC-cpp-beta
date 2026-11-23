@@ -96,6 +96,12 @@ const OnlineItem* onlineItemFor(const Selector& sel, const std::string& key) {
     return nullptr;
 }
 
+// A video wallpaper (played by mpvpaper, scripts/video_wallpaper.sh). The shell itself only ever paints the still picture of it.
+bool isVideoExt(const std::string& lowerExt) { return lowerExt == "mp4" || lowerExt == "webm" || lowerExt == "mkv" || lowerExt == "mov"; }
+bool isVideoPath(const std::string& path) {
+    const size_t dot = path.rfind('.');
+    return dot != std::string::npos && isVideoExt(lowerCopy(path.substr(dot + 1)));
+}
 std::vector<std::string> collectWallpapers(const std::string& dir) {
     std::vector<std::string> out;
     if (DIR* d = opendir(dir.c_str())) {
@@ -104,7 +110,7 @@ std::vector<std::string> collectWallpapers(const std::string& dir) {
             const size_t dot = name.rfind('.');
             if (dot == std::string::npos || name[0] == '.') continue;
             const std::string ext = lowerCopy(name.substr(dot + 1));
-            if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp") out.push_back(dir + "/" + name);
+            if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "webp" || isVideoExt(ext)) out.push_back(dir + "/" + name);
         }
         closedir(d);
     }
@@ -213,7 +219,9 @@ void startThumbJobs(App& app) {
             int nul = open("/dev/null", O_RDWR);
             dup2(nul, STDERR_FILENO);
             execlp("sh", "sh", "-c",
-                   "mkdir -p \"$(dirname \"$2\")\" && magick \"$1[0]\" -thumbnail \"$3^\" -gravity center -extent \"$3\" \"$2.tmp.png\""
+                   "mkdir -p \"$(dirname \"$2\")\" && case \"$1\" in"
+                   " *.[mM][pP]4|*.[wW][eE][bB][mM]|*.[mM][kK][vV]|*.[mM][oO][vV]) ffmpeg -nostdin -loglevel error -y -i \"$1\" -frames:v 1 -vf \"scale=${3%x*}:${3#*x}:force_original_aspect_ratio=increase,crop=${3%x*}:${3#*x}\" \"$2.tmp.png\" ;;"
+                   " *) magick \"$1[0]\" -thumbnail \"$3^\" -gravity center -extent \"$3\" \"$2.tmp.png\" ;; esac"
                    " && mv \"$2.tmp.png\" \"$2\"; echo done",
                    "sh", job.first.c_str(), job.second.c_str(), size, nullptr);
             _exit(127);
@@ -539,7 +547,8 @@ void rebuildSelectorList(App& app) {
     if (key.rfind("online:", 0) == 0) { onlineRebuildFiles(sel); sel.focusIdx = 0; sel.hoverTile = -1; return; }
     const std::set<std::string> have(sel.allFiles.begin(), sel.allFiles.end());
     std::vector<std::string> base;
-    if (key == "all") base = sel.allFiles;
+    if (key == "all") { for (const auto& p : sel.allFiles) if (!sel.videoOnly.count(p)) base.push_back(p); }
+    else if (key == "videos") { for (const auto& p : sel.allFiles) if (isVideoPath(p) && p.rfind(expandHome(app.cfg.videoDir) + "/", 0) == 0) base.push_back(p); }
     else if (key == "fav") { for (const auto& p : sel.favs) if (have.count(p)) base.push_back(p); }
     else if (key == "recent") { for (const auto& p : sel.recents) if (have.count(p)) base.push_back(p); }
     else if (key.rfind("dir:", 0) == 0) { const std::string d = key.substr(4); for (const auto& p : sel.allFiles) if (p.rfind(d + "/", 0) == 0) base.push_back(p); }  // (a folder shows what is in the folders under it too)
@@ -1363,6 +1372,15 @@ void openSelector(App& app) {
     sel.cats.push_back({"All", "all"});
     sel.cats.push_back({"Favorites", "fav"});
     sel.cats.push_back({"Recent", "recent"});
+    sel.videoOnly.clear();
+    const std::string videoRoot = expandHome(app.cfg.videoDir);
+    {
+        std::vector<std::string> videos;
+        for (const std::string& f : collectWallpapersDeep(videoRoot)) if (isVideoPath(f)) videos.push_back(f);
+        if (!videos.empty()) sel.cats.push_back({"Videos", "videos"});
+        for (const std::string& f : videos)
+            if (std::find(sel.allFiles.begin(), sel.allFiles.end(), f) == sel.allFiles.end()) { sel.allFiles.push_back(f); sel.videoOnly.insert(f); }
+    }
     for (const std::string& dir : wallpaperFolders(root)) {
         for (const auto& f : collectWallpapersDeep(dir)) sel.allFiles.push_back(f);
         if (app.cfg.selectorFolders == "sidebar") sel.cats.push_back({baseName(dir, false), "dir:" + dir});
@@ -1439,6 +1457,12 @@ std::chrono::steady_clock::time_point selectorWake(const App& app) {
 
 void applyTheme(App& app, const std::string& wallpaper) {
     if (wallpaper.empty()) return;
+    // The still picture of the playing video (dark/light switch and the like re-apply app.wallpaper): the palette changes, the video stays.
+    if (wallpaper.find("/end4pC/video-stills/") != std::string::npos) {
+        changeWallpaper(app, wallpaper);
+        runPalette(app, wallpaper);
+        return;
+    }
     Selector& sel = app.sel;
     std::vector<std::string> rec = sel.open() ? sel.recents : readPathList(wpListFile("wallpaper-recent.txt"));
     rec.erase(std::remove(rec.begin(), rec.end(), wallpaper), rec.end());
@@ -1446,8 +1470,16 @@ void applyTheme(App& app, const std::string& wallpaper) {
     if (rec.size() > 30) rec.resize(30);
     writePathList(wpListFile("wallpaper-recent.txt"), rec);
     if (sel.open()) sel.recents = rec;
-    changeWallpaper(app, wallpaper);
-    runPalette(app, wallpaper);
+    // A video: the shell paints and builds the palette from its first frame, mpvpaper plays the video over it. A picture stops any video.
+    std::string picture = wallpaper;
+    if (isVideoPath(wallpaper)) {
+        const std::string still = videoStill(wallpaper);
+        if (!still.empty()) picture = still;
+    }
+    changeWallpaper(app, picture);
+    runPalette(app, picture);
+    app.videoPaused = false;  // (a new player is running)
+    videoWallpaper(isVideoPath(wallpaper) && picture != wallpaper ? "start" : "stop", wallpaper);
 }
 
 void toggleFavourite(App& app, const std::string& path) {

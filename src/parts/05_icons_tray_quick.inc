@@ -840,6 +840,20 @@ void runPalette(const App& app, const std::string& wallpaper) {
                app.cfg.themePrimary.c_str(), app.cfg.themeSecondary.c_str(), app.cfg.themeTertiary.c_str()});
 }
 
+// Video wallpapers (scripts/video_wallpaper.sh, mpvpaper). videoStill: the first frame of the video as a picture, cached; "" if it cannot be made.
+std::string videoStill(const std::string& video) {
+    std::string quoted = "'";
+    for (const char c : video) { if (c == '\'') quoted += "'\\''"; else quoted += c; }
+    quoted += "'";
+    return cmdFirstLine("'" + assetsDir() + "/../scripts/video_wallpaper.sh' still " + quoted + " 2>/dev/null");
+}
+// action: "start" (play `video`), "stop" (a picture was chosen), "restore" (play what was playing before).
+void videoWallpaper(const char* action, const std::string& video = "") {
+    const std::string script = assetsDir() + "/../scripts/video_wallpaper.sh";
+    if (video.empty()) runDetached({script.c_str(), action});
+    else runDetached({script.c_str(), action, video.c_str()});
+}
+
 // Window borders from the palette: written to Hyprland's overrides file (scripts/hyprconf.py) or niri's (scripts/niriconf.py) and
 // applied at once. Called when the setting changes and every time the palette does, since the colours are roles, not fixed values.
 // Off: the lines go away (Hyprland reloads), so the borders come back from hyprland/colors.lua or niri/end4pC-colors.kdl.

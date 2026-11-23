@@ -910,6 +910,7 @@ void openDesktopMenu(App& app, Bar* bar) {
     g_dmSprings.clear();
     D.files.push_back(app.wallpaper);
     std::vector<std::string> all = listWallpapers(expandHome(app.cfg.wallpaperDir));
+    all.erase(std::remove_if(all.begin(), all.end(), isVideoPath), all.end());  // (the previews are pictures)
     all.erase(std::remove(all.begin(), all.end(), app.wallpaper), all.end());
     std::mt19937 rng(std::random_device{}());
     std::shuffle(all.begin(), all.end(), rng);

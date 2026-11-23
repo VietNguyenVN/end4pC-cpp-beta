@@ -247,7 +247,7 @@ void drawNetSpeed(cairo_t* cr, const App& app, double x, double y, double w, dou
 bool m3IconOnly(double w, double h) { return w < h * 1.5; }
 void m3GroupPill(cairo_t* cr, const App& app, double x, double y, double w, double h) {
     if (m3IconOnly(w, h)) {
-        constexpr double kShape = kM3Box;
+        const double kShape = kM3Box;
         shapePath(cr, kM3IconShape, x + (w - kShape) / 2, y + (h - kShape) / 2, kShape);
         setSource(cr, app.color("secondary_container"));
     } else {
@@ -1093,7 +1093,7 @@ bool framedStyle(const std::string& style) { return m3ButtonLook(style) || style
 std::string weatherBarLabel(const App& app) { std::string label, ic; weatherDescribe(app.barWeather.code, app.barWeather.day, label, ic); return label; }
 
 double weatherM3Paint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double cy) {
-    constexpr double textPad = kModulePad / 2, gap = 6;
+    constexpr double gap = 6;  // (the text starts kModulePad from the end, as in the other M3 looks)
     constexpr int iconSize = 16;
     PangoFontDescription* f = pango_font_description_from_string("Sans");
     pango_font_description_set_absolute_size(f, 15 * PANGO_SCALE);
@@ -1102,12 +1102,12 @@ double weatherM3Paint(cairo_t* cr, const App& app, PangoLayout* layout, double x
     int tw = 0, th = 0;
     pango_layout_get_pixel_size(layout, &tw, &th);
     const double inset = (kM3Box - kM3Disc) / 2;
-    const double w = kModulePad + textPad + tw + gap + kM3Disc + inset;
+    const double w = kModulePad + tw + gap + kM3Disc + inset;
     if (cr) {
         roundedRect(cr, x, cy - kM3Box / 2, w, kM3Box, kM3Box / 2);
         setSource(cr, app.color("primary_container"));
         cairo_fill(cr);
-        const double textX = x + kModulePad + textPad, discX = textX + tw + gap;
+        const double textX = x + kModulePad, discX = textX + tw + gap;
         setSource(cr, app.color("on_background"));
         cairo_move_to(cr, textX, cy - th / 2.0);
         pango_cairo_show_layout(cr, layout);
@@ -1122,7 +1122,8 @@ double weatherM3Paint(cairo_t* cr, const App& app, PangoLayout* layout, double x
 }
 
 double launcherM3Paint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double cy, bool hot) {
-    constexpr double gap = 6, disc = kM3Disc;
+    constexpr double gap = 6;
+    const double disc = kM3Disc;
     constexpr int iconSize = 16;
     const std::string label = i18n::tr("Apps");
     PangoFontDescription* f = pango_font_description_from_string("Sans");
@@ -1485,7 +1486,8 @@ void updatesTone(const App& app, const char*& role, const char*& on) {
     else { role = nullptr; on = "on_primary"; }
 }
 double updatesBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double cy, bool hot) {
-    constexpr double ic = 16, gap = 4, m3Gap = 5, disc = kM3Disc;  // (the plain looks keep the icon and gap of the AI usage widget, which has its paddings right)
+    constexpr double ic = 16, gap = 4, m3Gap = 5;
+    const double disc = kM3Disc;  // (the plain looks keep the icon and gap of the AI usage widget, which has its paddings right)
     constexpr int discIconSize = 16;
     const std::string style = widgetStyle(app, "updates");
     const bool m3 = style == "m3", framed = framedStyle(style);

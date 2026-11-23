@@ -313,6 +313,9 @@ struct Config {
     std::string collageTree = kCollageDefaultTree;
     int lockOnStart = 0;
     int unlockKeyring = 1;
+    int lockVideo = 0;             // the lock screen plays the video wallpaper (end4pC-lock decodes it with ffmpeg)
+    int videoPauseFullscreen = 1;  // the video wallpaper stops under a fullscreen window
+    int videoPauseBattery = 1;     // ...and while the laptop runs on battery
     std::string frameColor = "black";
     int barFollowsFrame = 0;
     int fakeRounding = 0;
@@ -371,6 +374,7 @@ struct Config {
     std::string colorScheme = "scheme-neutral";
     std::string colorMode = "dark";
     std::string wallpaperDir = "~/Pictures/Wallpapers";
+    std::string videoDir = "~/Pictures/Videos";  // where the selector looks for video wallpapers (mpvpaper)
     std::string wallpaperTransition = "fade";
     std::string selectorFolders = "sidebar";  // where the wallpaper selector shows the folders: sidebar, or tiles of the grid (first / last)
     int wallpaperTransitionMs = 700;
@@ -777,6 +781,7 @@ struct Selector {
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false;
     std::vector<std::string> allFiles;
+    std::set<std::string> videoOnly;  // videos of the video folder: the "Videos" category shows them, "All" does not (unless they also live in the wallpaper folder)
     std::vector<std::string> files;
     std::map<std::string, int> folderCount;  // pictures under each folder tile
     double navScroll = 0;  // how far the folders of the sidebar are scrolled
@@ -1764,6 +1769,8 @@ struct App {
     bool batPresent = false;
     int batPct = 0;
     bool batCharging = false;
+    bool videoPaused = false;   // mpvpaper has been stopped (SIGSTOP) by videoPauseSync
+    bool videoCovered = false;  // every screen has a fullscreen window (asked on the compositor events)
     std::string batFake;
     std::chrono::steady_clock::time_point statusLast{};
     Config cfg;
@@ -1912,7 +1919,10 @@ constexpr int kQuickBox = 26;
 constexpr int kQuickItem = 30;
 constexpr double kModuleBox = kQuickItem, kModulePad = 10;
 static_assert(kNotchPad == (kBarHeight - kModuleBox) / 2.0 && kIslandPad == kNotchPad, "the side padding of the bar bodies must equal the top padding");
-constexpr double kM3Box = kQuickBox, kM3Inset = 2, kM3Disc = kM3Box - 2 * kM3Inset;  // (the M3 pills are as tall as the other designs; the disc inside keeps a 2 px margin, as the workspaces do)
+constexpr double kM3Inset = 2;  // (the M3 pills are as tall as the other designs; the disc inside keeps a 2 px margin, as the workspaces do)
+// The M3 looks draw their own pill. In the Separated group style the other widgets sit on cells (the box plus kGroupPad on each side), so the
+// M3 pill grows to the height of a cell and the disc inside with it. Set by applyM3Box whenever the config changes.
+inline double kM3Box = kQuickBox, kM3Disc = kQuickBox - 2 * kM3Inset;
 enum QuickAct { kQaPicker = 0, kQaRecord, kQaScreenshot, kQaWallpaper, kQaMic, kQaDark, kQaPerf, kQaOsk, kQaCount };
 const char* const kQuickNames[kQaCount] = {"picker", "record", "screenshot", "wallpaper", "mic", "darkmode", "perfprofile", "osk"};
 constexpr int kNetW = 26;
@@ -2013,6 +2023,7 @@ void deskVizFrame(App& app, std::chrono::steady_clock::time_point now);
 void deskVizIdle(App& app);
 bool deskVizWanted(const App& app);
 void deskVizReopen(App& app);
+void videoPauseSync(App& app, bool askCovered);
 void deskVizCheckCovered(App& app);
 void deskRedrawAll(App& app);
 void mediaWTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs);
@@ -2106,6 +2117,10 @@ static_assert(kMusicArt == kNumH, "cover and workspace boxes share one height");
 
 // The Separated group style (a pill for each widget) lets every widget take any of its looks, picked from its popup in the bar.
 inline bool groupSeparated(const Config& c) { return c.groupStyle == "separated" && c.barPosition != "left" && c.barPosition != "right"; }
+inline void applyM3Box(const Config& c) {
+    kM3Box = kQuickBox + (groupSeparated(c) ? 2 * kGroupPad : 0);
+    kM3Disc = kM3Box - 2 * kM3Inset;
+}
 inline std::string groupLookOf(const Config& c, const std::string& mod) {
     size_t at = 0;
     while (at < c.groupLooks.size()) {

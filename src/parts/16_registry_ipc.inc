@@ -248,6 +248,7 @@ void handleClient(App& app, int listenFd) {
         applyTheme(app, path.empty() ? app.wallpaper : path);
         reply = "ok";
     }
+    else if (cmd == "videosync") { videoPauseSync(app, true); reply = "ok"; }
     else if (cmd.rfind("wallpaper ", 0) == 0) { changeWallpaper(app, cmd.substr(10)); reply = "ok"; }
     else if (cmd.rfind("workspace ", 0) == 0) { focusWorkspace(std::atoi(cmd.c_str() + 10)); reply = "ok"; }
     else if (cmd == "workspace") reply = std::to_string(app.workspace);
@@ -597,6 +598,28 @@ void handleClient(App& app, int listenFd) {
     close(c);
 }
 
+// ---- the video wallpaper stops when nobody sees it (scripts/video_wallpaper.sh, mpvpaper) -------------------------------------------------------
+// A stopped mpvpaper (SIGSTOP) keeps its last picture on the screen and costs nothing. Stops: every screen has a fullscreen window (Hyprland),
+// the computer runs on battery, the lock screen is up. askCovered: ask the compositor again (after the events that can change it).
+bool videoWallpaperOn() { return access((stateDir() + "/video-wallpaper.txt").c_str(), F_OK) == 0; }
+bool lockScreenUp() {
+    const char* rt = std::getenv("XDG_RUNTIME_DIR");
+    std::ifstream f(std::string(rt ? rt : "/tmp") + "/end4pC-locked");
+    int pid = 0;
+    return (f >> pid) && pid > 0 && kill(pid, 0) == 0;
+}
+void videoPauseSync(App& app, bool askCovered) {
+    if (!videoWallpaperOn()) { app.videoPaused = false; return; }
+    if (askCovered && app.cfg.videoPauseFullscreen && wmKind() == Wm::Hyprland)
+        app.videoCovered = captureArgv({assetsDir() + "/../scripts/video_wallpaper.sh", "covered"}).rfind("1", 0) == 0;
+    const bool onBattery = app.cfg.videoPauseBattery && app.batPresent && !app.batCharging;
+    const bool covered = app.cfg.videoPauseFullscreen && app.videoCovered;
+    const bool want = onBattery || covered || lockScreenUp();
+    if (want == app.videoPaused) return;
+    app.videoPaused = want;
+    videoWallpaper(want ? "pause" : "resume");
+}
+
 int hyprEventSocket() {
     const char* sig = std::getenv("HYPRLAND_INSTANCE_SIGNATURE");
     if (!sig) return -1;
@@ -669,6 +692,7 @@ bool readWmEvents(App& app, int fd, std::string& pending) {
     if (app.ov.surface && changed) ovWorkspaceChanged(app);
     if (app.ov.surface && (ev.occupied || ev.window)) ovSoon(app);
     if (ev.covered && app.dv.surface) deskVizCheckCovered(app);
+    if (ev.covered) videoPauseSync(app, true);
     if (ev.reread) {
         const int id = wmActiveWorkspace();
         if (id > 0 && id != app.workspace) { app.workspace = id; changed = true; }

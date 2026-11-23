@@ -337,6 +337,7 @@ int main(int argc, char** argv) {
     readPeripherals(app);
     loadColors(app);
     app.wallpaper = currentWallpaper();
+    videoWallpaper("restore");
 
     int inoFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     int colorsWd = -1, configWd = -1;
@@ -751,6 +752,7 @@ int main(int argc, char** argv) {
                 const auto tickNow = std::chrono::steady_clock::now();
                 bool bat = false;
                 if (tickNow - lastBattery >= std::chrono::seconds(295)) { lastBattery = tickNow; bat = updateBattery(app); }
+                videoPauseSync(app, false);
                 const bool clk = updateClock(app);
                 ccRunScript("night-apply");
                 if (clk || bat) drawAll(app);
@@ -871,14 +873,14 @@ int main(int argc, char** argv) {
         }
         if (upower.bus) {
             while (sd_bus_process(upower.bus, nullptr) > 0) {}
-            if (upower.battery) { upower.battery = false; if (updateBattery(app)) drawAll(app); }
+            if (upower.battery) { upower.battery = false; if (updateBattery(app)) { videoPauseSync(app, false); drawAll(app); } }
             if (upower.devices) {  // a mouse, a keyboard, a headset: ask again in a moment (a burst of signals is one question)
                 upower.devices = false;
                 if (app.periphSignalDue == std::chrono::steady_clock::time_point{}) app.periphSignalDue = std::chrono::steady_clock::now() + std::chrono::seconds(2);
             }
         }
         if (fds[23].revents & POLLIN) {
-            if (powerEventsPending(powerFd) && updateBattery(app)) drawAll(app);
+            if (powerEventsPending(powerFd) && updateBattery(app)) { videoPauseSync(app, false); drawAll(app); }
         }
         if (fds[9].revents & POLLIN) {
             char junk[4096];

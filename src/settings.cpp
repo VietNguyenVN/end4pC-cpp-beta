@@ -582,6 +582,10 @@ std::vector<Page> makePages() {
          {{"none", "None"}, {"fade", "Fade"}, {"wipe", "Wipe"}, {"circle", "Circle"}, {"slide", "Slide"}, {"blinds", "Blinds"}, {"diamond", "Diamond"}, {"split", "Split"}, {"random", "Random"}}},
         {Slider, "wallpaperTransitionMs", "Transition length", "How long the transition lasts.", {}, 100, 1500, 50, "ms"},
         {Text, "wallpaperDir", "Wallpaper folder", "Where the wallpaper selector looks for images."},
+        {Text, "videoDir", "Video wallpaper folder", "Where the wallpaper selector looks for video wallpapers. They play with mpvpaper."},
+        {Toggle, "videoPauseFullscreen", "Pause the video under fullscreen windows", "The video wallpaper stops while a window covers the screen, so it does not use the GPU for nothing."},
+        {Toggle, "videoPauseBattery", "Pause the video on battery", "The video wallpaper stops while the computer runs on battery."},
+        {Toggle, "lockVideo", "Play the video on the lock screen", "The lock screen shows the video wallpaper playing, not only its first picture. It uses some processor while the screen is locked."},
         {Choice, "selectorFolders", "Show folders", "Where the wallpaper selector shows the folders inside the wallpaper folder: in its sidebar, or as tiles of the grid that open when clicked.",
          {{"sidebar", "In the sidebar"}, {"first", "Tiles, first"}, {"last", "Tiles, last"}}},
         {Toggle, "wallpaperAuto", "Change automatically", "The wallpaper changes by itself to a random one of the folder, with the transition above."},
@@ -834,6 +838,10 @@ void loadConfig() {
     g.val.insert({"cornerBL", "media"});
     g.val.insert({"cornerBR", "wallpapers"});
     g.val.insert({"selectorFolders", "sidebar"});
+    g.val.insert({"videoDir", "~/Pictures/Videos"});
+    g.val.insert({"videoPauseFullscreen", "1"});
+    g.val.insert({"videoPauseBattery", "1"});
+    g.val.insert({"lockVideo", "0"});
     for (const char* n : {"picker", "record", "screenshot", "wallpaper"}) g.val.insert({std::string("quick:") + n, "1"});
     for (const char* n : {"mic", "darkmode", "perfprofile", "osk"}) g.val.insert({std::string("quick:") + n, "0"});
     g.val.insert({"recordFps", "0"});
