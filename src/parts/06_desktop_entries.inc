@@ -1077,21 +1077,30 @@ void popWithShadow(cairo_t* cr, const App& app) {
 
 std::string weatherBarIcon(const App& app) { std::string label, ic; weatherDescribe(app.barWeather.code, app.barWeather.day, label, ic); return ic; }
 std::string weatherBarText(const App& app) { return std::to_string(app.barWeather.temp) + "\xC2\xB0"; }
+const App::BarAi& aiBarUsage(const App& app, int kind) {
+    return kind == 1 && app.cfg.aiCodexWindow == "weekly" ? app.codexWeekly : app.barAi[kind];
+}
+double codexLeft(const App::BarAi& usage) {
+    return usage.seen ? 1.0 - std::clamp(usage.pct, 0.0, 1.0) : 0.0;
+}
 double aiBarFraction(const App& app, int kind) {
-    const double used = std::clamp(app.barAi[kind].pct, 0.0, 1.0);
-    return kind == 1 && app.cfg.aiCodexPercent == "available" ? 1.0 - used : used;
+    const auto& usage = aiBarUsage(app, kind);
+    return kind == 1 ? codexLeft(usage) : std::clamp(usage.pct, 0.0, 1.0);
+}
+std::string aiPercentText(double fraction) {
+    return std::to_string(static_cast<int>(std::lround(fraction * 100))) + "%";
 }
 std::string aiBarText(const App& app, int kind) {
-    return std::to_string(static_cast<int>(std::lround(aiBarFraction(app, kind) * 100))) + "%";
+    return kind == 1 && !aiBarUsage(app, kind).seen ? "—" : aiPercentText(aiBarFraction(app, kind));
 }
 Color aiBarColor(const App& app, int kind) {
-    const App::BarAi& a = app.barAi[kind];
-    if (a.pct >= 0.9) return app.color("error");
+    const auto& a = aiBarUsage(app, kind);
+    if (a.seen && a.pct >= 0.9) return app.color("error");
     return app.color((kind == 0 ? a.sessions > 0 : a.seen) ? "on_surface" : "on_surface_variant");
 }
 const char* aiBarIcon(int kind) { return kind == 0 ? "claude" : "openai"; }
 Color aiM3Color(const App& app, int kind) {
-    const App::BarAi& a = app.barAi[kind];
+    const auto& a = aiBarUsage(app, kind);
     return app.color((kind == 0 ? a.sessions > 0 : a.seen) ? "on_surface_variant" : "outline");
 }
 
@@ -1236,8 +1245,7 @@ double aiM3Content(cairo_t* cr, const App& app, PangoLayout* layout, double x, d
     PangoFontDescription* f = pango_font_description_from_string("Sans");
     pango_font_description_set_absolute_size(f, 15 * PANGO_SCALE);
     pango_layout_set_font_description(layout, f);
-    const bool noData = kind == 1 && !app.barAi[kind].seen;
-    const std::string text = noData ? "\xE2\x80\x94" : aiBarText(app, kind);
+    const std::string text = aiBarText(app, kind);
     pango_layout_set_text(layout, text.c_str(), -1);
     int tw = 0, th = 0;
     pango_layout_get_pixel_size(layout, &tw, &th);
@@ -1344,7 +1352,7 @@ double aiBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, do
             Color ink = m3 ? aiM3Color(app, kind) : aiBarColor(app, kind);
             if (framed) {
                 ink = styleFrame(cr, app, style, x + w, cy - kQuickBox / 2, pillW, kQuickBox, hotKind == kind);
-                if (app.barAi[kind].pct >= 0.9 && style != "badge" && style != "tonal") ink = app.color("error");
+                if (aiBarUsage(app, kind).pct >= 0.9 && aiBarUsage(app, kind).seen && style != "badge" && style != "tonal") ink = app.color("error");
             }
             aiPillContent(cr, app, layout, x + w + pad, cy, kind, style, ink);
         }
@@ -1626,7 +1634,7 @@ void aiSidePaint(cairo_t* cr, const App& app, PangoLayout* layout, const Rect& r
     Color ink = style == "m3" ? aiM3Color(app, kind) : aiBarColor(app, kind);
     if (style != "m3") {
         const Color framed = styleFrame(cr, app, style, r.x, r.y, r.w, r.h, hot, true);
-        if (genericFrame(style)) ink = app.barAi[kind].pct >= 0.9 && style != "badge" && style != "tonal" ? app.color("error") : framed;
+        if (genericFrame(style)) ink = aiBarUsage(app, kind).pct >= 0.9 && aiBarUsage(app, kind).seen && style != "badge" && style != "tonal" ? app.color("error") : framed;
     }
     drawIcon(cr, aiBarIcon(kind), r.x + (r.w - 18) / 2, r.y + 2, 18, ink);
     PangoFontDescription* f = pango_font_description_from_string("Sans Bold 8");

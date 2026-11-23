@@ -455,7 +455,7 @@ std::vector<Page> makePages() {
         {Slider, "resWarnSwap", "Swap warning", "It turns red at this use.", {}, 50, 100, 5, "%"},
         {Toggle, "aiClaude", "Claude Code", "The tokens used in the current 5 hour window, as a percentage. It shows only while Claude Code has left data on this machine.", {}},
         {Toggle, "aiCodex", "Codex", "The usage limit Codex reports. It shows only while Codex has left data on this machine.", {}},
-        {Choice, "aiCodexPercent", "Codex percentage", "Show how much of the Codex limit has been used or is still available.", {{"used", "Used"}, {"available", "Available"}}},
+        {Choice, "aiCodexWindow", "Codex bar limit", "Choose which Codex limit the bar displays as a percentage left.", {{"5h", "5h"}, {"weekly", "Weekly"}}},
         {Slider, "aiTokenLimit", "Claude limit", "How many thousands of tokens count as 100 % of the window. Anthropic does not publish the number of your plan, so set the one you reach.", {}, 100, 5000, 100, "k"},
     }});
     p.push_back({"Interface", "layers-minimalistic", {
@@ -831,7 +831,7 @@ void loadConfig() {
     for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"overviewLive", "1"}, {"switcherStyle", "grid"}, {"overviewLauncher", "0"}, {"overviewIcon", "right"}, {"overviewPosition", "top"}, {"privacyMic", "1"}, {"privacyCam", "1"}, {"privacyScreen", "1"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"fontWeightText", "450"}, {"fontWeightTitle", "550"}, {"launcherFiles", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"notificationAppIcons", "0"}, {"conflictCheck", "1"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
         g.val.insert(d);
     if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
-    g.val.insert({"aiCodexPercent", "used"});
+    g.val.insert({"aiCodexWindow", "5h"});
     g.val.insert({"lyricsProvider", "auto"});
     g.val.insert({"updatesEnable", "1"});
     for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"hotCornerWidth", "6"}, {"hotCornerHeight", "6"}, {"hotCornerVisible", "0"}, {"hotCornerHover", "0"}}) g.val.insert(d);
@@ -2784,7 +2784,7 @@ bool rowAvailable(const Row& r) {
     }
     for (const char* k : {"resCpu", "resRam", "resTemp", "resDisk", "resSwap", "resValue", "resInterval", "resWarnCpu", "resWarnMem", "resWarnSwap"})
         if (r.key == k) return moduleUsed("resources");
-    if (r.key == "aiCodexPercent") return moduleUsed("aiusage") && g.val["aiCodex"] == "1";
+    if (r.key == "aiCodexWindow") return moduleUsed("aiusage") && g.val["aiCodex"] == "1";
     if (r.key == "aiClaude" || r.key == "aiCodex" || r.key == "aiTokenLimit") return moduleUsed("aiusage");
     return true;
 }

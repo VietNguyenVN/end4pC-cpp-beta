@@ -684,37 +684,37 @@ int clkAiKind(const App& app, const ClockPanel& P) { return clkAiKindOfTab(app, 
 
 void clkCodexSummary(ClkCtx& X, double x, double y) {
     cairo_t* cr = X.cr;
-    const auto& a = X.app.barAi[1];
-    const double pct = aiBarFraction(X.app, 1);
-    const bool available = X.app.cfg.aiCodexPercent == "available";
-    const double w = kClkW - 2 * kClkPad, track = w - 40;
+    const auto& primary = X.app.barAi[1];
+    const auto& weekly = X.app.codexWeekly;
+    const double w = kClkW - 2 * kClkPad, track = (w - 52) / 2;
     const Color ink = X.app.color("on_primary_container");
     roundedRect(cr, x, y, w, kClkHeroH, 24);
     setSource(cr, X.app.color("primary_container"));
     cairo_fill(cr);
-
     X.literal(std::string("Codex · ") + i18n::tr("Account limit"), 14, true, x + 20, y + 26, ink);
     drawIcon(cr, "openai", x + w - 44, y + 14, 24, ink, false);
-    const int labelWidth = X.literal(aiBarText(X.app, 1), 58, false, x + 20, y + 83, ink, 1.0, 0, 0, true);
-    X.text(available ? "Available" : "Used", 16, false, x + 30 + labelWidth, y + 97, ink);
 
-    roundedRect(cr, x + 20, y + 128, track, 8, 4);
-    setSource(cr, ink, 0.18);
-    cairo_fill(cr);
-    if (pct > 0) {
-        roundedRect(cr, x + 20, y + 128, track * pct, 8, 4);
-        setSource(cr, a.pct >= 0.9 ? X.app.color("error") : ink);
+    auto window = [&](const App::BarAi& usage, const char* label, double left) {
+        const double remaining = codexLeft(usage);
+        std::string text = std::string(i18n::tr(label)) + " ";
+        text += usage.seen ? aiPercentText(remaining) + " " + i18n::tr("left") : "—";
+        X.literal(text, 16, true, left, y + 74, ink);
+        roundedRect(cr, left, y + 96, track, 8, 4);
+        setSource(cr, ink, 0.18);
         cairo_fill(cr);
-    }
-
-    std::string detail;
-    if (a.pct >= 0.7) detail = i18n::tr(a.pct >= 0.9 ? "Near limit" : "High");
-    const long long left = a.resetsAt - static_cast<long long>(std::time(nullptr));
-    if (a.resetsAt > 0 && left > 0) {
-        if (!detail.empty()) detail += " · ";
-        detail += std::string(i18n::tr("resets in")) + " " + clkDuration(left);
-    }
-    if (!detail.empty()) X.literal(detail, 13, true, x + 20, y + 159, ink);
+        if (remaining > 0) {
+            roundedRect(cr, left, y + 96, track * remaining, 8, 4);
+            setSource(cr, usage.pct >= 0.9 ? X.app.color("error") : ink);
+            cairo_fill(cr);
+        }
+        const long long reset = usage.resetsAt - static_cast<long long>(std::time(nullptr));
+        if (usage.seen && usage.pct >= 0.7)
+            X.text(usage.pct >= 0.9 ? "Near limit" : "High", 13, true, left, y + 124, ink);
+        if (usage.seen && reset > 0)
+            X.literal(std::string(i18n::tr("resets in")) + " " + clkDuration(reset), 12, false, left, y + 149, ink);
+    };
+    window(primary, "5h", x + 20);
+    window(weekly, "Weekly", x + 32 + track);
 }
 
 void clkAiHero(ClkCtx& X, double x, double y, int kind) {
