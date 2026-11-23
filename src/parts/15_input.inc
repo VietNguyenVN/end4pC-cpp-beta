@@ -62,7 +62,7 @@ void closeAllPopups(App& app) {
 
 // What a hot corner opens (a click on it, or the pointer entering it when that is turned on).
 void hotCornerAct(App& app, int corner) {
-    const std::string& act = corner == 0 ? app.cfg.cornerTL : corner == 1 ? app.cfg.cornerTR : corner == 2 ? app.cfg.cornerBL : app.cfg.cornerBR;
+    const std::string& act = app.cfg.cornerAction(corner);
     if (act == "controlcenter") toggleControlCenter(app, false, corner == 0 || corner == 2 ? 1 : 2);  // (on the side of the corner)
     else if (act == "media") toggleMediaPanel(app);
     else if (act == "wallpapers") toggleSelector(app);

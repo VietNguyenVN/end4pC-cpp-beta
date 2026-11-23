@@ -329,6 +329,12 @@ struct Config {
     int updatesInterval = 60;
     int updatesMinShow = 0;  // the bar shows the updates widget from this many pending updates (0: always)
     std::string cornerTL = "none", cornerTR = "controlcenter", cornerBL = "media", cornerBR = "wallpapers";
+    const std::string& cornerAction(int corner) const {
+        return corner == 0 ? cornerTL : corner == 1 ? cornerTR : corner == 2 ? cornerBL : cornerBR;
+    }
+    bool cornerHighlighted(int corner) const {
+        return hotCornerVisible && cornerAction(corner) != "none";
+    }
     int dividerSpacing = 0;
     int barShadow = 0;
     std::string islandView = "media";
