@@ -653,7 +653,6 @@ int main(int argc, char** argv) {
         }
         if (app.sw.open() && swPoll(app)) timeoutMs = timeoutMs < 0 ? 30 : std::min(timeoutMs, 30);
         if (app.sw.open() && !app.swLive.wins.empty()) timeoutMs = timeoutMs < 0 ? 16 : std::min(timeoutMs, 16);
-        if (app.cap.open() && app.cap.configured && app.cap.bubbleMoving) { captureRedraw(app); timeoutMs = 16; }
         if (app.sel.open() && app.sel.configured && app.sel.bubbleMoving) { drawSelector(app); timeoutMs = 16; }
         if (app.sel.open() && app.sel.configured && !app.sel.msgShown.empty()) {
             const double age = std::chrono::duration<double>(before - app.sel.msgAt).count();
