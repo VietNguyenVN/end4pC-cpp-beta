@@ -491,12 +491,12 @@ void clockPaint(App& app, DeskWidget& d, cairo_t* cr, int W, int H) {
         std::snprintf(mo, sizeof mo, "%02d", tm.tm_mon + 1);
         text(mo, kDisplayFamily, 30, 900, 230 - sz / 2, 230 - sz / 2, app.color("on_secondary_container"), 1.0);
     } else if (app.cfg.cookieDate == "rect") {
-        roundedRect(cr, 230 - 40 - 45, 115 - 15, 45, 30, 8);
+        roundedRect(cr, 230 - 10 - 45, 115 - 15, 45, 30, 8);  // (10 from the right edge: the end-4 clock slides it from 40 to 10 as it fades in)
         setSource(cr, mixColor(info, app.color("secondary_container"), 0.5));
         cairo_fill(cr);
         char dd[8];
         std::snprintf(dd, sizeof dd, "%02d", tm.tm_mday);
-        text(dd, kDisplayFamily, 20, 900, 230 - 40 - 22.5, 115, app.color("secondary"), 1.0);
+        text(dd, kDisplayFamily, 20, 900, 230 - 10 - 22.5, 115, app.color("secondary"), 1.0);
     }
     cairo_restore(cr);
     g_object_unref(layout);
