@@ -657,7 +657,10 @@ struct Now {
     std::string status, instance, artist, title;
     double pos = 0, len = 0;  // seconds
     std::chrono::steady_clock::time_point at;
+    std::string prevTitle, prevArtist;                 // the song before, while the new one slides in
+    std::chrono::steady_clock::time_point changeAt{};  // when the song changed (the slide starts)
 };
+constexpr double kSlideSeconds = 0.5;
 std::mutex g_nowMx;
 Now g_now;
 std::atomic<bool> g_playerOn{false};
@@ -675,6 +678,12 @@ bool playerPlaying() {
     if (!g_playerOn) return false;
     const Now n = nowSnapshot();
     return n.have && n.status == "Playing";
+}
+// The song changed a moment ago: the new one is still sliding in.
+bool playerSliding() {
+    if (!g_playerOn) return false;
+    const Now n = nowSnapshot();
+    return n.have && n.changeAt != std::chrono::steady_clock::time_point{} && std::chrono::duration<double>(std::chrono::steady_clock::now() - n.changeAt).count() < kSlideSeconds;
 }
 
 void playerPoll() {
@@ -715,6 +724,16 @@ void playerPoll() {
     {
         std::lock_guard<std::mutex> lk(g_nowMx);
         changed = g_now.have != best.have || g_now.title != best.title || g_now.artist != best.artist || g_now.status != best.status;
+        const bool otherSong = best.have && (!g_now.have || g_now.title != best.title || g_now.artist != best.artist);
+        if (otherSong) {  // (the first one after nothing was playing slides in too, with nothing to push out)
+            best.prevTitle = g_now.have ? g_now.title : "";
+            best.prevArtist = g_now.have ? g_now.artist : "";
+            best.changeAt = std::chrono::steady_clock::now();
+        } else {
+            best.prevTitle = g_now.prevTitle;
+            best.prevArtist = g_now.prevArtist;
+            best.changeAt = g_now.changeAt;
+        }
         g_now = best;
     }
     if (changed && g_wake[1] >= 0) { const char b = 'w'; (void)!write(g_wake[1], &b, 1); }
@@ -848,13 +867,38 @@ void waveProgress(cairo_t* cr, double x, double y, double w, double h, double fr
 }
 
 // The type of the song on the right side: a label, the title as big as it fits, the artist, and the progress line with the three buttons.
+// When the song changes the old title and artist slide out to the left, fading, and the new ones slide in from the right.
+struct PlayerText {
+    PangoLayout* title = nullptr;
+    PangoLayout* artist = nullptr;
+    int th = 0, ah = 0;
+    double top = 0, row = 0;  // where the block starts and where the line with the buttons goes, for this text
+    ~PlayerText() { if (title) g_object_unref(title); if (artist) g_object_unref(artist); }
+};
+constexpr double kPlayerRowH = 52, kPlayerGap1 = 6, kPlayerGap2 = 8, kPlayerGap3 = 26;
+void buildPlayerText(cairo_t* cr, PlayerText& t, const std::string& title, const std::string& artist, double width, double maxTitleH, int labelH, int H) {
+    t.title = fitBlock(cr, title, width, true, 190, 26, maxTitleH, -0.03, 0.85, t.th);
+    if (!artist.empty()) t.artist = fitBlock(cr, artist, width, false, 34, 18, 150, 0, 1.0, t.ah);
+    const double total = labelH + kPlayerGap1 + t.th + (t.artist ? kPlayerGap2 + t.ah : 0) + kPlayerGap3 + kPlayerRowH;
+    t.top = std::max(40.0, (H - total) / 2);
+    t.row = t.top + total - kPlayerRowH;
+}
+void paintPlayerText(cairo_t* cr, const PlayerText& t, double top, double x, double dx, double alpha, int labelH) {
+    const Color white{0.97, 0.97, 0.97};
+    double y = top + labelH + kPlayerGap1;
+    blockPaint(cr, t.title, x + dx, y, white, alpha, true);
+    y += t.th;
+    if (t.artist) blockPaint(cr, t.artist, x + dx, y + kPlayerGap2, white, 0.85 * alpha, false);
+}
+
 void paintPlayer(cairo_t* cr, int W, int H) {
     if (!g_playerOn) return;
     Now n = nowSnapshot();
     const std::string key = std::to_string(W) + "x" + std::to_string(H);
     if (!n.have) { g_playerHits.erase(key); return; }
+    const auto now = std::chrono::steady_clock::now();
     const bool playing = n.status == "Playing";
-    if (playing) n.pos += std::chrono::duration<double>(std::chrono::steady_clock::now() - n.at).count();
+    if (playing) n.pos += std::chrono::duration<double>(now - n.at).count();
     if (n.len > 0) n.pos = std::min(n.pos, n.len);
     const Color white{0.97, 0.97, 0.97};
     const double right = W - 96, width = std::min(620.0, W * 0.36), x0 = right - width;
@@ -865,26 +909,33 @@ void paintPlayer(cairo_t* cr, int W, int H) {
     PangoLayout* ll = blockLayout(cr, label, 22, false, width, 0.2, 1.0);
     int lw = 0, lh = 0;
     pango_layout_get_pixel_size(ll, &lw, &lh);
-    int th = 0, ah = 0;
-    PangoLayout* tl = fitBlock(cr, n.title, width, true, 190, 26, maxTitleH, -0.03, 0.85, th);
-    PangoLayout* al = n.artist.empty() ? nullptr : fitBlock(cr, n.artist, width, false, 34, 18, 150, 0, 1.0, ah);
-    const double rowH = 52, gap1 = 6, gap2 = 8, gap3 = 26;
-    const double total = lh + gap1 + th + (al ? gap2 + ah : 0) + gap3 + rowH;
-    double y = std::max(40.0, (H - total) / 2);
 
+    PlayerText now2;
+    buildPlayerText(cr, now2, n.title, n.artist, width, maxTitleH, lh, H);
+    double t = 1;  // how far the slide is (0 .. 1)
+    if (n.changeAt != std::chrono::steady_clock::time_point{}) t = std::clamp(std::chrono::duration<double>(now - n.changeAt).count() / kSlideSeconds, 0.0, 1.0);
+    const double e = 1 - std::pow(1 - t, 3);  // (ease out)
+    const double slide = 90;
+    double top = now2.top, row = now2.row;
+    if (t < 1 && !n.prevTitle.empty()) {
+        PlayerText old;
+        buildPlayerText(cr, old, n.prevTitle, n.prevArtist, width, maxTitleH, lh, H);
+        top = old.top + (now2.top - old.top) * e;
+        row = old.row + (now2.row - old.row) * e;
+        paintPlayerText(cr, old, top, x0, -slide * e, 1 - e, lh);
+        paintPlayerText(cr, now2, top, x0, slide * (1 - e), e, lh);
+    } else if (t < 1) {
+        paintPlayerText(cr, now2, top, x0, slide * (1 - e), e, lh);
+    } else {
+        paintPlayerText(cr, now2, top, x0, 0, 1, lh);
+    }
     const Color accent = color("primary");
     const bool haveAccent = accent.r + accent.g + accent.b > 0.9;  // (the fallback of color() is dark: it would not show on the veil)
-    blockPaint(cr, ll, x0, y, haveAccent ? accent : white, haveAccent ? 1.0 : 0.7, false);
-    y += lh + gap1;
-    blockPaint(cr, tl, x0, y, white, 1, true);
-    y += th;
-    if (al) { y += gap2; blockPaint(cr, al, x0, y, white, 0.85, false); y += ah; }
-    y += gap3;
+    blockPaint(cr, ll, x0, top, haveAccent ? accent : white, haveAccent ? 1.0 : 0.7, false);
     g_object_unref(ll);
-    g_object_unref(tl);
-    if (al) g_object_unref(al);
 
     // progress line on the left of the buttons, the buttons right aligned: previous, play / pause, next
+    const double y = row, rowH = kPlayerRowH;
     const double side = 36, play = 52, bgap = 6, waveW = 260, waveGap = 20;
     const double bx = right - (side + bgap + play + bgap + side), wx = bx - waveGap - waveW;
     std::vector<PlayerHit> hits;
@@ -1535,6 +1586,16 @@ void dumpPlayer(const std::string& dir) {
             g_now.pos = 100;
             g_now.len = 260;
             g_now.at = std::chrono::steady_clock::now();
+            // optional 4th and 5th columns: the song before, and how far the slide is (0 .. 1)
+            std::vector<std::string> extra;
+            for (size_t q = f[2].find('\t'); q != std::string::npos; q = f[2].find('\t')) { extra.push_back(f[2].substr(q + 1)); f[2].resize(q); break; }
+            g_now.artist = f[2];
+            if (!extra.empty()) {
+                const size_t t2 = extra[0].find('\t');
+                g_now.prevTitle = extra[0].substr(0, t2);
+                const double progress = t2 == std::string::npos ? 0.4 : std::atof(extra[0].c_str() + t2 + 1);
+                g_now.changeAt = g_now.at - std::chrono::milliseconds(static_cast<int>(progress * kSlideSeconds * 1000));
+            }
         }
         cairo_surface_t* s = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, W, H);
         cairo_t* cr = mkcr(s);
@@ -1586,7 +1647,7 @@ int main(int argc, char** argv) {
         while (wl_display_prepare_read(g.display) != 0) wl_display_dispatch_pending(g.display);
         std::vector<pollfd> fds = {{wl_display_get_fd(g.display), POLLIN, 0}, {g_wake[0], POLLIN, 0}};
         for (const auto& [key, f] : g_feeds) if (f.fd >= 0) fds.push_back({f.fd, POLLIN, 0});
-        const bool playerMoving = playerPlaying();
+        const bool playerMoving = playerPlaying() || playerSliding();
         if (poll(fds.data(), fds.size(), g.animPhase != App::AnimIdle ? 30 : playerMoving ? 66 : 1000) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
         if (fds[0].revents & POLLIN) wl_display_read_events(g.display);
         else wl_display_cancel_read(g.display);
