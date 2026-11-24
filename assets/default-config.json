@@ -6,6 +6,7 @@
   "islandRounding": 30,
   "fakeRounding": 2,
   "unlockKeyring": 1,
+  "lockPlayer": 1,
   "barFollowsFrame": 0,
   "frameColor": "black",
   "lockOnStart": 1,

@@ -176,12 +176,12 @@ TextSize text(cairo_t* cr, const std::string& s, double x, double y, double px, 
     return ts;
 }
 
-cairo_surface_t* iconMask(const std::string& name, int size) {
+cairo_surface_t* iconMask(const std::string& name, int size, bool solid = false) {
     static std::map<std::string, cairo_surface_t*> cache;
-    const std::string key = name + "/" + std::to_string(size);
+    const std::string key = name + "/" + std::to_string(size) + (solid ? "s" : "");
     if (auto it = cache.find(key); it != cache.end()) return it->second;
     cairo_surface_t* mask = nullptr;
-    for (const char* style : {"broken", "outline", "bold"}) {
+    for (const char* style : solid ? std::initializer_list<const char*>{"bold", "outline", "broken"} : std::initializer_list<const char*>{"broken", "outline", "bold"}) {
         const std::string path = assetsDir() + "/icons/" + style + "/" + name + ".svg";
         if (access(path.c_str(), R_OK) != 0) continue;
         RsvgHandle* h = rsvg_handle_new_from_file(path.c_str(), nullptr);
@@ -206,9 +206,9 @@ void maskIconBox(cairo_t* cr, cairo_surface_t* m, double x, double y, int size, 
     cairo_mask_surface(cr, m, 0, 0);
     cairo_restore(cr);
 }
-void icon(cairo_t* cr, const std::string& name, double x, double y, int size, const Color& c) {
+void icon(cairo_t* cr, const std::string& name, double x, double y, int size, const Color& c, bool solid = false) {
     const int px = hidpi::bufferExtent(size, hidpi::scaleOf(cr));
-    if (cairo_surface_t* m = iconMask(name, px)) {
+    if (cairo_surface_t* m = iconMask(name, px, solid)) {
         src(cr, c);
         maskIconBox(cr, m, x, y, size, px);
     }
@@ -525,6 +525,7 @@ struct App {
     wp_fractional_scale_manager_v1* fscaleMgr = nullptr;
     wl_seat* seat = nullptr;
     wl_keyboard* keyboard = nullptr;
+    wl_pointer* pointer = nullptr;
     ext_session_lock_manager_v1* manager = nullptr;
     ext_session_lock_v1* lock = nullptr;
     std::vector<std::unique_ptr<Output>> outputs;
@@ -648,11 +649,271 @@ void paintWallpaper(cairo_t* cr, int W, int H) {
     }
 }
 
+// ---- the player on the lock screen -------------------------------------------------------------------------------------------------------
+// What plays now is asked from playerctl once a second by a thread. The title and the artist are never cut: the text wraps over as many lines as it
+// needs and the type shrinks until it fits (Pango, word wrap, and by letter when one word is longer than the line).
+struct Now {
+    bool have = false;
+    std::string status, instance, artist, title;
+    double pos = 0, len = 0;  // seconds
+    std::chrono::steady_clock::time_point at;
+};
+std::mutex g_nowMx;
+Now g_now;
+std::atomic<bool> g_playerOn{false};
+struct PlayerHit { double x, y, w, h; int id; };
+enum { kPlayPrev, kPlayToggle, kPlayNext, kPlaySeek };
+std::map<std::string, std::vector<PlayerHit>> g_playerHits;  // by size of the output ("WxH"), filled when it is painted
+int g_playerHover = -1;
+struct SeekBar { double x = 0, w = 0; } g_seekBar;
+
+Now nowSnapshot() {
+    std::lock_guard<std::mutex> lk(g_nowMx);
+    return g_now;
+}
+bool playerPlaying() {
+    if (!g_playerOn) return false;
+    const Now n = nowSnapshot();
+    return n.have && n.status == "Playing";
+}
+
+void playerPoll() {
+    std::string out;
+    if (FILE* f = popen("timeout 2 playerctl -a metadata --format '{{status}}\t{{playerInstance}}\t{{position}}\t{{mpris:length}}\t{{artist}}\t{{title}}' 2>/dev/null", "r")) {
+        char buf[1024];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof buf, f)) > 0 && out.size() < 65536) out.append(buf, n);
+        pclose(f);
+    }
+    Now best;
+    std::istringstream in(out);
+    std::string line;
+    while (std::getline(in, line)) {
+        std::vector<std::string> f;
+        size_t p = 0;
+        for (int i = 0; i < 5; i++) {
+            const size_t t = line.find('\t', p);
+            if (t == std::string::npos) break;
+            f.push_back(line.substr(p, t - p));
+            p = t + 1;
+        }
+        if (f.size() < 5) continue;
+        f.push_back(line.substr(p));
+        if (f[0] != "Playing" && f[0] != "Paused") continue;
+        if (best.have && best.status == "Playing") continue;
+        if (best.have && f[0] != "Playing") continue;
+        best.have = !f[5].empty();
+        best.status = f[0];
+        best.instance = f[1];
+        best.pos = std::atof(f[2].c_str()) / 1e6;
+        best.len = std::atof(f[3].c_str()) / 1e6;
+        best.artist = f[4];
+        best.title = f[5];
+        best.at = std::chrono::steady_clock::now();
+    }
+    bool changed;
+    {
+        std::lock_guard<std::mutex> lk(g_nowMx);
+        changed = g_now.have != best.have || g_now.title != best.title || g_now.artist != best.artist || g_now.status != best.status;
+        g_now = best;
+    }
+    if (changed && g_wake[1] >= 0) { const char b = 'w'; (void)!write(g_wake[1], &b, 1); }
+}
+void playerLoop() {
+    for (;;) {
+        playerPoll();
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
+void startPlayer() {
+    std::string off;
+    jsonValue(readFile(configFile()), "lockPlayer", off);
+    if (off == "0") return;
+    g_playerOn = true;
+    std::thread(playerLoop).detach();
+}
+
+// Runs playerctl for the player on show (twice forked: nobody waits for it).
+void playerCommand(const std::vector<std::string>& args) {
+    const Now n = nowSnapshot();
+    if (!n.have || n.instance.empty()) return;
+    const pid_t first = fork();
+    if (first == 0) {
+        if (fork() == 0) {
+            std::vector<const char*> argv = {"playerctl", "-p", n.instance.c_str()};
+            for (const std::string& a : args) argv.push_back(a.c_str());
+            argv.push_back(nullptr);
+            const int nul = open("/dev/null", O_RDWR);
+            dup2(nul, 0); dup2(nul, 1); dup2(nul, 2);
+            execvp("playerctl", const_cast<char* const*>(argv.data()));
+            _exit(127);
+        }
+        _exit(0);
+    }
+    if (first > 0) waitpid(first, nullptr, 0);
+}
+void playerPress(int id, double fraction) {
+    if (id == kPlayPrev) playerCommand({"previous"});
+    else if (id == kPlayNext) playerCommand({"next"});
+    else if (id == kPlayToggle) {
+        playerCommand({"play-pause"});
+        std::lock_guard<std::mutex> lk(g_nowMx);
+        g_now.pos += g_now.status == "Playing" ? std::chrono::duration<double>(std::chrono::steady_clock::now() - g_now.at).count() : 0;
+        g_now.at = std::chrono::steady_clock::now();
+        g_now.status = g_now.status == "Playing" ? "Paused" : "Playing";
+    } else if (id == kPlaySeek) {
+        const Now n = nowSnapshot();
+        if (n.len <= 0) return;
+        char buf[32];
+        std::snprintf(buf, sizeof buf, "%.2f", std::clamp(fraction, 0.0, 1.0) * n.len);
+        playerCommand({"position", buf});
+        std::lock_guard<std::mutex> lk(g_nowMx);
+        g_now.pos = std::clamp(fraction, 0.0, 1.0) * n.len;
+        g_now.at = std::chrono::steady_clock::now();
+    }
+}
+
+PangoLayout* blockLayout(cairo_t* cr, const std::string& s, double px, bool bold, double width, double spacingEm, double lineFactor, PangoWrapMode wrap = PANGO_WRAP_WORD_CHAR) {
+    PangoLayout* l = pango_cairo_create_layout(cr);
+    PangoFontDescription* d = pango_font_description_from_string(bold ? "Sans Bold" : "Sans");
+    pango_font_description_set_absolute_size(d, px * PANGO_SCALE);
+    pango_layout_set_font_description(l, d);
+    pango_font_description_free(d);
+    pango_layout_set_width(l, static_cast<int>(width * PANGO_SCALE));
+    pango_layout_set_wrap(l, wrap);
+    pango_layout_set_alignment(l, PANGO_ALIGN_RIGHT);
+    pango_layout_set_line_spacing(l, lineFactor);
+    if (spacingEm != 0) {
+        PangoAttrList* a = pango_attr_list_new();
+        pango_attr_list_insert(a, pango_attr_letter_spacing_new(static_cast<int>(spacingEm * px * PANGO_SCALE)));
+        pango_layout_set_attributes(l, a);
+        pango_attr_list_unref(a);
+    }
+    pango_layout_set_text(l, s.c_str(), -1);
+    return l;
+}
+// The biggest type, from maxPx down to minPx, with which the text fits in maxH and no word has to be broken. If even minPx cannot keep the words whole
+// (one very long word), the words are broken by letter at the biggest size that fits. The text is never cut.
+PangoLayout* fitBlock(cairo_t* cr, const std::string& s, double width, bool bold, double maxPx, double minPx, double maxH, double spacingEm, double lineFactor, int& h) {
+    for (double px = maxPx; px >= minPx; px -= 2) {
+        PangoLayout* l = blockLayout(cr, s, px, bold, width, spacingEm, lineFactor, PANGO_WRAP_WORD);
+        int w2 = 0;
+        pango_layout_get_pixel_size(l, &w2, &h);
+        if (w2 <= width + 1 && h <= maxH) return l;  // (a word wider than the line makes the layout wider than it)
+        g_object_unref(l);
+    }
+    double px = maxPx;
+    for (;;) {
+        PangoLayout* l = blockLayout(cr, s, px, bold, width, spacingEm, lineFactor, PANGO_WRAP_WORD_CHAR);
+        int w2 = 0;
+        pango_layout_get_pixel_size(l, &w2, &h);
+        if (h <= maxH || px <= minPx) return l;
+        g_object_unref(l);
+        px = std::max(minPx, px - 2);
+    }
+}
+void blockPaint(cairo_t* cr, PangoLayout* l, double x, double y, const Color& c, double alpha, bool shadow) {
+    if (shadow) {
+        cairo_move_to(cr, x, y + 3);
+        src(cr, Color{0, 0, 0}, 0.35);
+        pango_cairo_show_layout(cr, l);
+    }
+    cairo_move_to(cr, x, y);
+    src(cr, c, alpha);
+    pango_cairo_show_layout(cr, l);
+}
+
+void waveProgress(cairo_t* cr, double x, double y, double w, double h, double frac, bool playing, const Color& c) {
+    const double mid = y + h / 2, pw = std::clamp(frac, 0.0, 1.0) * w, per = 28, amp = 3.5;
+    const double phase = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count() * 2 * M_PI * 0.6;
+    cairo_save(cr);
+    cairo_set_line_width(cr, 3);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    src(cr, c);
+    cairo_new_path(cr);
+    const double end = std::max(0.0, pw - 4);
+    for (double px = 0; px <= end; px += 1.5) {
+        const double yy = mid + (playing ? amp : 0) * std::sin(px / per * 2 * M_PI - (playing ? phase : 0));
+        if (px == 0) cairo_move_to(cr, x + px, yy); else cairo_line_to(cr, x + px, yy);
+    }
+    cairo_stroke(cr);
+    src(cr, c, 0.28);
+    cairo_move_to(cr, x + pw + 6, mid);
+    cairo_line_to(cr, x + w, mid);
+    cairo_stroke(cr);
+    src(cr, c);
+    rrect(cr, x + pw - 3, mid - h * 0.3, 6, h * 0.6, 3);
+    cairo_fill(cr);
+    cairo_restore(cr);
+}
+
+// The type of the song on the right side: a label, the title as big as it fits, the artist, and the progress line with the three buttons.
+void paintPlayer(cairo_t* cr, int W, int H) {
+    if (!g_playerOn) return;
+    Now n = nowSnapshot();
+    const std::string key = std::to_string(W) + "x" + std::to_string(H);
+    if (!n.have) { g_playerHits.erase(key); return; }
+    const bool playing = n.status == "Playing";
+    if (playing) n.pos += std::chrono::duration<double>(std::chrono::steady_clock::now() - n.at).count();
+    if (n.len > 0) n.pos = std::min(n.pos, n.len);
+    const Color white{0.97, 0.97, 0.97};
+    const double right = W - 96, width = std::min(620.0, W * 0.36), x0 = right - width;
+    const double maxTitleH = std::min(H * 0.5, 520.0);
+
+    std::string label = i18n::tr("Now playing");
+    for (char& ch : label) if (static_cast<unsigned char>(ch) < 0x80) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    PangoLayout* ll = blockLayout(cr, label, 22, false, width, 0.2, 1.0);
+    int lw = 0, lh = 0;
+    pango_layout_get_pixel_size(ll, &lw, &lh);
+    int th = 0, ah = 0;
+    PangoLayout* tl = fitBlock(cr, n.title, width, true, 190, 26, maxTitleH, -0.03, 0.85, th);
+    PangoLayout* al = n.artist.empty() ? nullptr : fitBlock(cr, n.artist, width, false, 34, 18, 150, 0, 1.0, ah);
+    const double rowH = 52, gap1 = 6, gap2 = 8, gap3 = 26;
+    const double total = lh + gap1 + th + (al ? gap2 + ah : 0) + gap3 + rowH;
+    double y = std::max(40.0, (H - total) / 2);
+
+    const Color accent = color("primary");
+    const bool haveAccent = accent.r + accent.g + accent.b > 0.9;  // (the fallback of color() is dark: it would not show on the veil)
+    blockPaint(cr, ll, x0, y, haveAccent ? accent : white, haveAccent ? 1.0 : 0.7, false);
+    y += lh + gap1;
+    blockPaint(cr, tl, x0, y, white, 1, true);
+    y += th;
+    if (al) { y += gap2; blockPaint(cr, al, x0, y, white, 0.85, false); y += ah; }
+    y += gap3;
+    g_object_unref(ll);
+    g_object_unref(tl);
+    if (al) g_object_unref(al);
+
+    // progress line on the left of the buttons, the buttons right aligned: previous, play / pause, next
+    const double side = 36, play = 52, bgap = 6, waveW = 260, waveGap = 20;
+    const double bx = right - (side + bgap + play + bgap + side), wx = bx - waveGap - waveW;
+    std::vector<PlayerHit> hits;
+    waveProgress(cr, wx, y + (rowH - 24) / 2, waveW, 24, n.len > 0 ? n.pos / n.len : 0, playing, white);
+    hits.push_back({wx - 4, y + (rowH - 36) / 2, waveW + 8, 36, kPlaySeek});
+    g_seekBar = {wx, waveW};
+    auto ghost = [&](double x, double d, int id, const char* ic) {
+        const double cy = y + rowH / 2;
+        if (g_playerHover == id) { src(cr, white, 0.16); cairo_arc(cr, x + d / 2, cy, d / 2, 0, 2 * M_PI); cairo_fill(cr); }
+        icon(cr, ic, x + d / 2 - 14, cy - 14, 28, white, true);
+        hits.push_back({x, cy - d / 2, d, d, id});
+    };
+    ghost(bx, side, kPlayPrev, "skip-previous");
+    const double px0 = bx + side + bgap, cy = y + rowH / 2;
+    src(cr, white, g_playerHover == kPlayToggle ? 1.0 : 0.94);
+    cairo_arc(cr, px0 + play / 2, cy, play / 2, 0, 2 * M_PI);
+    cairo_fill(cr);
+    icon(cr, playing ? "pause" : "play", px0 + play / 2 - 13, cy - 13, 26, Color{0.11, 0.11, 0.11}, true);
+    hits.push_back({px0, cy - play / 2, play, play, kPlayToggle});
+    ghost(px0 + play + bgap, side, kPlayNext, "skip-next");
+    g_playerHits[key] = hits;
+}
+
 // The lock screen as it is when it has come in: the wallpaper with its veil, and the clock, the weather, the avatar and the password box.
 void paintFrame(cairo_t* cr, int W, int H) {
     paintWallpaper(cr, W, H);
     cairo_set_source_rgba(cr, 0, 0, 0, 0.38);
     cairo_paint(cr);
+    paintPlayer(cr, W, H);
 
     const Color white{0.97, 0.97, 0.97};
     const double M = 72;
@@ -1046,10 +1307,77 @@ void onKey(void*, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t state
 }
 const wl_keyboard_listener kKeyboardListener = {onKeymap, onKbEnter, onKbLeave, onKey, onKbModifiers, onKbRepeatInfo};
 
+// ---- pointer: only the buttons of the player --------------------------------------------------------------------------------------------
+wl_surface* g_ptrSurface = nullptr;
+double g_ptrX = 0, g_ptrY = 0;
+const std::vector<PlayerHit>* playerHitsHere() {
+    if (!g_playerOn) return nullptr;
+    for (const auto& o : g.outputs)
+        if (o->surface == g_ptrSurface) {
+            const auto it = g_playerHits.find(std::to_string(o->w) + "x" + std::to_string(o->h));
+            return it == g_playerHits.end() ? nullptr : &it->second;
+        }
+    return nullptr;
+}
+int playerHitAt(double x, double y) {
+    if (const auto* hits = playerHitsHere())
+        for (const PlayerHit& h : *hits)
+            if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) return h.id;
+    return -1;
+}
+void onPtrEnter(void*, wl_pointer*, uint32_t, wl_surface* surface, wl_fixed_t x, wl_fixed_t y) { g_ptrSurface = surface; g_ptrX = wl_fixed_to_double(x); g_ptrY = wl_fixed_to_double(y); }
+void onPtrLeave(void*, wl_pointer*, uint32_t, wl_surface*) {
+    g_ptrSurface = nullptr;
+    if (g_playerHover != -1) { g_playerHover = -1; drawAll(); }
+}
+void onPtrMotion(void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
+    g_ptrX = wl_fixed_to_double(x);
+    g_ptrY = wl_fixed_to_double(y);
+    const int hover = playerHitAt(g_ptrX, g_ptrY);
+    if (hover != g_playerHover) { g_playerHover = hover; drawAll(); }
+}
+void onPtrButton(void*, wl_pointer*, uint32_t, uint32_t, uint32_t button, uint32_t state) {
+    if (state != WL_POINTER_BUTTON_STATE_PRESSED || button != 0x110 || g.unlocking) return;
+    const int id = playerHitAt(g_ptrX, g_ptrY);
+    if (id < 0) return;
+    playerPress(id, g_seekBar.w > 0 ? (g_ptrX - g_seekBar.x) / g_seekBar.w : 0);
+    drawAll();
+}
+// (libwayland aborts the program when an event arrives that has no function: every one of them needs one, the scroll ones do nothing)
+void onPtrAxis(void*, wl_pointer*, uint32_t, uint32_t, wl_fixed_t) {}
+void onPtrFrame(void*, wl_pointer*) {}
+void onPtrAxisSource(void*, wl_pointer*, uint32_t) {}
+void onPtrAxisStop(void*, wl_pointer*, uint32_t, uint32_t) {}
+void onPtrAxisDiscrete(void*, wl_pointer*, uint32_t, int32_t) {}
+void onPtrAxisValue120(void*, wl_pointer*, uint32_t, int32_t) {}
+void onPtrAxisDirection(void*, wl_pointer*, uint32_t, uint32_t) {}
+void onPtrWarp(void*, wl_pointer*, wl_fixed_t, wl_fixed_t) {}
+wl_pointer_listener makePointerListener() {
+    wl_pointer_listener l{};
+    l.enter = onPtrEnter;
+    l.leave = onPtrLeave;
+    l.motion = onPtrMotion;
+    l.button = onPtrButton;
+    l.axis = onPtrAxis;
+    l.frame = onPtrFrame;
+    l.axis_source = onPtrAxisSource;
+    l.axis_stop = onPtrAxisStop;
+    l.axis_discrete = onPtrAxisDiscrete;
+    l.axis_value120 = onPtrAxisValue120;
+    l.axis_relative_direction = onPtrAxisDirection;
+    l.warp = onPtrWarp;
+    return l;
+}
+const wl_pointer_listener kPointerListener = makePointerListener();
+
 void onSeatCaps(void*, wl_seat* seat, uint32_t caps) {
     if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !g.keyboard) {
         g.keyboard = wl_seat_get_keyboard(seat);
         wl_keyboard_add_listener(g.keyboard, &kKeyboardListener, nullptr);
+    }
+    if ((caps & WL_SEAT_CAPABILITY_POINTER) && !g.pointer) {
+        g.pointer = wl_seat_get_pointer(seat);
+        wl_pointer_add_listener(g.pointer, &kPointerListener, nullptr);
     }
 }
 void onSeatName(void*, wl_seat*, const char*) {}
@@ -1179,6 +1507,44 @@ void dumpFrames(const std::string& dir) {
     cairo_surface_destroy(cache);
 }
 
+// Development: paints the lock screen with songs of a file (lines: name TAB title TAB artist; short and very long names are the interesting ones)
+// into PNG files: end4pC-lock --dump-player DIR, with DIR/songs.tsv
+void dumpPlayer(const std::string& dir) {
+    constexpr int W = 1920, H = 1080;
+    std::ifstream in(dir + "/songs.tsv");
+    g_playerOn = true;
+    for (std::string line; std::getline(in, line);) {
+        std::vector<std::string> f;
+        size_t p = 0;
+        for (int i = 0; i < 2; i++) {
+            const size_t t = line.find('\t', p);
+            if (t == std::string::npos) break;
+            f.push_back(line.substr(p, t - p));
+            p = t + 1;
+        }
+        if (f.size() < 2) continue;
+        f.push_back(line.substr(p));
+        {
+            std::lock_guard<std::mutex> lk(g_nowMx);
+            g_now = {};
+            g_now.have = true;
+            g_now.status = "Playing";
+            g_now.instance = "test";
+            g_now.title = f[1];
+            g_now.artist = f[2];
+            g_now.pos = 100;
+            g_now.len = 260;
+            g_now.at = std::chrono::steady_clock::now();
+        }
+        cairo_surface_t* s = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, W, H);
+        cairo_t* cr = mkcr(s);
+        paintFrame(cr, W, H);
+        cairo_destroy(cr);
+        cairo_surface_write_to_png(s, (dir + "/player-" + f[0] + ".png").c_str());
+        cairo_surface_destroy(s);
+    }
+}
+
 int main(int argc, char** argv) {
     if (pipe(g_wake) != 0) return 1;
     loadColors();
@@ -1193,6 +1559,7 @@ int main(int argc, char** argv) {
     loadWeatherCache();
     readAnimConfig();
     if (argc >= 3 && std::strcmp(argv[1], "--dump-frames") == 0) { dumpFrames(argv[2]); return 0; }
+    if (argc >= 3 && std::strcmp(argv[1], "--dump-player") == 0) { dumpPlayer(argv[2]); return 0; }
 
     g.xkbCtx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     g.display = wl_display_connect(nullptr);
@@ -1211,6 +1578,7 @@ int main(int argc, char** argv) {
 
     std::thread(weatherLoop).detach();
     startFingerprint();
+    startPlayer();
 
     int lastMinute = -1;
     while (!g.done && !g.finished) {
@@ -1218,12 +1586,13 @@ int main(int argc, char** argv) {
         while (wl_display_prepare_read(g.display) != 0) wl_display_dispatch_pending(g.display);
         std::vector<pollfd> fds = {{wl_display_get_fd(g.display), POLLIN, 0}, {g_wake[0], POLLIN, 0}};
         for (const auto& [key, f] : g_feeds) if (f.fd >= 0) fds.push_back({f.fd, POLLIN, 0});
-        if (poll(fds.data(), fds.size(), g.animPhase != App::AnimIdle ? 30 : 1000) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
+        const bool playerMoving = playerPlaying();
+        if (poll(fds.data(), fds.size(), g.animPhase != App::AnimIdle ? 30 : playerMoving ? 66 : 1000) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
         if (fds[0].revents & POLLIN) wl_display_read_events(g.display);
         else wl_display_cancel_read(g.display);
         wl_display_dispatch_pending(g.display);
 
-        bool redraw = false;
+        bool redraw = playerMoving && !g.unlocking;  // (the line of the song moves)
         if (!g_feeds.empty() && readFeeds()) {
             redraw = true;
             for (auto& o : g.outputs) o->cacheDirty = true;

@@ -477,6 +477,7 @@ std::vector<Page> makePages() {
         {Toggle, "lockOnStart", "Lock on startup", "Show the lock screen when the shell starts with the session, so the desktop is not left open after an automatic login. Restarting the shell does not lock again.", {}},
         {Choice, "lockAnimation", "Lock animation", "How the lock screen comes in and goes out. Split: two halves slide in from the top and bottom (or from the sides) and meet in the middle. Shape: the shape of the centered wallpaper grows from the center until it fills the screen, and shrinks back when you unlock. Zoom: the lock screen settles from a bigger picture with a small rebound, fading in over the desktop.", {{"none", "None"}, {"split_h", "Split top and bottom"}, {"split_v", "Split sides"}, {"shape", "Shape"}, {"zoom", "Zoom"}}},
         {Toggle, "unlockKeyring", "Unlock the keyring", "When you unlock the lock screen, also unlock the password keyring (gnome-keyring) with the same password, so apps do not ask for it again. Your API keys for the online wallpapers live there.", {}},
+        {Toggle, "lockPlayer", "Show the player", "While music plays, the lock screen shows the title, the artist and the controls on the right side.", {}},
         {Toggle, "dock", "Dock", "A floating dock at the edge of the screen with your pinned apps and the ones that are open."},
         {Choice, "dockPosition", "Position", "Which edge of the screen the dock sits on.", {{"bottom", "Bottom"}, {"left", "Left"}, {"right", "Right"}, {"top", "Top"}}},
         {Choice, "dockScreen", "Dock on screen", "The screen where the dock is shown.", {}},
@@ -860,6 +861,7 @@ void loadConfig() {
     g.val.insert({"cookieSides", "14"});
     g.val.insert({"fakeRounding", "0"});
     g.val.insert({"unlockKeyring", "1"});
+    g.val.insert({"lockPlayer", "1"});
     g.val.insert({"frameColor", "black"});
     g.val.insert({"barFollowsFrame", "0"});
     g.val.insert({"lockOnStart", "0"});

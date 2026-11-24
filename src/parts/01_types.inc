@@ -313,6 +313,7 @@ struct Config {
     std::string collageTree = kCollageDefaultTree;
     int lockOnStart = 0;
     int unlockKeyring = 1;
+    int lockPlayer = 1;  // the lock screen shows what is playing, with its controls
     int lockVideo = 0;             // the lock screen plays the video wallpaper (end4pC-lock decodes it with ffmpeg)
     int videoPauseFullscreen = 1;  // the video wallpaper stops under a fullscreen window
     int videoPauseBattery = 1;     // ...and while the laptop runs on battery
