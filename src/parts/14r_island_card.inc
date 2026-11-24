@@ -206,6 +206,14 @@ void icText(cairo_t* cr, PangoLayout* L, const std::string& s, double px, bool b
     g_icTicking = true;
 }
 
+// The progress bar of the track card: where it is (also what a click or a drag on it seeks).
+struct IcSeekGeom { double sx, sw, pad, mid; };
+IcSeekGeom icSeekGeom() {
+    const double imgX = kIcW - kIcMPad - kIcImg, tw = imgX - kIcMPad - 12;
+    const double artistCy = kIcMPad + 14 + 14 + 6 + 9;
+    return {kIcMPad, tw - 8, 4, (artistCy + 9 + (kIcH - kIcMPad - kIcPlay)) / 2.0};
+}
+
 void islandContentPaint(App& app, cairo_t* cr) {
     PangoLayout* L = pango_cairo_create_layout(cr);
     const IslandCard& C = app.ic;
@@ -239,8 +247,8 @@ void islandContentPaint(App& app, cairo_t* cr) {
     pango_layout_set_width(L, -1);
     pango_layout_set_ellipsize(L, PANGO_ELLIPSIZE_NONE);
     const double pos = mediaPositionNow(app.media), len = app.media.length;
-    const double sx = kIcMPad, sw = tw - 8, pad = 4, eff = sw - 2 * pad;
-    const double mid = (artistCy + 9 + (kIcH - kIcMPad - kIcPlay)) / 2.0;
+    const IcSeekGeom SG = icSeekGeom();
+    const double sx = SG.sx, sw = SG.sw, pad = SG.pad, eff = sw - 2 * pad, mid = SG.mid;
     const double v = len > 0 ? std::clamp(pos / len, 0.0, 1.0) : 0, hx = sx + pad + v * eff, handleW = 3;
     const double phase = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count() * 1000.0 / 400.0;
     setSource(cr, K.primary);
@@ -876,11 +884,39 @@ std::chrono::steady_clock::time_point islandCardWake(const App& app) {
     return when;
 }
 
+// A click or a drag on the progress bar of the track card seeks the player (the same message the Player panel sends).
+bool g_icSeeking = false;
+std::chrono::steady_clock::time_point g_icSeekSent{};
+bool icSeekable(const App& app) {
+    return app.ic.open() && !g_icPowerMode && !islandNotifShown(app) && !g_icLive.active && !islandShowsRec(app) && islandShowsMusic(app) && app.media.length > 0;
+}
+bool icOnSeekBar(const App& app) {
+    const IcSeekGeom G = icSeekGeom();
+    const double x = app.pointerX - app.ic.exp.x, y = app.pointerY - app.ic.exp.y;
+    return icSeekable(app) && x >= G.sx - 6 && x <= G.sx + G.sw + 6 && y >= G.mid - 14 && y <= G.mid + 14;
+}
+void icSeekTo(App& app, bool final) {
+    MediaPanel& M = app.media;
+    const IcSeekGeom G = icSeekGeom();
+    const double eff = G.sw - 2 * G.pad, x = app.pointerX - app.ic.exp.x;
+    M.position = (eff > 0 ? std::clamp((x - G.sx - G.pad) / eff, 0.0, 1.0) : 0.0) * M.length;
+    const auto now = std::chrono::steady_clock::now();
+    M.polledAt = now;
+    if (final || now - g_icSeekSent > std::chrono::milliseconds(150)) {
+        g_icSeekSent = now;
+        char buf[32];
+        std::snprintf(buf, sizeof buf, "%.2f", M.position);
+        mediaSend(app, {"position", buf});
+    }
+    drawIslandCard(app);
+}
+
 int islandItemUnder(const App& app) { return icItemAt(icCurrentItems(app), app.pointerX - app.ic.exp.x, app.pointerY - app.ic.exp.y); }
 
 void islandCardMotion(App& app) {
     IslandCard& C = app.ic;
     if (!C.open() || popIsOut(C.anim) || C.anim.reveal < 0.9) return;
+    if (g_icSeeking) { icSeekTo(app, false); return; }
     const int hover = islandItemUnder(app);
     if (hover == C.hover) return;
     C.hover = hover;
@@ -897,7 +933,9 @@ void islandCardButton(App& app, uint32_t button, bool pressed) {
         return;
     }
     if (button != 0x110) return;
+    if (g_icSeeking && !pressed) { g_icSeeking = false; icSeekTo(app, true); return; }
     const int k = islandItemUnder(app);
+    if (pressed && k < 0 && icOnSeekBar(app)) { g_icSeeking = true; icSeekTo(app, false); return; }
     if (pressed) { C.pressed = k; drawIslandCard(app); return; }
     const int held = C.pressed;
     C.pressed = -1;
