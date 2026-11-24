@@ -426,6 +426,65 @@ bool pamCheck(const std::string& user, std::string password) {
     return ok;
 }
 
+// ---- fingerprint ------------------------------------------------------------------------------------------------------------------------
+// Like the password, through PAM, but with its own stack (`auth sufficient pam_fprintd.so`) so the finger is waited for while the password can
+// still be typed. It is used only when fprintd lists an enrolled finger for the user (`fprintd-list`): without fprintd or without a finger enrolled nothing changes.
+// The stack is a file in XDG_RUNTIME_DIR read with pam_start_confdir, so nothing is needed in /etc/pam.d.
+int fpConv(int n, const pam_message**, pam_response** resp, void*) {
+    *resp = static_cast<pam_response*>(calloc(n, sizeof(pam_response)));  // (the messages only say "place your finger"; there is nothing to answer)
+    return *resp ? PAM_SUCCESS : PAM_BUF_ERR;
+}
+
+std::string fpConfDir() {
+    const char* rt = std::getenv("XDG_RUNTIME_DIR");
+    if (!rt || !*rt) return "";
+    const std::string dir = std::string(rt) + "/end4pC-lock-pam";
+    ::mkdir(dir.c_str(), 0700);
+    std::ofstream o(dir + "/end4pC-fprintd", std::ios::trunc);
+    o << "auth sufficient pam_fprintd.so\nauth required pam_deny.so\n";
+    return o ? dir : "";
+}
+
+bool fpEnrolled(const std::string& user) {
+    std::string quoted = "'";
+    for (const char c : user) { if (c == '\'') quoted += "'\\''"; else quoted += c; }
+    quoted += "'";
+    std::string out;
+    if (FILE* f = popen(("timeout 4 fprintd-list " + quoted + " 2>/dev/null").c_str(), "r")) {
+        char buf[512];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof buf, f)) > 0 && out.size() < 4096) out.append(buf, n);
+        pclose(f);
+    }
+    return out.find("Fingerprints for user") != std::string::npos;
+}
+
+// One try waits for a finger (pam_fprintd gives up after its own timeout); after a miss or a timeout it tries again.
+void fingerprintLoop(std::string user);
+void startFingerprint() {
+    const std::string user = g_profile.user;
+    std::thread([user]() { fingerprintLoop(user); }).detach();
+}
+
+// A small fingerprint: arcs one inside the other, open at the bottom, and a short line in the middle.
+void fingerprintGlyph(cairo_t* cr, double cx, double cy, double size, const Color& c, double alpha) {
+    cairo_save(cr);
+    cairo_set_source_rgba(cr, c.r, c.g, c.b, alpha);
+    cairo_set_line_width(cr, size / 12);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    const double deg = M_PI / 180;
+    for (int i = 0; i < 4; i++) {
+        const double r = size * (0.46 - 0.12 * i), open = (50 - 8 * i) * deg;  // (the inner arcs are open wider at the bottom)
+        cairo_new_path(cr);
+        cairo_arc(cr, cx, cy, r, M_PI / 2 + open, M_PI / 2 - open + 2 * M_PI);
+        cairo_stroke(cr);
+    }
+    cairo_move_to(cr, cx, cy - size * 0.04);
+    cairo_line_to(cr, cx, cy + size * 0.2);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
+
 enum class LockAnim { None, SplitH, SplitV, Shape, Zoom };
 
 struct Output {
@@ -462,6 +521,7 @@ struct App {
     std::string password;
     enum { Idle, Checking, Wrong } status = Idle;
     std::atomic<int> authResult{-1};
+    std::atomic<bool> fingerprint{false};  // a reader with an enrolled finger was found: the finger unlocks too
     std::chrono::steady_clock::time_point lockedAt;
     LockAnim animMode = LockAnim::None;
     enum { AnimIdle, AnimEntering, AnimExiting } animPhase = AnimIdle;
@@ -595,6 +655,7 @@ void paintFrame(cairo_t* cr, int W, int H) {
         cairo_stroke(cr);
         icon(cr, g.status == App::Wrong ? "danger-circle" : "lock-keyhole-minimalistic", M + 16, y + (ph - 22) / 2, 22, g.status == App::Wrong ? Color{1, 0.6, 0.6} : white);
         const double tx = M + 52;
+        if (g.fingerprint) fingerprintGlyph(cr, M + pw - 28, y + ph / 2.0, 26, white, g.status == App::Checking ? 0.4 : 0.75);
         if (g.status == App::Checking) text(cr, "Checking…", tx, y + (ph - 20) / 2 - 2, 18, false, white, 0.8);
         else if (g.status == App::Wrong && g.password.empty()) text(cr, "Wrong password", tx, y + (ph - 20) / 2 - 2, 18, false, Color{1, 0.6, 0.6});
         else if (g.password.empty()) text(cr, "Password", tx, y + (ph - 20) / 2 - 2, 18, false, white, 0.6);
@@ -898,6 +959,34 @@ void onKbModifiers(void*, wl_keyboard*, uint32_t, uint32_t depressed, uint32_t l
 }
 void onKbRepeatInfo(void*, wl_keyboard*, int32_t, int32_t) {}
 
+void fingerprintLoop(std::string user) {
+    const std::string dir = fpConfDir();
+    if (dir.empty() || !fpEnrolled(user)) return;
+    g.fingerprint = true;
+    if (g_wake[1] >= 0) { const char b = 'w'; (void)!write(g_wake[1], &b, 1); }
+    int quick = 0;
+    while (!g.done && !g.unlocking) {
+        const auto began = std::chrono::steady_clock::now();
+        pam_conv conv = {fpConv, nullptr};
+        pam_handle_t* h = nullptr;
+        int rc = pam_start_confdir("end4pC-fprintd", user.c_str(), &conv, dir.c_str(), &h);
+        if (rc == PAM_SUCCESS) {
+            rc = pam_authenticate(h, 0);
+            pam_end(h, rc);
+        }
+        if (rc == PAM_SUCCESS) {
+            g.authResult = 2;  // (2: the finger; no password to unlock the keyring with)
+            const char b = 'a';
+            (void)!write(g_wake[1], &b, 1);
+            return;
+        }
+        // A reader that fails at once, again and again (unplugged, fprintd gone): give up instead of spinning.
+        quick = std::chrono::steady_clock::now() - began < std::chrono::seconds(2) ? quick + 1 : 0;
+        if (quick >= 5) { g.fingerprint = false; if (g_wake[1] >= 0) { const char b = 'w'; (void)!write(g_wake[1], &b, 1); } return; }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
+
 void submit() {
     if (g.password.empty() || g.status == App::Checking) return;
     g.status = App::Checking;
@@ -1104,6 +1193,7 @@ int main(int argc, char** argv) {
     if (g.finished) { std::fprintf(stderr, "end4pC-lock: another lock screen is already running\n"); return 1; }
 
     std::thread(weatherLoop).detach();
+    startFingerprint();
 
     int lastMinute = -1;
     while (!g.done && !g.finished) {
@@ -1127,7 +1217,7 @@ int main(int argc, char** argv) {
             for (ssize_t i = 0; i < n; i++) {
                 if (b[i] == 'w') redraw = true;
                 if (b[i] == 'a') {
-                    if (g.authResult == 1) { startUnlock(); break; }
+                    if (g.authResult == 1 || g.authResult == 2) { startUnlock(); break; }
                     g.status = App::Wrong;
                     redraw = true;
                 }

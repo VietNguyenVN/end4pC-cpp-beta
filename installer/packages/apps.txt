@@ -16,3 +16,4 @@ tesseract-data-eng | English data for tesseract (other languages: tesseract-data
 qrencode        | makes the QR codes of the launcher (a link or `qr <text>`)
 zxing-cpp       | reads QR codes (the scan button of the launcher and of the capture bar)
 udisks2         | mounts and ejects the removable drives (the drives bar module)
+fprintd         | fingerprint reader: unlocks the lock screen with a finger (enroll one with `fprintd-enroll`)
