@@ -393,7 +393,7 @@ void dtpBarPaint(cairo_t* cr, App& app, const Bar& bar, Hit hot);
 std::vector<DockItem>& dtpItems(const App& app);
 double sideModuleH(const App& app, const std::string& m) {
     if (m == "workspaces") return sideWsTotal(app);
-    if (m == "media") return app.musicStatus.empty() ? 0 : 40;
+    if (m == "media") return mediaBarVisible(app) ? 40 : 0;
     if (m == "docktopanel") return dtpSideHeight(app);
     if (m == "quickactions") { const size_t n = quickShown(app).size(); return n ? n * 44 - 4.0 : 0; }
     if (m == "network") return netVisible(app) ? netExtent(app, true) : 0;
@@ -1738,10 +1738,10 @@ void sideM3WsPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, d
     pango_font_description_free(nf);
 }
 
-constexpr double kSideMusicDisc = 34;
-void sideMusicM3(cairo_t* cr, const App& app, double x, double y, double w, double h, bool hot) {
+constexpr double kMusicDisc = 34;
+void musicDiscM3(cairo_t* cr, const App& app, double x, double y, double w, double h, bool hot) {
     const bool playing = app.musicStatus == "Playing";
-    const double cx = x + w / 2.0, cy = y + h / 2.0, r = kSideMusicDisc / 2.0;
+    const double cx = x + w / 2.0, cy = y + h / 2.0, r = kMusicDisc / 2.0;
     auto disc = [&] { cairo_new_sub_path(cr); cairo_arc(cr, cx, cy, r, 0, 2 * M_PI); };
     disc();
     setSource(cr, app.color(playing ? "primary" : "secondary_container"));
@@ -1751,7 +1751,7 @@ void sideMusicM3(cairo_t* cr, const App& app, double x, double y, double w, doub
         disc();
         cairo_clip(cr);
         cairo_translate(cr, cx - r, cy - r);
-        const double sc = kSideMusicDisc / cairo_image_surface_get_width(app.musicArt);
+        const double sc = kMusicDisc / cairo_image_surface_get_width(app.musicArt);
         cairo_scale(cr, sc, sc);
         cairo_set_source_surface(cr, app.musicArt, 0, 0);
         cairo_paint(cr);
@@ -1806,7 +1806,7 @@ void drawSide(Bar& bar) {
         if (it.id == HitDrives) { drivesSidePaint(cr, app, r, hot); continue; }
         if (it.id == HitPrivacy) { privacySidePaint(cr, app, r); continue; }
         if (it.id == HitActiveWindow) { awinPaint(cr, app, layout, r.x, r.y, r.w, r.h, true, hot); continue; }
-        if (it.id == HitMedia && musicM3(app)) { sideMusicM3(cr, app, r.x, r.y, r.w, r.h, hot); continue; }
+        if (it.id == HitMedia && !app.musicStatus.empty() && musicM3(app)) { musicDiscM3(cr, app, r.x, r.y, r.w, r.h, hot); continue; }
         if (it.id == HitKeyboard) { kbdPaint(cr, app, layout, r.x, r.y, r.w, r.h, true, hot); continue; }
         if (it.id >= kHitAi && it.id < kHitAi + 2) {
             if (it.id == aiFirst && paintStyle(app, "aiusage") == "m3") {
@@ -2802,9 +2802,21 @@ void draw(Bar& bar) {
         pango_font_description_free(numFont);
     }
 
-    if (hasSlot(bar, "media") && musicProgress(app)) musicPaintProgress(cr, app, bar, layout, font);
-    if (hasSlot(bar, "media") && musicM3(app)) musicPaintM3(cr, app, bar, layout, font);
-    if (hasSlot(bar, "media") && !musicM3(app) && !musicProgress(app)) {
+    if (hasSlot(bar, "media") && mediaHorizontalCompact(app)) {
+        const double x = musicX(bar), y = (bar.height - kQuickBox) / 2.0;
+        const bool hot = app.hoverBar == &bar && hitTest(bar, app.pointerX, app.pointerY) == HitMedia;
+        if (!app.musicStatus.empty() && (app.musicArt || musicM3(app)))
+            musicDiscM3(cr, app, x, 0, kMediaCompactWidth, bar.height, hot);
+        else {
+            const std::string style = paintStyle(app, "media");
+            Color ink = styleFrame(cr, app, style, x, y, kMediaCompactWidth, kQuickBox, hot);
+            if (!genericFrame(style) && app.musicStatus == "Playing") ink = app.color("primary");
+            drawIcon(cr, "music-note", x + (kMediaCompactWidth - 22) / 2.0, y + (kQuickBox - 22) / 2.0, 22, ink, hot);
+        }
+    }
+    if (hasSlot(bar, "media") && !mediaHorizontalCompact(app) && musicProgress(app)) musicPaintProgress(cr, app, bar, layout, font);
+    if (hasSlot(bar, "media") && !mediaHorizontalCompact(app) && musicM3(app)) musicPaintM3(cr, app, bar, layout, font);
+    if (hasSlot(bar, "media") && !mediaHorizontalCompact(app) && !musicM3(app) && !musicProgress(app)) {
         const std::string style = widgetStyle(app, "media");
         const Hit hit = app.hoverBar == &bar ? hitTest(bar, app.pointerX, app.pointerY) : HitNone;
         const bool lit = hit == HitMedia || hit == HitPrev || hit == HitPlay || hit == HitNext;

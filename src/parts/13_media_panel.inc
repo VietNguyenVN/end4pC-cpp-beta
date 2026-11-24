@@ -365,6 +365,22 @@ void mediaCardOrigin(const App& app, int& surfLeft, int& cardX) {
     cardX = static_cast<int>(left) - surfLeft;
 }
 
+double mediaWidgetCentre(const Bar& bar, bool vertical) {
+    const App& app = *bar.app;
+    if (vertical) {
+        for (const auto& item : sideItems(bar))
+            if (item.id == HitMedia) return item.r.y + item.r.h / 2;
+    } else if (hasSlot(bar, "media") && mediaBarVisible(app)) {
+        return musicX(bar) + moduleWidth(app, "media") / 2;
+    }
+    return -1;
+}
+
+// Measure from the anchored edge so a taller card grows toward the middle of the output.
+double mediaNearEdge(double centre, double length, double height, double maxHeight, double inset) {
+    return std::clamp(centre - height / 2, inset, std::max(inset, length - inset - maxHeight));
+}
+
 void mediaFont(PangoLayout* layout, double px, bool bold = false) {
     PangoFontDescription* fd = pango_font_description_from_string(bold ? "Sans Bold" : "Sans");
     pango_font_description_set_absolute_size(fd, px * PANGO_SCALE);
@@ -632,7 +648,9 @@ void drawMediaPanel(App& app) {
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
     popGroupBegin(cr);
 
-    const double cw = kMediaCardW, ch = std::max(110.0, lerp(kMediaCardH, kMediaLyricsH) + eqT * (kMediaEqH - kMediaLyricsH));
+    const bool havePlayer = !app.musicStatus.empty();
+    const double cw = kMediaCardW;
+    const double ch = havePlayer ? std::max(110.0, lerp(kMediaCardH, kMediaLyricsH) + eqT * (kMediaEqH - kMediaLyricsH)) : kMediaCardH;
     M.cardH = ch;
     const double cx = M.cardX, cy = M.anchoredBottom ? H - kMediaRoom - ch : kMediaRoom;
     if (M.shadow && M.shadowH != static_cast<int>(ch)) { cairo_surface_destroy(M.shadow); M.shadow = nullptr; }
@@ -647,22 +665,31 @@ void drawMediaPanel(App& app) {
     PangoLayout* layout = pango_cairo_create_layout(cr);
     auto font = [&](double px, bool bold = false) { mediaFont(layout, px, bold); };
 
-    const bool havePlayer = !app.musicStatus.empty();
     if (!havePlayer) {
         roundedRect(cr, 0, 0, cw, ch, kMediaRadius);
         setSource(cr, app.color("background"));
         cairo_fill(cr);
-        int tw = 0, th = 0;
-        font(17);
-        pango_layout_set_text(layout, "No active player", -1);
-        pango_layout_get_pixel_size(layout, &tw, &th);
-        setSource(cr, app.color("on_background"));
-        cairo_move_to(cr, 20, 36);
-        pango_cairo_show_layout(cr, layout);
+        font(17, true);
+        pango_layout_set_text(layout, i18n::tr("No active player"), -1);
+        int titleW = 0, titleH = 0;
+        pango_layout_get_pixel_size(layout, &titleW, &titleH);
         font(13);
-        pango_layout_set_text(layout, "Make sure your player has MPRIS support", -1);
+        pango_layout_set_text(layout, i18n::tr("Make sure your player has MPRIS support"), -1);
+        pango_layout_set_width(layout, static_cast<int>(cw - 40) * PANGO_SCALE);
+        pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
+        int detailH = 0;
+        pango_layout_get_pixel_size(layout, nullptr, &detailH);
+        constexpr int gap = 6;
+        const double top = (ch - titleH - gap - detailH) / 2;
         setSource(cr, app.color("outline"));
-        cairo_move_to(cr, 20, 36 + th + 6);
+        cairo_move_to(cr, 20, top + titleH + gap);
+        pango_cairo_show_layout(cr, layout);
+
+        pango_layout_set_width(layout, -1);
+        font(17, true);
+        pango_layout_set_text(layout, i18n::tr("No active player"), -1);
+        setSource(cr, app.color("on_background"));
+        cairo_move_to(cr, (cw - titleW) / 2, top);
         pango_cairo_show_layout(cr, layout);
         M.rPrev = M.rPlay = M.rNext = M.rArt = M.rSlider = M.rPin = M.rLyrics = M.rLyricsRetry = M.rEq = M.rEqToggle = {};
     } else {
@@ -936,34 +963,43 @@ void openMediaPanel(App& app, Bar* bar = nullptr) {
     M.lyricsMode = mediaLyricsSaved();
     M.lyricT = M.lyricsMode ? 1.0 : 0.0;
     int surfLeft = 0;
-    mediaCardOrigin(app, surfLeft, M.cardX);
+    const bool vert = sideBar(app), atBottom = app.cfg.barPosition == "bottom";
+    const double barInset = app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0);
+    const double inset = app.cfg.frame + 12;
+    const double centre = bar ? mediaWidgetCentre(*bar, vert) : -1;
+    const double length = bar ? bar->width + 2 * barInset : 0;
+    const double widget = centre + barInset;
+    if (!vert) {
+        if (centre >= 0) {
+            const int left = static_cast<int>(mediaNearEdge(widget, length, kMediaCardW, kMediaCardW, inset));
+            surfLeft = std::max(0, left - static_cast<int>(kMediaRoom));
+            M.cardX = left - surfLeft;
+            M.along = widget - surfLeft;
+        } else mediaCardOrigin(app, surfLeft, M.cardX);
+    }
+
     M.surface = wl_compositor_create_surface(app.compositor);
     attachScale(app, M.scale, M.surface, [&app] { drawMediaPanel(app); });
-    M.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, M.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-media");
-    const bool vert = sideBar(app), atBottom = app.cfg.barPosition == "bottom";
+    M.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, M.surface, bar ? bar->output : nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-media");
     constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
-    const bool mediaLow = vert && sideModuleAtBottom(app, "media", false);
-    zwlr_layer_surface_v1_set_anchor(M.layer, vert ? ((mediaLow ? kB : kT) | (app.cfg.barPosition == "right" ? kR : kL)) : ((atBottom ? kB : kT) | kL));
+    M.anchoredBottom = vert ? (centre >= 0 ? widget > length / 2 : sideModuleAtBottom(app, "media", false)) : atBottom;
+    const bool right = vert && app.cfg.barPosition == "right";
+    zwlr_layer_surface_v1_set_anchor(M.layer, (M.anchoredBottom ? kB : kT) | (right ? kR : kL));
     if (vert) {
         M.cardX = static_cast<int>(kMediaRoom);
-        const int side = std::max(0, sideCardEdge(app) - static_cast<int>(kMediaRoom)), top = app.cfg.frame + 12 - static_cast<int>(kMediaRoom);
-        zwlr_layer_surface_v1_set_margin(M.layer, mediaLow ? 0 : top, app.cfg.barPosition == "right" ? side : 0, mediaLow ? top : 0, app.cfg.barPosition == "left" ? side : 0);
-    } else {
-        int edge = app.cfg.frame + kBarHeight + 12;
-        if (app.cfg.barStyle == "float" || app.cfg.barStyle == "island") edge += kBarGap;
-        const int margin = std::max(0, edge - static_cast<int>(kMediaRoom));
-        zwlr_layer_surface_v1_set_margin(M.layer, atBottom ? 0 : margin, 0, atBottom ? margin : 0, surfLeft);
-    }
-    M.anchoredBottom = vert ? mediaLow : atBottom;
-    if (bar) {
-        const double sideMargin = app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0);
-        const double screenLen = bar->width + 2.0 * sideMargin;
-        if (vert) {
-            const int side = static_cast<int>(app.cfg.frame + 12 - kMediaRoom);
-            M.along = app.pointerY + sideMargin - (mediaLow ? screenLen - kMediaSurfH - side : side);
-        } else {
-            M.along = app.pointerX + sideMargin - surfLeft;
+        const int side = std::max(0, sideCardEdge(app) - static_cast<int>(kMediaRoom));
+        int edge = static_cast<int>(inset - kMediaRoom);
+        if (centre >= 0) {
+            const double height = M.lyricsMode && !app.musicStatus.empty() ? kMediaLyricsH : kMediaCardH;
+            const double near = M.anchoredBottom ? length - widget : widget;
+            edge = static_cast<int>(mediaNearEdge(near, length, height, kMediaEqH, inset) - kMediaRoom);
+            M.along = widget - (M.anchoredBottom ? length - kMediaSurfH - edge : edge);
         }
+        zwlr_layer_surface_v1_set_margin(M.layer, M.anchoredBottom ? 0 : edge, right ? side : 0,
+                                        M.anchoredBottom ? edge : 0, right ? 0 : side);
+    } else {
+        const int margin = std::max(0, static_cast<int>(barInset + kBarHeight + 12 - kMediaRoom));
+        zwlr_layer_surface_v1_set_margin(M.layer, atBottom ? 0 : margin, 0, atBottom ? margin : 0, surfLeft);
     }
     zwlr_layer_surface_v1_set_size(M.layer, kMediaSurfW, kMediaSurfH);
     zwlr_layer_surface_v1_set_exclusive_zone(M.layer, -1);

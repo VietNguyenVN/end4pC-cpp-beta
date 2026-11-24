@@ -427,6 +427,8 @@ std::vector<Page> makePages() {
         {Toggle, "batteryPercent", "Show the percentage", "The battery level next to the battery icon in the bar.", {}},
         {Toggle, "networkAlways", "Always show the icon", "Show the network icon even when it is connected. Off: it only appears while there is no connection.", {}},
         {Toggle, "networkSpeed", "Show the speed", "Upload and download speed next to the icon, two small lines.", {}},
+        {Choice, "mediaHorizontalStyle", "Horizontal player style", "Classic shows track details and controls. Compact uses a single button like the vertical bar.", {{"classic", "Classic"}, {"compact", "Compact"}}},
+        {Toggle, "mediaAlways", "Always show the player", "Keep the Player visible when idle on vertical bars and in Compact mode.", {}},
         {Toggle, "privacyAlways", "Always show the indicators", "Show the privacy icons even when nothing is using them. Off: they only appear while an app uses the microphone, a camera or the screen.", {}},
         {Toggle, "privacyMic", "Microphone", "Show when an app is listening to the microphone.", {}},
         {Toggle, "privacyCam", "Camera", "Show when an app is using a camera.", {}},
@@ -648,7 +650,7 @@ std::vector<Page> makePages() {
     for (auto& pg : p) {
         if (pg.name == "General") sections(pg, {{"language", "Language"}, {"preferredPlayer", "Apps"}, {"clock24", "Time"}, {"volumeMax", "Audio"}, {"batteryLow", "Battery"}});
         else if (pg.name == "Appearance") sections(pg, {{"colorMode", "Colors"}, {"fontFamily", "Font & Icons"}, {"theme", "Themes"}, {"presetSave", "Presets"}, {"templateKitty", "Templates"}});
-        else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"privacyAlways", "Privacy"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"aiClaude", "AI usage"}});
+        else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"mediaHorizontalStyle", "Player"}, {"privacyAlways", "Privacy"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"aiClaude", "AI usage"}});
         else if (pg.name == "Hyprland") sections(pg, {{"mon:map", "Displays"}, {"hypr:general:layout", "Layout"}, {"hypr:input:kb_layout", "Keyboard"}, {"hypr:input:sensitivity", "Mouse"}, {"hypr:input:touchpad:natural_scroll", "Touchpad"}, {"idle:lock", "Idle"}, {"hypr:decoration:rounding", "Look"}, {"borderColor", "Borders"}, {"hypr:animations:enabled", "Animations"}, {"hypr:general:resize_on_border", "Windows"}, {"hypr:misc:focus_on_activate", "Misc"}, {"rule:add", "Rules"}});
         else if (pg.name == "Niri") sections(pg, {{"niri:gaps", "Layout"}, {"niri:radius", "Windows"}, {"niri:follow", "Behavior"}, {"niri:repeatDelay", "Input"}, {"niriReset", "Reset"}});
         else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}, {"deskVizStyle", "Visualizer"}, {"customTextFont", "Text"}});
@@ -833,6 +835,8 @@ void loadConfig() {
     for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"overviewLive", "1"}, {"switcherStyle", "grid"}, {"overviewLauncher", "0"}, {"overviewIcon", "right"}, {"overviewPosition", "top"}, {"privacyMic", "1"}, {"privacyCam", "1"}, {"privacyScreen", "1"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"fontWeightText", "450"}, {"fontWeightTitle", "550"}, {"launcherFiles", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"notificationAppIcons", "0"}, {"conflictCheck", "1"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
         g.val.insert(d);
     if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
+    g.val.insert({"mediaAlways", "0"});
+    g.val.insert({"mediaHorizontalStyle", "classic"});
     g.val.insert({"aiCodexPercent", "used"});
     g.val.insert({"aiCodexWindow", "5h"});
     g.val.insert({"lyricsProvider", "auto"});
@@ -2777,6 +2781,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "batteryPercent") return moduleUsed("battery");
     if (r.key == "workspaceApps") return moduleUsed("workspaces") && g.val["workspaceStyle"] != "gnome" && g.val["workspaceStyle"] != "bar";
     if (r.key == "trayPinDefault" || r.key == "trayTint") return moduleUsed("systray");
+    if (r.key == "mediaAlways" || r.key == "mediaHorizontalStyle") return moduleUsed("media");
     if (r.key == "networkAlways" || r.key == "networkSpeed") return moduleUsed("network");
     if (r.key == "overviewLive" || r.key == "overviewLauncher" || r.key == "overviewIcon" || r.key == "overviewPosition") return compositorName() == "Hyprland";
     if (r.key.compare(0, 7, "privacy") == 0) return moduleUsed("privacy");
