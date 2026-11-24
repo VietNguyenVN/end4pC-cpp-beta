@@ -200,7 +200,7 @@ struct App {
     std::vector<std::unique_ptr<ToolPage>> pages;
     int page = 0, prevPage = 0;
     double switchT = 1;
-    Clock::time_point switchStart;
+    Clock::time_point switchStart{};
     wl_callback* switchFrame = nullptr;
     using PageImage = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;
     PageImage switchImages[2]{{nullptr, cairo_surface_destroy}, {nullptr, cairo_surface_destroy}};
@@ -739,6 +739,8 @@ void render() {
     }
     slot->busy = true;
     hidpi::present(g.surface, slot->buffer, slot->frame, g.scale);
+    // Building a page's first snapshot can take longer than an animation frame.
+    if (g.switchT < 1 && g.switchStart == Clock::time_point{}) g.switchStart = Clock::now();
     g.dirty = false;
 }
 
@@ -784,7 +786,7 @@ void switchTo(int index) {
     rememberPage();
     clearSwitchImages();
     g.switchT = 0;
-    g.switchStart = Clock::now();
+    g.switchStart = {};
     g.dirty = true;
 }
 
@@ -1009,7 +1011,7 @@ int pollTimeoutMs() {
 
 void tickAll() {
     const auto now = Clock::now();
-    if (g.switchT < 1 && !g.switchFrame) {
+    if (g.switchT < 1 && !g.switchFrame && g.switchStart != Clock::time_point{}) {
         g.switchT = std::min(1.0, std::chrono::duration<double>(now - g.switchStart).count() / 0.26);
         g.dirty = true;
         if (g.switchT >= 1) { clearSwitchImages(); motion(); }
@@ -1027,7 +1029,7 @@ void tickAll() {
         }
         g.dirty = true;
     }
-    if (cur().tick() || cur().animating()) g.dirty = true;
+    if (g.switchT >= 1 && (cur().tick() || cur().animating())) g.dirty = true;
 }
 
 void teardown() {
