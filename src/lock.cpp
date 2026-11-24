@@ -23,11 +23,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <fstream>
 #include <map>
 #include <tuple>
@@ -243,12 +245,65 @@ cairo_surface_t* loadCover(const std::string& path, int w, int h) {
     cairo_surface_mark_dirty(img);
     g_object_unref(pb);
     cairo_surface_t* out = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
-    cairo_t* cr = mkcr(out);
+    cairo_t* cr = cairo_create(out);
     cairo_set_source_surface(cr, img, (w - pw) / 2.0, (h - ph) / 2.0);
     cairo_paint(cr);
     cairo_destroy(cr);
     cairo_surface_destroy(img);
     return out;
+}
+
+int g_wake[2] = {-1, -1};
+
+struct LockImage {
+    std::string key, path;
+    int width, height;
+};
+struct DecodedLockImage {
+    std::string key;
+    cairo_surface_t* image;
+};
+
+std::mutex g_imagesMutex;
+std::condition_variable g_imagesReady;
+std::deque<LockImage> g_imagesToLoad;
+std::vector<DecodedLockImage> g_decodedImages;
+
+cairo_surface_t* decodeLockImage(const LockImage& job) {
+    std::string path = job.path;
+    if (path.empty()) {
+        path = readFile(stateDir() + "/wallpaper.txt");
+        while (!path.empty() && (path.back() == '\n' || path.back() == ' ')) path.pop_back();
+    }
+    return path.empty() ? nullptr : loadCover(path, job.width, job.height);
+}
+
+void queueLockImage(LockImage job) {
+    // The desktop process exits via _exit; only the headless dump path runs without this worker.
+    static std::once_flag started;
+    std::call_once(started, [] {
+        std::thread([] {
+            for (;;) {
+                std::unique_lock<std::mutex> lock(g_imagesMutex);
+                g_imagesReady.wait(lock, [] { return !g_imagesToLoad.empty(); });
+                LockImage next = std::move(g_imagesToLoad.front());
+                g_imagesToLoad.pop_front();
+                lock.unlock();
+                auto* image = decodeLockImage(next);
+                {
+                    std::lock_guard<std::mutex> ready(g_imagesMutex);
+                    g_decodedImages.push_back({std::move(next.key), image});
+                }
+                const char wake = 'i';
+                (void)!write(g_wake[1], &wake, 1);
+            }
+        }).detach();
+    });
+    {
+        std::lock_guard<std::mutex> lock(g_imagesMutex);
+        g_imagesToLoad.push_back(std::move(job));
+    }
+    g_imagesReady.notify_one();
 }
 
 void loadProfile() {
@@ -261,7 +316,12 @@ void loadProfile() {
     g_profile.user = pw ? pw->pw_name : "";
     g_profile.name = display.empty() ? g_profile.user : display;
     for (const std::string& c : {own, pic, homeDir() + "/.face", homeDir() + "/.face.icon"})
-        if (!c.empty() && access(c.c_str(), R_OK) == 0) { g_profile.avatar = loadCover(c, kAvatar, kAvatar); break; }
+        if (!c.empty() && access(c.c_str(), R_OK) == 0) {
+            const LockImage avatar{"avatar", c, kAvatar, kAvatar};
+            if (g_wake[1] >= 0) queueLockImage(avatar);
+            else g_profile.avatar = decodeLockImage(avatar);
+            break;
+        }
 }
 
 struct Weather {
@@ -275,7 +335,6 @@ struct Weather {
 
 std::mutex g_weatherMx;
 Weather g_weather;
-int g_wake[2] = {-1, -1};
 
 std::string curl(const std::string& url) {
     const std::string cmd = "curl -s --max-time 8 '" + url + "' 2>/dev/null";
@@ -557,6 +616,7 @@ struct App {
     xkb_keymap* keymap = nullptr;
     xkb_state* xkbState = nullptr;
     bool locked = false, finished = false, done = false;
+    bool reportTiming = false, reportedVisual = false;
     std::string password;
     enum { Idle, Checking, Wrong } status = Idle;
     std::atomic<int> authResult{-1};
@@ -571,6 +631,33 @@ struct App {
 } g;
 
 std::map<std::string, cairo_surface_t*> g_bgCache;
+
+cairo_surface_t* stillWallpaper(int w, int h) {
+    const std::string key = std::to_string(w) + "x" + std::to_string(h);
+    const auto [entry, first] = g_bgCache.try_emplace(key, nullptr);
+    if (first) {
+        const LockImage image{key, {}, w, h};
+        if (g_wake[1] >= 0) queueLockImage(image);
+        else entry->second = decodeLockImage(image);
+    }
+    return entry->second;
+}
+
+bool applyDecodedImages() {
+    std::vector<DecodedLockImage> ready;
+    {
+        std::lock_guard<std::mutex> lock(g_imagesMutex);
+        ready.swap(g_decodedImages);
+    }
+    bool changed = false;
+    for (const auto& item : ready) {
+        if (!item.image) continue;
+        if (item.key == "avatar") g_profile.avatar = item.image;
+        else g_bgCache.at(item.key) = item.image;
+        changed = true;
+    }
+    return changed;
+}
 
 // The video wallpaper behind the lock screen (Settings -> Desktop: "Play the video on the lock screen"). A layer surface such as mpvpaper's is hidden
 // while the session is locked, so the video is decoded here: one ffmpeg per screen size writes raw frames of exactly that size into a pipe, and the
@@ -647,12 +734,7 @@ cairo_surface_t* background(int w, int h) {
         if (f.pid < 0) startFeed(f, w, h);
         if (f.frame) return f.frame;
     }
-    if (auto it = g_bgCache.find(key); it != g_bgCache.end()) return it->second;
-    std::string path = readFile(stateDir() + "/wallpaper.txt");
-    while (!path.empty() && (path.back() == '\n' || path.back() == ' ')) path.pop_back();
-    cairo_surface_t* small = path.empty() ? nullptr : loadCover(path, w, h);
-    g_bgCache[key] = small;
-    return small;
+    return stillWallpaper(w, h);
 }
 
 void onBufferRelease(void* data, wl_buffer*) { static_cast<LockBuffer*>(data)->busy = false; }
@@ -1325,6 +1407,12 @@ void draw(Output& o, bool playerOnly = false) {
     slot->busy = true;
     wl_surface_commit(o.surface);
     o.repaintPending = false;
+    if (g.visualsReady && g.reportTiming && !g.reportedVisual) {
+        g.reportedVisual = true;
+        const auto elapsed = std::chrono::steady_clock::now() - g.lockedAt;
+        std::fprintf(stderr, "end4pC-lock: locked to first visual submission %.1f ms\n",
+                     std::chrono::duration<double, std::milli>(elapsed).count());
+    }
     if (animating) g.animFrameSubmitted = true;
 }
 void drawAll(bool staticChanged = true, bool playerOnly = false) {
@@ -1752,7 +1840,7 @@ int main(int argc, char** argv) {
         else dumpPlayer(argv[2]);
         return 0;
     }
-    const bool reportTiming = std::getenv("END4PC_LOCK_TIMING") != nullptr;
+    g.reportTiming = std::getenv("END4PC_LOCK_TIMING") != nullptr;
     const auto started = std::chrono::steady_clock::now();
     if (pipe(g_wake) != 0) return 1;
     g.xkbCtx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
@@ -1772,16 +1860,19 @@ int main(int argc, char** argv) {
     while (!g.locked && !g.finished)
         if (wl_display_dispatch(g.display) < 0) return 1;
     if (g.finished) { std::fprintf(stderr, "end4pC-lock: another lock screen is already running\n"); return 1; }
-    if (reportTiming) {
+    if (g.reportTiming) {
         using Milliseconds = std::chrono::duration<double, std::milli>;
         std::fprintf(stderr, "end4pC-lock: startup to request %.1f ms, request to locked %.1f ms\n",
                      Milliseconds(requested - started).count(), Milliseconds(g.lockedAt - requested).count());
     }
 
+    for (auto& o : g.outputs) if (o->configured) stillWallpaper(o->w, o->h);
     loadVisuals();
+    applyDecodedImages();
     g.visualsReady = true;
     if (g.animMode != LockAnim::None) g.animPhase = App::AnimEntering;
     drawAll();
+    wl_display_flush(g.display);
     std::thread(weatherLoop).detach();
     startFingerprint();
 
@@ -1815,7 +1906,7 @@ int main(int argc, char** argv) {
             char b[16];
             const ssize_t n = read(g_wake[0], b, sizeof b);
             for (ssize_t i = 0; i < n; i++) {
-                if (b[i] == 'w') redraw = staticChanged = true;
+                if (b[i] == 'w' || (b[i] == 'i' && applyDecodedImages())) redraw = staticChanged = true;
                 if (b[i] == 'p') {
                     refreshPlayer = true;
                     if (g.animPhase != App::AnimIdle)
