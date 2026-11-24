@@ -136,14 +136,13 @@ std::string tkPercent(double v) {
 
 struct TkProcessSample {
     std::vector<TkApp> apps;
-    std::map<std::string, TkEntry> entries;
     std::map<int, std::pair<unsigned long long, unsigned long long>> before;  // pid -> ticks, io bytes
     std::vector<double> cpuH, memH, diskH, netH;
     double cpuNow = 0, memNow = 0, memTotalKb = 0, memUsedKb = 0, diskNow = 0, netNow = 0, netUp = 0, netDown = 0;
     unsigned long long lastTotal = 0, lastIdle = 0, lastDisk = 0, lastNetRx = 0, lastNetTx = 0;
     Clock::time_point lastSample{};
     int cores = 1;
-    long clkTck = 100;
+    long clkTck = 100, pageKb = 4;
     bool primed = false;
     int procTotal = 0;
     bool netWifi = false;  // the connection that carries the traffic is Wi-Fi (the icon of the network tile)
@@ -246,8 +245,8 @@ struct TkProcessSample {
             const std::string base = std::string("/proc/") + e->d_name;
             if (stat(base.c_str(), &st) != 0 || st.st_uid != me) continue;
             const std::string stat1 = tkRead(base + "/stat", 1024);
-            const size_t rp = stat1.rfind(')');
-            if (rp == std::string::npos) continue;
+            const size_t lp = stat1.find('('), rp = stat1.rfind(')');
+            if (lp == std::string::npos || rp <= lp || rp + 2 >= stat1.size()) continue;
             char state = 0;
             int ppid = 0;
             unsigned long long ut = 0, stm = 0;
@@ -261,10 +260,10 @@ struct TkProcessSample {
             TkProc p;
             p.pid = pid;
             p.ppid = ppid;
-            p.comm = tkRead(base + "/comm", 64);
+            p.comm = stat1.substr(lp + 1, rp - lp - 1);
             while (!p.comm.empty() && (p.comm.back() == '\n' || p.comm.back() == ' ')) p.comm.pop_back();
             p.ticks = ut + stm;
-            p.rssKb = rss * (sysconf(_SC_PAGESIZE) / 1024);
+            p.rssKb = rss * pageKb;
             {
                 std::istringstream io(tkRead(base + "/io", 512));
                 std::string k;
@@ -282,9 +281,8 @@ struct TkProcessSample {
             TkApp& a = groups[exe];
             if (a.key.empty()) {
                 a.key = exe;
-                const auto en = entries.find(prog);
-                a.name = en != entries.end() ? en->second.name : p.comm.empty() ? prog : p.comm;
-                a.iconName = en != entries.end() ? en->second.icon : prog;
+                a.name = p.comm.empty() ? prog : p.comm;
+                a.iconName = prog;
             }
             a.cpu += p.cpu;
             a.disk += p.disk;
@@ -318,6 +316,9 @@ struct TasksPage : ToolPage, TkProcessSample {
 
     std::map<std::string, cairo_surface_t*> icons;  // by icon name; nullptr: none found (a letter is drawn)
     std::future<TkProcessSample> pending;
+    std::future<std::map<std::string, TkEntry>> pendingEntries;
+    std::map<std::string, TkEntry> entries;
+    bool loaded = false, resample = false;
 
     // ---- view ----
     int sortCol = 1;  // 0 name, 1 cpu, 2 memory, 3 disk
@@ -348,7 +349,7 @@ struct TasksPage : ToolPage, TkProcessSample {
             if (snapshot.lastSample == Clock::time_point{}) {
                 snapshot.cores = std::max<long>(1, sysconf(_SC_NPROCESSORS_ONLN));
                 snapshot.clkTck = std::max<long>(1, sysconf(_SC_CLK_TCK));
-                snapshot.entries = tkLoadEntries();
+                snapshot.pageKb = std::max<long>(1, sysconf(_SC_PAGESIZE) / 1024);
             }
             snapshot.sample();
             return std::move(snapshot);
@@ -383,15 +384,34 @@ struct TasksPage : ToolPage, TkProcessSample {
         return false;
     }
 
+    void applyAppNames() {
+        for (TkApp& app : apps) {
+            if (const auto entry = entries.find(tkBase(app.key)); entry != entries.end()) {
+                app.name = entry->second.name;
+                app.iconName = entry->second.icon;
+            }
+        }
+        sortApps();
+    }
+
     bool tick() override {
         bool moved = scrollY.step();
         if (sampleReady(pending)) {
             static_cast<TkProcessSample&>(*this) = pending.get();
-            sortApps();
+            if (!loaded) pendingEntries = sampleInBackground(tkLoadEntries);
+            loaded = true;
+            applyAppNames();
             moved = true;
         }
-        if (lastSample == Clock::time_point{} || Clock::now() - lastSample >= std::chrono::milliseconds(static_cast<int>(kTkSampleSec * 1000)))
+        if (sampleReady(pendingEntries)) {
+            entries = pendingEntries.get();
+            applyAppNames();
+            moved = true;
+        }
+        if (!pending.valid() && (resample || !loaded || Clock::now() - lastSample >= std::chrono::milliseconds(static_cast<int>(kTkSampleSec * 1000)))) {
+            resample = false;
             startSample();
+        }
         return moved;
     }
 
@@ -401,7 +421,7 @@ struct TasksPage : ToolPage, TkProcessSample {
             if (a.key != selKey) continue;
             for (const TkProc& p : a.procs) if (selPid == 0 || p.pid == selPid) kill(p.pid, sig);
         }
-        lastSample = {};  // (look again soon: the list drops what ended)
+        resample = true;  // (look again soon: the list drops what ended)
     }
     // The target of End task: the app (all of its processes) or the one process that is selected.
     void ask(int sig) {
@@ -425,6 +445,7 @@ struct TasksPage : ToolPage, TkProcessSample {
 
     // ---- drawing ----
     cairo_surface_t* iconFor(const TkApp& a) {
+        if (pendingEntries.valid()) return nullptr;
         auto it = icons.find(a.iconName);
         if (it != icons.end()) return it->second;
         return icons[a.iconName] = tkLoadIcon(a.iconName, 28);
@@ -497,17 +518,38 @@ struct TasksPage : ToolPage, TkProcessSample {
 
     void draw(cairo_t* cr, Rect r) override {
         hits.clear();
-        if (lastSample == Clock::time_point{}) { drawSampleLoading(cr, r); return; }
         const double w = r.w, tileW = (w - 3 * kTkGap) / 4;
+        if (!loaded) {
+            const double toolbar = kTkTileH + kTkGap;
+            const double tableTop = toolbar + 44 + kTkGap;
+            src(cr, g.color("surface_container"));
+            for (int i = 0; i < 4; ++i) {
+                rrect(cr, i * (tileW + kTkGap), 0, tileW, kTkTileH, 20);
+                cairo_fill(cr);
+            }
+            rrect(cr, 0, toolbar, w, 44, 22);
+            cairo_fill(cr);
+            const double tableHeight = std::max(0.0, r.h - tableTop);
+            rrect(cr, 0, tableTop, w, tableHeight, 26);
+            cairo_fill(cr);
+            cairo_save(cr);
+            cairo_translate(cr, 0, tableTop);
+            drawSampleLoading(cr, {0, 0, w, tableHeight});
+            cairo_restore(cr);
+            return;
+        }
         char b1[64], b2[64];
         std::snprintf(b1, sizeof b1, "%s / %s", tkBytes(memUsedKb * 1024).c_str(), tkBytes(memTotalKb * 1024).c_str());
         std::snprintf(b2, sizeof b2, "%d %s", cores, tkT("cores").c_str());
         for (int i = 0; i < 4; i++) tiles[i] = {i * (tileW + kTkGap), 0, tileW, kTkTileH};
-        drawTile(cr, tiles[0], "CPU", tkPercent(cpuNow), b2, cpuH, std::max(25.0, *std::max_element(cpuH.begin(), cpuH.end()) * 1.15), "primary_container", "on_primary_container", "cpu");
+        const auto peak = [](const auto& history) {
+            return history.empty() ? 0.0 : *std::max_element(history.begin(), history.end());
+        };
+        drawTile(cr, tiles[0], "CPU", tkPercent(cpuNow), b2, cpuH, std::max(25.0, peak(cpuH) * 1.15), "primary_container", "on_primary_container", "cpu");
         drawTile(cr, tiles[1], "Memory", tkPercent(memNow), b1, memH, 100, "secondary_container", "on_secondary_container", "server");
-        const double dMax = std::max(1024.0 * 1024, *std::max_element(diskH.begin(), diskH.end()));
+        const double dMax = std::max(1024.0 * 1024, peak(diskH));
         drawTile(cr, tiles[2], "Disk", tkRate(diskNow), tkT("Read and write"), diskH, dMax, "tertiary_container", "on_tertiary_container", "ssd-square");
-        const double nMax = std::max(1024.0 * 1024, *std::max_element(netH.begin(), netH.end()));
+        const double nMax = std::max(1024.0 * 1024, peak(netH));
         drawTile(cr, tiles[3], "Network", tkRate(netNow), "↓ " + tkRate(netDown) + "   ↑ " + tkRate(netUp), netH, nMax, "surface_container_high", "on_surface", netWifi ? "wi-fi-router-minimalistic" : "server-path");
 
         // toolbar: search and the two actions
