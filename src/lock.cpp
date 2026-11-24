@@ -616,12 +616,12 @@ struct App {
     xkb_keymap* keymap = nullptr;
     xkb_state* xkbState = nullptr;
     bool locked = false, finished = false, done = false;
-    bool reportTiming = false, reportedVisual = false;
+    bool reportTiming = false, reportedCover = false, reportedVisual = false;
     std::string password;
     enum { Idle, Checking, Wrong } status = Idle;
     std::atomic<int> authResult{-1};
     std::atomic<bool> fingerprint{false};  // a reader with an enrolled finger was found: the finger unlocks too
-    std::chrono::steady_clock::time_point lockedAt;
+    std::chrono::steady_clock::time_point lockRequestedAt, lockedAt;
     LockAnim animMode = LockAnim::None;
     enum { AnimIdle, AnimEntering, AnimExiting } animPhase = AnimIdle;
     bool visualsReady = false, animFrameSubmitted = false, unlocking = false;
@@ -947,22 +947,36 @@ PangoLayout* blockLayout(cairo_t* cr, const std::string& s, double px, bool bold
 // The biggest type, from maxPx down to minPx, with which the text fits in maxH and no word has to be broken. If even minPx cannot keep the words whole
 // (one very long word), the words are broken by letter at the biggest size that fits. The text is never cut.
 PangoLayout* fitBlock(cairo_t* cr, const std::string& s, double width, bool bold, double maxPx, double minPx, double maxH, double spacingEm, double lineFactor, int& h) {
-    for (double px = maxPx; px >= minPx; px -= 2) {
-        PangoLayout* l = blockLayout(cr, s, px, bold, width, spacingEm, lineFactor, PANGO_WRAP_WORD);
-        int w2 = 0;
-        pango_layout_get_pixel_size(l, &w2, &h);
-        if (w2 <= width + 1 && h <= maxH) return l;  // (a word wider than the line makes the layout wider than it)
-        g_object_unref(l);
-    }
-    double px = maxPx;
-    for (;;) {
-        PangoLayout* l = blockLayout(cr, s, px, bold, width, spacingEm, lineFactor, PANGO_WRAP_WORD_CHAR);
-        int w2 = 0;
-        pango_layout_get_pixel_size(l, &w2, &h);
-        if (h <= maxH || px <= minPx) return l;
-        g_object_unref(l);
-        px = std::max(minPx, px - 2);
-    }
+    const auto fit = [&](double px, PangoWrapMode wrap) -> PangoLayout* {
+        auto* layout = blockLayout(cr, s, px, bold, width, spacingEm, lineFactor, wrap);
+        int measuredW = 0, measuredH = 0;
+        pango_layout_get_pixel_size(layout, &measuredW, &measuredH);
+        if (measuredW <= width + 1 && measuredH <= maxH) {
+            h = measuredH;
+            return layout;
+        }
+        g_object_unref(layout);
+        return nullptr;
+    };
+    const auto search = [&](PangoWrapMode wrap) -> PangoLayout* {
+        if (auto* layout = fit(maxPx, wrap)) return layout;
+        int lo = 0, hi = static_cast<int>((maxPx - minPx) / 2) - 1;
+        PangoLayout* best = nullptr;
+        while (lo <= hi) {
+            const int mid = lo + (hi - lo) / 2;
+            if (auto* layout = fit(minPx + 2 * mid, wrap)) {
+                if (best) g_object_unref(best);
+                best = layout;
+                lo = mid + 1;
+            } else hi = mid - 1;
+        }
+        return best;
+    };
+    if (auto* layout = search(PANGO_WRAP_WORD)) return layout;
+    if (auto* layout = search(PANGO_WRAP_WORD_CHAR)) return layout;
+    auto* layout = blockLayout(cr, s, minPx, bold, width, spacingEm, lineFactor, PANGO_WRAP_WORD_CHAR);
+    pango_layout_get_pixel_size(layout, nullptr, &h);
+    return layout;
 }
 void blockPaint(cairo_t* cr, PangoLayout* l, double x, double y, const Color& c, double alpha, bool shadow) {
     if (shadow) {
@@ -1334,6 +1348,26 @@ int playerDamageLeft(int width) {
     return std::max(0, static_cast<int>(std::floor(width - 96 - std::max(textWidth + 100, 426.0))));
 }
 
+// The first frame must be visible even while font and theme initialization is blocked.
+void paintLockIndicator(cairo_t* cr, int w, int h) {
+    const double x = w / 2.0, y = h / 2.0;
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, x, y, 34, 0, 2 * M_PI);
+    cairo_set_source_rgb(cr, 0.15, 0.15, 0.18);
+    cairo_fill(cr);
+    cairo_set_source_rgb(cr, 0.92, 0.92, 0.96);
+    cairo_set_line_width(cr, 2.5);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, x, y - 4, 7, M_PI, 2 * M_PI);
+    cairo_stroke(cr);
+    rrect(cr, x - 12, y - 4, 24, 19, 4);
+    cairo_stroke(cr);
+    cairo_move_to(cr, x, y + 3);
+    cairo_line_to(cr, x, y + 8);
+    cairo_stroke(cr);
+}
+
 void draw(Output& o, bool playerOnly = false) {
     if (!o.configured || o.w <= 0 || o.h <= 0) return;
     o.playerOnlyPending = playerOnly && (!o.repaintPending || o.playerOnlyPending);
@@ -1352,6 +1386,7 @@ void draw(Output& o, bool playerOnly = false) {
     if (!g.visualsReady) {
         cairo_set_source_rgb(cr, 0.06, 0.06, 0.07);
         cairo_paint(cr);
+        paintLockIndicator(cr, W, H);
         slot->revision = 0;
     } else if (animating) {
         if (!o.cache || o.cacheW != W || o.cacheH != H || o.cacheDirty || cairo_image_surface_get_width(o.cache) != hf.pw) {
@@ -1365,7 +1400,9 @@ void draw(Output& o, bool playerOnly = false) {
             o.cacheH = H;
             o.cacheDirty = false;
         }
-        compose(cr, W, H, o.cache, animOpen());
+        const double open = animOpen();
+        compose(cr, W, H, o.cache, open);
+        if (g.animPhase == App::AnimEntering && open < 0.2) paintLockIndicator(cr, W, H);
         slot->revision = 0;
     } else {
         if (!o.chrome || o.chromeRevision != o.revision || o.chromeScale != sc ||
@@ -1407,10 +1444,16 @@ void draw(Output& o, bool playerOnly = false) {
     slot->busy = true;
     wl_surface_commit(o.surface);
     o.repaintPending = false;
+    if (!g.visualsReady && g.reportTiming && !g.reportedCover) {
+        g.reportedCover = true;
+        const auto elapsed = std::chrono::steady_clock::now() - g.lockRequestedAt;
+        std::fprintf(stderr, "end4pC-lock: request to first visible lock indicator %.1f ms\n",
+                     std::chrono::duration<double, std::milli>(elapsed).count());
+    }
     if (g.visualsReady && g.reportTiming && !g.reportedVisual) {
         g.reportedVisual = true;
         const auto elapsed = std::chrono::steady_clock::now() - g.lockedAt;
-        std::fprintf(stderr, "end4pC-lock: locked to first visual submission %.1f ms\n",
+        std::fprintf(stderr, "end4pC-lock: locked to first themed submission %.1f ms\n",
                      std::chrono::duration<double, std::milli>(elapsed).count());
     }
     if (animating) g.animFrameSubmitted = true;
@@ -1852,6 +1895,7 @@ int main(int argc, char** argv) {
     if (!g.manager || !g.compositor || !g.shm) { std::fprintf(stderr, "end4pC-lock: the compositor lacks ext-session-lock-v1\n"); return 1; }
 
     const auto requested = std::chrono::steady_clock::now();
+    g.lockRequestedAt = requested;
     g.lock = ext_session_lock_manager_v1_lock(g.manager);
     ext_session_lock_v1_add_listener(g.lock, &kLockListener, nullptr);
     for (auto& o : g.outputs) createLockSurface(*o);
@@ -1867,7 +1911,11 @@ int main(int argc, char** argv) {
     }
 
     for (auto& o : g.outputs) if (o->configured) stillWallpaper(o->w, o->h);
+    const auto themeStart = std::chrono::steady_clock::now();
     loadVisuals();
+    if (g.reportTiming)
+        std::fprintf(stderr, "end4pC-lock: theme preparation %.1f ms\n",
+                     std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - themeStart).count());
     applyDecodedImages();
     g.visualsReady = true;
     if (g.animMode != LockAnim::None) g.animPhase = App::AnimEntering;
