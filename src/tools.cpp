@@ -138,6 +138,15 @@ struct KeyEvent {
 };
 
 struct ToolPage {
+private:
+    bool initialized = false;
+
+public:
+    void ensureInitialized() {
+        if (initialized) return;
+        init();
+        initialized = true;
+    }
     virtual ~ToolPage() = default;
     virtual const char* name() const = 0;
     virtual const char* icon() const = 0;
@@ -188,6 +197,10 @@ struct App {
     int page = 0, prevPage = 0;
     double switchT = 1;
     Clock::time_point switchStart;
+    wl_callback* switchFrame = nullptr;
+    using PageImage = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;
+    PageImage switchImages[2]{{nullptr, cairo_surface_destroy}, {nullptr, cairo_surface_destroy}};
+    double switchWidth = 0, switchHeight = 0, switchScale = 0;
 
     double px = 0, py = 0;
     bool inside = false;
@@ -455,7 +468,6 @@ void buildPages() {
         g.pages.push_back(std::make_unique<PerfPage>());
         if (PowerPage::available(true)) g.pages.push_back(std::make_unique<PowerPage>(true));
         if (PowerPage::available(false)) g.pages.push_back(std::make_unique<PowerPage>(false));
-        for (auto& p : g.pages) p->init();
         return;
     }
     g.pages.push_back(std::make_unique<TranslatorPage>());
@@ -469,7 +481,6 @@ void buildPages() {
     g.pages.push_back(std::make_unique<KeybindsPage>());
     g.pages.push_back(std::make_unique<AutostartPage>());
     g.pages.push_back(std::make_unique<PhonePage>());
-    for (auto& p : g.pages) p->init();
 }
 
 ToolPage& cur() { return *g.pages[g.page]; }
@@ -568,32 +579,68 @@ void drawClose(cairo_t* cr) {
     icon(cr, "close-circle", c.x + (c.w - 22) / 2, c.y + (c.h - 22) / 2, 22, g.hoverClose ? g.color("error") : g.color("on_surface_variant"));
 }
 
-void drawPageAt(cairo_t* cr, int index, Rect r, double dx, double alpha) {
+void clearSwitchImages() {
+    for (auto& image : g.switchImages) image.reset();
+}
+
+void drawPageAt(cairo_t* cr, int index, Rect r, double dx, double alpha, cairo_surface_t* image = nullptr) {
     cairo_save(cr);
     if (g.pages[index]->roundClip()) rrect(cr, r.x, r.y, r.w, r.h, 28);
     else cairo_rectangle(cr, r.x, r.y, r.w, r.h);
     cairo_clip(cr);
     cairo_translate(cr, r.x + dx, r.y);
-    cairo_push_group(cr);
-    g.pages[index]->draw(cr, {0, 0, r.w, r.h});
-    cairo_pop_group_to_source(cr);
-    cairo_paint_with_alpha(cr, alpha);
+    if (image) {
+        cairo_set_source_surface(cr, image, 0, 0);
+        cairo_paint_with_alpha(cr, alpha);
+    } else {
+        if (alpha < 1) cairo_push_group(cr);
+        g.pages[index]->draw(cr, {0, 0, r.w, r.h});
+        if (alpha < 1) {
+            cairo_pop_group_to_source(cr);
+            cairo_paint_with_alpha(cr, alpha);
+        }
+    }
     cairo_restore(cr);
 }
 
 void drawContent(cairo_t* cr) {
     const Rect r = contentRect();
     if (g.switchT >= 1) { drawPageAt(cr, g.page, r, 0, 1); return; }
+    const double scale = g.scale.factor();
+    if (r.w != g.switchWidth || r.h != g.switchHeight || scale != g.switchScale) {
+        clearSwitchImages();
+        g.switchWidth = r.w;
+        g.switchHeight = r.h;
+        g.switchScale = scale;
+    }
+    const int pages[] = {g.prevPage, g.page};
+    for (int i = 0; i < 2; ++i) {
+        auto& image = g.switchImages[i];
+        if (image) continue;
+        image.reset(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, hidpi::bufferExtent(r.w, scale), hidpi::bufferExtent(r.h, scale)));
+        if (cairo_surface_status(image.get()) != CAIRO_STATUS_SUCCESS) { image.reset(); continue; }
+        cairo_surface_set_device_scale(image.get(), scale, scale);
+        cairo_t* snapshot = mkcr(image.get());
+        g.pages[pages[i]]->draw(snapshot, {0, 0, r.w, r.h});
+        cairo_destroy(snapshot);
+    }
     const double e = easeOut(g.switchT), dir = g.page > g.prevPage ? 1 : -1, slide = 64;
-    drawPageAt(cr, g.prevPage, r, -dir * slide * e, 1 - e);
-    drawPageAt(cr, g.page, r, dir * slide * (1 - e), e);
+    drawPageAt(cr, g.prevPage, r, -dir * slide * e, 1 - e, g.switchImages[0].get());
+    drawPageAt(cr, g.page, r, dir * slide * (1 - e), e, g.switchImages[1].get());
 }
+
+void onSwitchFrame(void*, wl_callback* callback, uint32_t) {
+    wl_callback_destroy(callback);
+    g.switchFrame = nullptr;
+    g.dirty = true;
+}
+const wl_callback_listener kSwitchFrameListener = {onSwitchFrame};
 
 void wlBufferRelease(void*, wl_buffer* b) { wl_buffer_destroy(b); }
 const wl_buffer_listener kBufferListener = {wlBufferRelease};
 
 void render() {
-    if (!g.configured || !g.surface) return;
+    if (!g.configured || !g.surface || g.switchFrame) return;
     const int W = g.width, H = g.height;
     hidpi::Frame hf;
     if (!hidpi::begin(hf, W, H, g.scale.factor(), "end4pC-tools")) return;
@@ -613,6 +660,10 @@ void render() {
     wl_buffer* buf = hidpi::buffer(hf, g.shm);
     if (!buf) return;
     wl_buffer_add_listener(buf, &kBufferListener, nullptr);
+    if (g.switchT < 1) {
+        g.switchFrame = wl_surface_frame(g.surface);
+        if (g.switchFrame) wl_callback_add_listener(g.switchFrame, &kSwitchFrameListener, nullptr);
+    }
     hidpi::present(g.surface, buf, hf, g.scale);
     g.dirty = false;
 }
@@ -655,7 +706,9 @@ void switchTo(int index) {
     cur().leave();
     g.prevPage = g.page;
     g.page = index;
+    cur().ensureInitialized();
     rememberPage();
+    clearSwitchImages();
     g.switchT = 0;
     g.switchStart = Clock::now();
     g.dirty = true;
@@ -855,8 +908,7 @@ bool connectWayland() {
     if (!g.display) { std::fprintf(stderr, "end4pC-tools: no Wayland display\n"); return false; }
     g.registry = wl_display_get_registry(g.display);
     wl_registry_add_listener(g.registry, &kRegistryListener, nullptr);
-    wl_display_roundtrip(g.display);
-    wl_display_roundtrip(g.display);
+    if (wl_display_roundtrip(g.display) < 0) return false;
     if (!g.compositor || !g.shm || !g.wm) { std::fprintf(stderr, "end4pC-tools: missing Wayland globals\n"); return false; }
     g.surface = wl_compositor_create_surface(g.compositor);
     hidpi::attach(g.scale, g.surface, g.viewporter, g.fscaleMgr, [] { g.dirty = true; });
@@ -873,7 +925,7 @@ bool connectWayland() {
 
 int pollTimeoutMs() {
     int timeout = 500;
-    if (g.switchT < 1 || cur().animating()) timeout = 16;
+    if (!g.switchFrame && (g.switchT < 1 || cur().animating())) timeout = 16;
     if (g.repeatKey) {
         const long left = std::chrono::duration_cast<std::chrono::milliseconds>(g.repeatAt - Clock::now()).count();
         timeout = static_cast<int>(std::min<long>(timeout, std::max<long>(1, left)));
@@ -883,20 +935,22 @@ int pollTimeoutMs() {
 
 void tickAll() {
     const auto now = Clock::now();
-    if (g.switchT < 1) {
+    if (g.switchT < 1 && !g.switchFrame) {
         g.switchT = std::min(1.0, std::chrono::duration<double>(now - g.switchStart).count() / 0.26);
         g.dirty = true;
-        if (g.switchT >= 1) motion();
+        if (g.switchT >= 1) { clearSwitchImages(); motion(); }
     }
     if (g.repeatKey && now >= g.repeatAt) {
         if (!handleKey(g.repeatKey)) g.repeatKey = 0;
         g.repeatAt = now + std::chrono::milliseconds(std::max(1, 1000 / std::max(1, g.kbRate)));
     }
-    if (mtimeOf(colorsPath()) != g.colorsStamp) { loadColors(); g.dirty = true; }
+    if (mtimeOf(colorsPath()) != g.colorsStamp) { loadColors(); clearSwitchImages(); g.dirty = true; }
     if (cur().tick() || cur().animating()) g.dirty = true;
 }
 
 void teardown() {
+    if (g.switchFrame) wl_callback_destroy(g.switchFrame);
+    clearSwitchImages();
     if (g.xkbState) xkb_state_unref(g.xkbState);
     if (g.xkbMap) xkb_keymap_unref(g.xkbMap);
     if (g.xkbCtx) xkb_context_unref(g.xkbCtx);
@@ -929,6 +983,8 @@ int main(int argc, char** argv) {
     buildPages();
     g.page = g.prevPage = rememberedPage();
     if (const char* p = g.solo ? nullptr : std::getenv("TOOLS_PAGE")) g.page = g.prevPage = std::clamp(std::atoi(p), 0, pageCount() - 1);
+
+    cur().ensureInitialized();
 
     std::signal(SIGTERM, onTermSignal);
     std::signal(SIGINT, onTermSignal);
