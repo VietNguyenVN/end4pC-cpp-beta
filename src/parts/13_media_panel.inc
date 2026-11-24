@@ -1389,10 +1389,17 @@ void runUpdatesTerminal(App& app) {
     app.updatesRecheckAt = std::chrono::steady_clock::now() + std::chrono::minutes(kUpdatesRecheckMin);
 }
 
-void startLock() {
+void startLockHelper(bool warm) {
     char exe[4096];
     const ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
     std::string path = n > 0 ? std::string(exe, n) : "";
     path = path.substr(0, path.rfind('/') + 1) + "end4pC-lock";
-    runDetached({path.c_str()});
+    if (warm) {
+        const std::string owner = std::to_string(getpid());
+        runDetached({path.c_str(), "--warm-helper", owner.c_str()});
+    } else {
+        runDetached({path.c_str()});
+    }
 }
+
+void startLock() { startLockHelper(false); }

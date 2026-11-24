@@ -380,15 +380,10 @@ int main(int argc, char** argv) {
         const std::string marker = std::string(rt ? rt : "/tmp") + "/end4pC-started";
         if (access(marker.c_str(), F_OK) != 0) {
             if (FILE* m = std::fopen(marker.c_str(), "w")) std::fclose(m);
-            char exe[4096] = {};
-            const ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
-            if (n > 0) {
-                std::string lock(exe, n);
-                lock = lock.substr(0, lock.rfind('/')) + "/end4pC-lock";
-                runDetached({lock.c_str()});
-            }
+            startLock();
         }
     }
+    startLockHelper(true);
     if (app.bus) {
         sd_bus_set_method_call_timeout(app.bus, 1500000);
         const int tr = traywatch_start(app.bus, trayChanged, &app);

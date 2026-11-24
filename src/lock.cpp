@@ -14,6 +14,8 @@
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -25,6 +27,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -306,15 +309,17 @@ void queueLockImage(LockImage job) {
     g_imagesReady.notify_one();
 }
 
-void loadProfile() {
+void loadProfile(bool loadAvatar = true) {
     const std::string ii = readFile(homeDir() + "/.config/illogical-impulse/config.json");
-    std::string pic, own, display;
-    jsonValue(readFile(configFile()), "avatarPicture", own);
-    jsonValue(ii, "avatarPicture", pic);
+    std::string display;
     jsonValue(ii, "displayName", display);
     const passwd* pw = getpwuid(getuid());
     g_profile.user = pw ? pw->pw_name : "";
     g_profile.name = display.empty() ? g_profile.user : display;
+    if (!loadAvatar) return;
+    std::string own, pic;
+    jsonValue(readFile(configFile()), "avatarPicture", own);
+    jsonValue(ii, "avatarPicture", pic);
     for (const std::string& c : {own, pic, homeDir() + "/.face", homeDir() + "/.face.icon"})
         if (!c.empty() && access(c.c_str(), R_OK) == 0) {
             const LockImage avatar{"avatar", c, kAvatar, kAvatar};
@@ -1877,7 +1882,7 @@ void dumpPlayer(const std::string& dir) {
     }
 }
 
-void loadVisuals() {
+void loadVisuals(bool loadAvatar = true) {
     loadColors();
     applyShellFont(fontFamilyFromConfig(configFile()), fontWeightFromConfig(configFile(), "fontWeightText", 450), fontWeightFromConfig(configFile(), "fontWeightTitle", 550));
     {
@@ -1886,9 +1891,89 @@ void loadVisuals() {
         const std::string cd = configFile().substr(0, configFile().rfind('/'));
         i18n::load(lang, assetsDir(), cd + "/i18n");
     }
-    loadProfile();
+    loadProfile(loadAvatar);
     loadWeatherCache();
     readAnimConfig();
+}
+
+void warmLockFonts() {
+    loadVisuals(false);
+    cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1024, 768);
+    cairo_t* cr = mkcr(surface);
+    paintChrome(cr, 768);
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+}
+
+// The shell owns an idle helper. The compositor still decides whether a request
+// locked the session. A launcher only exits early after the helper confirms it.
+socklen_t warmLockAddress(sockaddr_un& addr) {
+    const char* runtime = std::getenv("XDG_RUNTIME_DIR");
+    const char* display = std::getenv("WAYLAND_DISPLAY");
+    struct stat executable{};
+    if (!runtime || !*runtime || std::getenv("WAYLAND_SOCKET") || stat("/proc/self/exe", &executable) != 0) return 0;
+    addr.sun_family = AF_UNIX;
+    const int n = std::snprintf(addr.sun_path + 1, sizeof(addr.sun_path) - 1,
+        "end4pC-lock:%lu:%llu:%llu:%s/%s", static_cast<unsigned long>(getuid()),
+        static_cast<unsigned long long>(executable.st_dev), static_cast<unsigned long long>(executable.st_ino),
+        runtime, display && *display ? display : "wayland-0");
+    return n > 0 && static_cast<size_t>(n) < sizeof(addr.sun_path) - 1
+        ? offsetof(sockaddr_un, sun_path) + 1 + n : 0;
+}
+
+bool sameLockUser(int fd) {
+    ucred peer{};
+    socklen_t size = sizeof(peer);
+    return getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) == 0 && peer.uid == getuid();
+}
+
+bool waitLockSocket(int fd, int ms) {
+    pollfd ready{fd, POLLIN, 0};
+    return poll(&ready, 1, ms) > 0 && (ready.revents & POLLIN);
+}
+
+bool requestWarmLock() {
+    sockaddr_un addr{};
+    const socklen_t length = warmLockAddress(addr);
+    if (!length) return false;
+    const int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    if (fd < 0) return false;
+    char reply{};
+    const bool locked = connect(fd, reinterpret_cast<sockaddr*>(&addr), length) == 0
+        && sameLockUser(fd) && send(fd, "L", 1, MSG_NOSIGNAL) == 1
+        && waitLockSocket(fd, 250) && recv(fd, &reply, 1, 0) == 1 && reply == 'L';
+    close(fd);
+    return locked;
+}
+
+int waitForLockRequest(pid_t owner) {
+    sockaddr_un addr{};
+    const socklen_t length = warmLockAddress(addr);
+    if (!length || owner <= 1) return -1;
+    warmLockFonts();
+    g_colors.clear();
+    g_weather = {};
+    const int listener = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    if (listener < 0) return -1;
+    int request = -1;
+    if (bind(listener, reinterpret_cast<sockaddr*>(&addr), length) == 0 && listen(listener, 4) == 0) {
+        if (std::getenv("END4PC_LOCK_TIMING"))
+            std::fprintf(stderr, "end4pC-lock: warm helper ready\n");
+        while (getppid() == owner) {
+            if (!waitLockSocket(listener, 1000)) continue;
+            const int client = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
+            if (client < 0) continue;
+            char command{};
+            if (sameLockUser(client) && waitLockSocket(client, 50)
+                && recv(client, &command, 1, 0) == 1 && command == 'L') {
+                request = client;
+                break;
+            }
+            close(client);
+        }
+    }
+    close(listener);
+    return request;
 }
 
 int main(int argc, char** argv) {
@@ -1896,6 +1981,16 @@ int main(int argc, char** argv) {
         loadVisuals();
         if (std::strcmp(argv[1], "--dump-frames") == 0) dumpFrames(argv[2]);
         else dumpPlayer(argv[2]);
+        return 0;
+    }
+    const bool helper = argc == 3 && std::strcmp(argv[1], "--warm-helper") == 0;
+    const pid_t owner = helper ? getppid() : 0;
+    if (helper && std::to_string(owner) != argv[2]) return 0;
+    int request = -1;
+    if (helper) {
+        request = waitForLockRequest(owner);
+        if (request < 0) return 0;
+    } else if (argc == 1 && requestWarmLock()) {
         return 0;
     }
     g.reportTiming = std::getenv("END4PC_LOCK_TIMING") != nullptr;
@@ -1919,6 +2014,10 @@ int main(int argc, char** argv) {
     while (!g.locked && !g.finished)
         if (wl_display_dispatch(g.display) < 0) return 1;
     if (g.finished) { std::fprintf(stderr, "end4pC-lock: another lock screen is already running\n"); return 1; }
+    if (request >= 0) {
+        (void)send(request, "L", 1, MSG_NOSIGNAL);
+        close(request);
+    }
     if (g.reportTiming) {
         using Milliseconds = std::chrono::duration<double, std::milli>;
         std::fprintf(stderr, "end4pC-lock: startup to request %.1f ms, request to locked %.1f ms\n",
@@ -2000,5 +2099,7 @@ int main(int argc, char** argv) {
     if (g.finished && g.lock) std::fprintf(stderr, "end4pC-lock: the compositor ended the lock\n");
     std::fflush(nullptr);
     unlink(lockMarker().c_str());
+    if (g.done && helper && getppid() == owner && close_range(3, ~0U, CLOSE_RANGE_CLOEXEC) == 0)
+        execl("/proc/self/exe", argv[0], argv[1], argv[2], static_cast<char*>(nullptr));
     _exit(g.done ? 0 : 1);
 }
