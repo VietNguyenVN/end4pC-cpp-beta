@@ -11,7 +11,7 @@ No Qt, no QML, no GTK widgets: just `cairo` + `pango` in one small process.
 ![sway](https://img.shields.io/badge/SwayFX-supported-7aa2f7?style=flat-square)
 ![C++](https://img.shields.io/badge/C%2B%2B-meson%20%2B%20ninja-f7768e?style=flat-square)
 ![License](https://img.shields.io/badge/license-GPL--3.0-bb9af7?style=flat-square)
-![Status](https://img.shields.io/badge/status-pre--alpha-e0af68?style=flat-square)
+![Status](https://img.shields.io/badge/status-pre--alpha1-e0af68?style=flat-square)
 
 [Install](#install) · [CLI reference](#command-line-reference) · [Keybinds](#keybinds) · [Configuration](#configuration) · [Languages](#languages) · [Troubleshooting](#troubleshooting)
 
@@ -28,9 +28,7 @@ No Qt, no QML, no GTK widgets: just `cairo` + `pango` in one small process.
 It started as a C++ port of my Quickshell config and keeps its Material 3 look.
 
 > [!WARNING]
-> **Beta.** The project changes quickly and things may break. Tested on Arch Linux with Hyprland 0.57.1 (Lua config); niri and sway (SwayFX) are supported too.
->
-> **NVIDIA:** it works on NVIDIA graphics: a user has tried it and it runs well. It has been tested on Intel, AMD and NVIDIA.
+> **Pre-alpha.** The project changes quickly and things may break. Tested on Arch Linux with Hyprland 0.57.1 (Lua config); niri and sway (SwayFX) are supported too.
 
 ## Contents
 
