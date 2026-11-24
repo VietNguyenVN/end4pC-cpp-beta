@@ -30,6 +30,7 @@
 #include <ctime>
 #include <fstream>
 #include <map>
+#include <tuple>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -501,6 +502,23 @@ void fingerprintGlyph(cairo_t* cr, double cx, double cy, double size, const Colo
 
 enum class LockAnim { None, SplitH, SplitV, Shape, Zoom };
 
+struct LockBuffer {
+    hidpi::Frame frame;
+    wl_buffer* buffer = nullptr;
+    bool busy = false;
+    unsigned revision = 0;
+
+    ~LockBuffer() { clear(); }
+
+    void clear() {
+        if (buffer) wl_buffer_destroy(buffer);
+        hidpi::abandon(frame);
+        buffer = nullptr;
+        busy = false;
+        revision = 0;
+    }
+};
+
 struct Output {
     wl_output* output = nullptr;
     uint32_t name = 0;
@@ -509,9 +527,15 @@ struct Output {
     ext_session_lock_surface_v1* lockSurface = nullptr;
     int w = 0, h = 0;
     bool configured = false;
+    LockBuffer buffers[3];
+    unsigned revision = 1;
+    cairo_surface_t* chrome = nullptr;
+    unsigned chromeRevision = 0;
+    double chromeScale = 0;
     cairo_surface_t* cache = nullptr;  // the lock screen painted once, while it animates
     int cacheW = 0, cacheH = 0;
     bool cacheDirty = true, framePending = false;
+    bool repaintPending = false, playerOnlyPending = false;
     wl_callback* frameCb = nullptr;
     std::chrono::steady_clock::time_point frameAt;
 };
@@ -540,7 +564,7 @@ struct App {
     std::chrono::steady_clock::time_point lockedAt;
     LockAnim animMode = LockAnim::None;
     enum { AnimIdle, AnimEntering, AnimExiting } animPhase = AnimIdle;
-    bool animStarted = false, unlocking = false;
+    bool visualsReady = false, animFrameSubmitted = false, unlocking = false;
     std::chrono::steady_clock::time_point animStart;
     double animSeconds = 0.55, shapeStart = 0;
     std::string shapeName = "Cookie7Sided", baseRole;  // baseRole: the color outside the shape when the wallpaper is centered
@@ -631,8 +655,33 @@ cairo_surface_t* background(int w, int h) {
     return small;
 }
 
-void onBufferRelease(void*, wl_buffer* b) { wl_buffer_destroy(b); }
+void onBufferRelease(void* data, wl_buffer*) { static_cast<LockBuffer*>(data)->busy = false; }
 const wl_buffer_listener kBufferListener = {onBufferRelease};
+
+LockBuffer* acquireLockBuffer(Output& out) {
+    const double scale = out.scale.factor();
+    LockBuffer* spare = nullptr;
+    for (auto& slot : out.buffers) {
+        if (slot.busy) continue;
+        if (slot.buffer && slot.frame.lw == out.w && slot.frame.lh == out.h && slot.frame.scale == scale) return &slot;
+        if (!spare) spare = &slot;
+    }
+    if (!spare) return nullptr;
+    spare->clear();
+    auto& f = spare->frame;
+    if (!hidpi::begin(f, out.w, out.h, scale, "end4pC-lock")) return nullptr;
+    wl_shm_pool* pool = wl_shm_create_pool(g.shm, f.fd, static_cast<int32_t>(f.size));
+    if (pool) {
+        spare->buffer = wl_shm_pool_create_buffer(pool, 0, f.pw, f.ph, f.stride, WL_SHM_FORMAT_ARGB8888);
+        wl_shm_pool_destroy(pool);
+    }
+    close(f.fd);
+    f.fd = -1;
+    if (!spare->buffer) { spare->clear(); return nullptr; }
+    wl_buffer_add_listener(spare->buffer, &kBufferListener, spare);
+    return spare;
+}
+
 
 // The wallpaper alone, as the desktop shows it.
 void paintWallpaper(cairo_t* cr, int W, int H) {
@@ -723,20 +772,22 @@ void playerPoll() {
     bool changed;
     {
         std::lock_guard<std::mutex> lk(g_nowMx);
-        changed = g_now.have != best.have || g_now.title != best.title || g_now.artist != best.artist || g_now.status != best.status;
-        const bool otherSong = best.have && (!g_now.have || g_now.title != best.title || g_now.artist != best.artist);
-        if (otherSong) {  // (the first one after nothing was playing slides in too, with nothing to push out)
+        changed = g_now.have != best.have || g_now.title != best.title || g_now.artist != best.artist ||
+                  g_now.status != best.status || g_now.instance != best.instance || g_now.len != best.len ||
+                  (best.status == "Paused" && g_now.pos != best.pos);
+        const bool otherSong = best.have && g_now.have && (g_now.title != best.title || g_now.artist != best.artist);
+        if (otherSong) {
             best.prevTitle = g_now.have ? g_now.title : "";
             best.prevArtist = g_now.have ? g_now.artist : "";
             best.changeAt = std::chrono::steady_clock::now();
-        } else {
+        } else if (best.have && g_now.have) {
             best.prevTitle = g_now.prevTitle;
             best.prevArtist = g_now.prevArtist;
             best.changeAt = g_now.changeAt;
         }
         g_now = best;
     }
-    if (changed && g_wake[1] >= 0) { const char b = 'w'; (void)!write(g_wake[1], &b, 1); }
+    if (changed && g_wake[1] >= 0) { const char b = 'p'; (void)!write(g_wake[1], &b, 1); }
 }
 void playerLoop() {
     for (;;) {
@@ -872,11 +923,19 @@ struct PlayerText {
     PangoLayout* title = nullptr;
     PangoLayout* artist = nullptr;
     int th = 0, ah = 0;
+    std::string titleKey, artistKey;
     double top = 0, row = 0;  // where the block starts and where the line with the buttons goes, for this text
     ~PlayerText() { if (title) g_object_unref(title); if (artist) g_object_unref(artist); }
 };
 constexpr double kPlayerRowH = 52, kPlayerGap1 = 6, kPlayerGap2 = 8, kPlayerGap3 = 26;
 void buildPlayerText(cairo_t* cr, PlayerText& t, const std::string& title, const std::string& artist, double width, double maxTitleH, int labelH, int H) {
+    if (t.title && t.titleKey == title && t.artistKey == artist) return;
+    if (t.title) g_object_unref(t.title);
+    if (t.artist) g_object_unref(t.artist);
+    t.artist = nullptr;
+    t.ah = 0;
+    t.titleKey = title;
+    t.artistKey = artist;
     t.title = fitBlock(cr, title, width, true, 190, 26, maxTitleH, -0.03, 0.85, t.th);
     if (!artist.empty()) t.artist = fitBlock(cr, artist, width, false, 34, 18, 150, 0, 1.0, t.ah);
     const double total = labelH + kPlayerGap1 + t.th + (t.artist ? kPlayerGap2 + t.ah : 0) + kPlayerGap3 + kPlayerRowH;
@@ -891,6 +950,14 @@ void paintPlayerText(cairo_t* cr, const PlayerText& t, double top, double x, dou
     if (t.artist) blockPaint(cr, t.artist, x + dx, y + kPlayerGap2, white, 0.85 * alpha, false);
 }
 
+struct PlayerLayout {
+    PlayerText current, previous;
+    PangoLayout* label = nullptr;
+    int labelHeight = 0;
+    ~PlayerLayout() { if (label) g_object_unref(label); }
+};
+std::map<std::tuple<int, int, double>, PlayerLayout> g_playerLayouts;
+
 void paintPlayer(cairo_t* cr, int W, int H) {
     if (!g_playerOn) return;
     Now n = nowSnapshot();
@@ -904,13 +971,18 @@ void paintPlayer(cairo_t* cr, int W, int H) {
     const double right = W - 96, width = std::min(620.0, W * 0.36), x0 = right - width;
     const double maxTitleH = std::min(H * 0.5, 520.0);
 
-    std::string label = i18n::tr("Now playing");
-    for (char& ch : label) if (static_cast<unsigned char>(ch) < 0x80) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
-    PangoLayout* ll = blockLayout(cr, label, 22, false, width, 0.2, 1.0);
-    int lw = 0, lh = 0;
-    pango_layout_get_pixel_size(ll, &lw, &lh);
-
-    PlayerText now2;
+    const auto layoutKey = std::tuple{W, H, hidpi::scaleOf(cr)};
+    if (g_playerLayouts.size() >= 8 && !g_playerLayouts.contains(layoutKey)) g_playerLayouts.clear();
+    auto& layouts = g_playerLayouts[layoutKey];
+    if (!layouts.label) {
+        std::string label = i18n::tr("Now playing");
+        for (char& ch : label)
+            if (static_cast<unsigned char>(ch) < 0x80) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+        layouts.label = blockLayout(cr, label, 22, false, width, 0.2, 1.0);
+        pango_layout_get_pixel_size(layouts.label, nullptr, &layouts.labelHeight);
+    }
+    const int lh = layouts.labelHeight;
+    auto& now2 = layouts.current;
     buildPlayerText(cr, now2, n.title, n.artist, width, maxTitleH, lh, H);
     double t = 1;  // how far the slide is (0 .. 1)
     if (n.changeAt != std::chrono::steady_clock::time_point{}) t = std::clamp(std::chrono::duration<double>(now - n.changeAt).count() / kSlideSeconds, 0.0, 1.0);
@@ -918,7 +990,7 @@ void paintPlayer(cairo_t* cr, int W, int H) {
     const double slide = 90;
     double top = now2.top, row = now2.row;
     if (t < 1 && !n.prevTitle.empty()) {
-        PlayerText old;
+        auto& old = layouts.previous;
         buildPlayerText(cr, old, n.prevTitle, n.prevArtist, width, maxTitleH, lh, H);
         top = old.top + (now2.top - old.top) * e;
         row = old.row + (now2.row - old.row) * e;
@@ -931,8 +1003,7 @@ void paintPlayer(cairo_t* cr, int W, int H) {
     }
     const Color accent = color("primary");
     const bool haveAccent = accent.r + accent.g + accent.b > 0.9;  // (the fallback of color() is dark: it would not show on the veil)
-    blockPaint(cr, ll, x0, top, haveAccent ? accent : white, haveAccent ? 1.0 : 0.7, false);
-    g_object_unref(ll);
+    blockPaint(cr, layouts.label, x0, top, haveAccent ? accent : white, haveAccent ? 1.0 : 0.7, false);
 
     // progress line on the left of the buttons, the buttons right aligned: previous, play / pause, next
     const double y = row, rowH = kPlayerRowH;
@@ -960,12 +1031,13 @@ void paintPlayer(cairo_t* cr, int W, int H) {
 }
 
 // The lock screen as it is when it has come in: the wallpaper with its veil, and the clock, the weather, the avatar and the password box.
-void paintFrame(cairo_t* cr, int W, int H) {
+void paintBackdrop(cairo_t* cr, int W, int H) {
     paintWallpaper(cr, W, H);
     cairo_set_source_rgba(cr, 0, 0, 0, 0.38);
     cairo_paint(cr);
-    paintPlayer(cr, W, H);
+}
 
+void paintChrome(cairo_t* cr, int H) {
     const Color white{0.97, 0.97, 0.97};
     const double M = 72;
     double y = H - M;
@@ -1075,6 +1147,12 @@ void paintFrame(cairo_t* cr, int W, int H) {
 }
 
 // ---- how the lock screen comes in and goes out (cfg lockAnimation) ----------------------------------------------------------------
+void paintFrame(cairo_t* cr, int W, int H) {
+    paintBackdrop(cr, W, H);
+    paintPlayer(cr, W, H);
+    paintChrome(cr, H);
+}
+
 double easeOutCubic(double t) {
     t = std::clamp(t, 0.0, 1.0);
     return 1 - (1 - t) * (1 - t) * (1 - t);
@@ -1097,7 +1175,8 @@ double entryOpen(double t) {
 double exitOpen(double t) { return easeOutCubic(1 - t); }
 
 double animOpen() {
-    if (g.animPhase == App::AnimIdle) return 1;
+    if (g.animPhase == App::AnimIdle || (g.animPhase == App::AnimExiting && g.animStart == std::chrono::steady_clock::time_point{})) return 1;
+    if (g.animStart == std::chrono::steady_clock::time_point{}) return entryOpen(0);
     const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - g.animStart).count() / g.animSeconds;
     return g.animPhase == App::AnimEntering ? entryOpen(t) : exitOpen(t);
 }
@@ -1106,9 +1185,6 @@ constexpr double kSeamAlpha = 0;
 
 // The frame (already painted in cache) as it shows when the animation is open of 0..1.
 void compose(cairo_t* cr, int W, int H, cairo_surface_t* cache, double open) {
-    const Color base = g.baseRole.empty() ? Color{0, 0, 0} : color(g.baseRole);
-    src(cr, base);
-    cairo_paint(cr);
     if (g.animMode == LockAnim::SplitH || g.animMode == LockAnim::SplitV) {
         paintWallpaper(cr, W, H);  // (what is not covered yet is the wallpaper, as the desktop shows it, and not black: the halves come over it with their veil)
         const bool horizontal = g.animMode == LockAnim::SplitH;  // (the halves are the top and the bottom one)
@@ -1134,9 +1210,9 @@ void compose(cairo_t* cr, int W, int H, cairo_surface_t* cache, double open) {
         return;
     }
     if (g.animMode == LockAnim::Zoom) {  // the lock screen settles from a bigger picture, fading in over the desktop (and the other way when it goes out)
-        paintWallpaper(cr, W, H);
         constexpr double kZoomFrom = 0.12;
         const double scale = 1 + kZoomFrom * (1 - open), alpha = std::clamp(open * 1.6, 0.0, 1.0);
+        if (alpha < 1.0) paintWallpaper(cr, W, H);
         cairo_save(cr);
         cairo_translate(cr, W / 2.0, H / 2.0);
         cairo_scale(cr, scale, scale);
@@ -1148,6 +1224,8 @@ void compose(cairo_t* cr, int W, int H, cairo_surface_t* cache, double open) {
         return;
     }
     if (g.animMode == LockAnim::Shape) {
+        src(cr, g.baseRole.empty() ? Color{0, 0, 0} : color(g.baseRole));
+        cairo_paint(cr);
         const double full = std::hypot(double(W), double(H)) * 1.4, size = g.shapeStart + (full - g.shapeStart) * std::clamp(open, 0.0, 1.0);
         if (size < 2) return;
         cairo_save(cr);
@@ -1169,17 +1247,31 @@ void frameDone(void* d, wl_callback* cb, uint32_t) {
 }
 const wl_callback_listener kFrameListener = {frameDone};
 
-void draw(Output& o) {
+int playerDamageLeft(int width) {
+    const double textWidth = std::min(620.0, width * 0.36);
+    return std::max(0, static_cast<int>(std::floor(width - 96 - std::max(textWidth + 100, 426.0))));
+}
+
+void draw(Output& o, bool playerOnly = false) {
     if (!o.configured || o.w <= 0 || o.h <= 0) return;
-    const bool animating = g.animPhase != App::AnimIdle;
-    if (animating && o.framePending) return;  // (the last frame has not been shown yet)
+    o.playerOnlyPending = playerOnly && (!o.repaintPending || o.playerOnlyPending);
+    o.repaintPending = true;
+    const bool animating = g.visualsReady && g.animPhase != App::AnimIdle;
+    const bool paced = animating || (g.visualsReady && playerSliding());
+    if (o.framePending && paced) return;
     const int W = o.w, H = o.h;
     const double sc = o.scale.factor();
-    hidpi::Frame hf;
-    if (!hidpi::begin(hf, W, H, sc, "end4pC-lock")) return;
+    LockBuffer* slot = acquireLockBuffer(o);
+    if (!slot) return;
+    auto& hf = slot->frame;
     cairo_t* cr = mkcr(hf.surface);
+    int damageLeft = 0;
 
-    if (animating) {
+    if (!g.visualsReady) {
+        cairo_set_source_rgb(cr, 0.06, 0.06, 0.07);
+        cairo_paint(cr);
+        slot->revision = 0;
+    } else if (animating) {
         if (!o.cache || o.cacheW != W || o.cacheH != H || o.cacheDirty || cairo_image_surface_get_width(o.cache) != hf.pw) {
             if (o.cache) cairo_surface_destroy(o.cache);
             o.cache = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, hf.pw, hf.ph);  // (at the buffer's pixels, painting in logical units)
@@ -1192,21 +1284,57 @@ void draw(Output& o) {
             o.cacheDirty = false;
         }
         compose(cr, W, H, o.cache, animOpen());
-        o.framePending = true;
-        o.frameAt = std::chrono::steady_clock::now();
-        o.frameCb = wl_surface_frame(o.surface);
-        wl_callback_add_listener(o.frameCb, &kFrameListener, &o);
+        slot->revision = 0;
     } else {
-        paintFrame(cr, W, H);
+        if (!o.chrome || o.chromeRevision != o.revision || o.chromeScale != sc ||
+            cairo_image_surface_get_width(o.chrome) != hf.pw || cairo_image_surface_get_height(o.chrome) != hf.ph) {
+            if (o.chrome) cairo_surface_destroy(o.chrome);
+            o.chrome = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, hf.pw, hf.ph);
+            cairo_surface_set_device_scale(o.chrome, sc, sc);
+            cairo_t* layer = mkcr(o.chrome);
+            paintChrome(layer, H);
+            cairo_destroy(layer);
+            o.chromeRevision = o.revision;
+            o.chromeScale = sc;
+        }
+        if (o.playerOnlyPending && slot->revision == o.revision) {
+            damageLeft = static_cast<int>(std::floor(playerDamageLeft(W) * sc));
+            cairo_rectangle(cr, damageLeft / sc, 0, W, H);
+            cairo_clip(cr);
+        }
+        paintBackdrop(cr, W, H);
+        paintPlayer(cr, W, H);
+        cairo_set_source_surface(cr, o.chrome, 0, 0);
+        cairo_paint(cr);
+        slot->revision = o.revision;
     }
 
     cairo_destroy(cr);
-    wl_buffer* buffer = hidpi::buffer(hf, g.shm);
-    if (!buffer) return;
-    wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
-    hidpi::present(o.surface, buffer, hf, o.scale);
+    cairo_surface_flush(hf.surface);
+    if (paced && !o.framePending) {
+        o.frameCb = wl_surface_frame(o.surface);
+        if (o.frameCb) {
+            o.framePending = true;
+            o.frameAt = std::chrono::steady_clock::now();
+            wl_callback_add_listener(o.frameCb, &kFrameListener, &o);
+        }
+    }
+    wl_surface_attach(o.surface, slot->buffer, 0, 0);
+    wl_surface_damage_buffer(o.surface, damageLeft, 0, hf.pw - damageLeft, hf.ph);
+    if (o.scale.viewport) wp_viewport_set_destination(o.scale.viewport, W, H);
+    slot->busy = true;
+    wl_surface_commit(o.surface);
+    o.repaintPending = false;
+    if (animating) g.animFrameSubmitted = true;
 }
-void drawAll() { for (auto& o : g.outputs) draw(*o); }
+void drawAll(bool staticChanged = true, bool playerOnly = false) {
+    for (auto& o : g.outputs) {
+        if (staticChanged) { ++o->revision; o->cacheDirty = true; }
+        draw(*o, playerOnly);
+    }
+    if (g.animFrameSubmitted && g.animStart == std::chrono::steady_clock::time_point{})
+        g.animStart = std::chrono::steady_clock::now();
+}
 
 void onLockSurfaceConfigure(void* d, ext_session_lock_surface_v1* ls, uint32_t serial, uint32_t w, uint32_t h) {
     auto* o = static_cast<Output*>(d);
@@ -1215,18 +1343,16 @@ void onLockSurfaceConfigure(void* d, ext_session_lock_surface_v1* ls, uint32_t s
     o->h = static_cast<int>(h);
     o->configured = true;
     o->cacheDirty = true;
-    if (!g.animStarted) {  // the first screen that is ready starts the animation of coming in
-        g.animStarted = true;
-        if (g.animMode != LockAnim::None) { g.animPhase = App::AnimEntering; g.animStart = std::chrono::steady_clock::now(); }
-    }
-    draw(*o);
+    ++o->revision;
+    if (g.visualsReady) drawAll(false);
+    else draw(*o);
 }
 const ext_session_lock_surface_v1_listener kLockSurfaceListener = {onLockSurfaceConfigure};
 
 void createLockSurface(Output& o) {
     if (!g.lock || o.lockSurface) return;
     o.surface = wl_compositor_create_surface(g.compositor);
-    hidpi::attach(o.scale, o.surface, g.viewporter, g.fscaleMgr, [op = &o] { op->cacheDirty = true; draw(*op); });
+    hidpi::attach(o.scale, o.surface, g.viewporter, g.fscaleMgr, [op = &o] { op->cacheDirty = true; ++op->revision; draw(*op); });
     o.lockSurface = ext_session_lock_v1_get_lock_surface(g.lock, o.surface, o.output);
     ext_session_lock_surface_v1_add_listener(o.lockSurface, &kLockSurfaceListener, &o);
 }
@@ -1334,7 +1460,7 @@ void submit() {
 }
 
 void onKey(void*, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t state) {
-    if (state != WL_KEYBOARD_KEY_STATE_PRESSED || !g.xkbState || g.status == App::Checking || g.unlocking) return;
+    if (!g.visualsReady || state != WL_KEYBOARD_KEY_STATE_PRESSED || !g.xkbState || g.status == App::Checking || g.unlocking) return;
     const uint32_t code = key + 8;
     const xkb_keysym_t sym = xkb_state_key_get_one_sym(g.xkbState, code);
     const bool ctrl = xkb_state_mod_name_is_active(g.xkbState, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0;
@@ -1461,6 +1587,7 @@ void onGlobalRemove(void*, wl_registry*, uint32_t name) {
             Output& o = **it;
             if (o.frameCb) wl_callback_destroy(o.frameCb);
             if (o.cache) cairo_surface_destroy(o.cache);
+            if (o.chrome) cairo_surface_destroy(o.chrome);
             if (o.lockSurface) ext_session_lock_surface_v1_destroy(o.lockSurface);
             hidpi::detach(o.scale);
             if (o.surface) wl_surface_destroy(o.surface);
@@ -1487,8 +1614,8 @@ void startUnlock() {
     if (g.animMode == LockAnim::None || !shown) { unlockAndExit(); return; }
     g.unlocking = true;
     g.animPhase = App::AnimExiting;
-    g.animStart = std::chrono::steady_clock::now();
-    for (auto& o : g.outputs) { o->cacheDirty = true; o->framePending = false; }
+    g.animStart = {};
+    g.animFrameSubmitted = false;
     drawAll();
 }
 
@@ -1496,14 +1623,12 @@ void startUnlock() {
 void animTick(bool& redraw) {
     if (g.animPhase == App::AnimIdle) return;
     const auto now = std::chrono::steady_clock::now();
-    for (auto& o : g.outputs)
-        if (o->framePending && now - o->frameAt > std::chrono::milliseconds(120)) o->framePending = false;  // (no frame callback came: do not stall)
-    if (std::chrono::duration<double>(now - g.animStart).count() < g.animSeconds) { redraw = true; return; }
+    if (g.animStart == std::chrono::steady_clock::time_point{} ||
+        std::chrono::duration<double>(now - g.animStart).count() < g.animSeconds) { redraw = true; return; }
     if (g.animPhase == App::AnimExiting) { unlockAndExit(); return; }
     g.animPhase = App::AnimIdle;
     for (auto& o : g.outputs) {
         if (o->cache) { cairo_surface_destroy(o->cache); o->cache = nullptr; }
-        o->framePending = false;
     }
     redraw = true;
 }
@@ -1606,8 +1731,7 @@ void dumpPlayer(const std::string& dir) {
     }
 }
 
-int main(int argc, char** argv) {
-    if (pipe(g_wake) != 0) return 1;
+void loadVisuals() {
     loadColors();
     applyShellFont(fontFamilyFromConfig(configFile()), fontWeightFromConfig(configFile(), "fontWeightText", 450), fontWeightFromConfig(configFile(), "fontWeightTitle", 550));
     {
@@ -1619,27 +1743,47 @@ int main(int argc, char** argv) {
     loadProfile();
     loadWeatherCache();
     readAnimConfig();
-    if (argc >= 3 && std::strcmp(argv[1], "--dump-frames") == 0) { dumpFrames(argv[2]); return 0; }
-    if (argc >= 3 && std::strcmp(argv[1], "--dump-player") == 0) { dumpPlayer(argv[2]); return 0; }
+}
 
+int main(int argc, char** argv) {
+    if (argc >= 3 && (std::strcmp(argv[1], "--dump-frames") == 0 || std::strcmp(argv[1], "--dump-player") == 0)) {
+        loadVisuals();
+        if (std::strcmp(argv[1], "--dump-frames") == 0) dumpFrames(argv[2]);
+        else dumpPlayer(argv[2]);
+        return 0;
+    }
+    const bool reportTiming = std::getenv("END4PC_LOCK_TIMING") != nullptr;
+    const auto started = std::chrono::steady_clock::now();
+    if (pipe(g_wake) != 0) return 1;
     g.xkbCtx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     g.display = wl_display_connect(nullptr);
     if (!g.display) { std::fprintf(stderr, "end4pC-lock: no Wayland display\n"); return 1; }
     g.registry = wl_display_get_registry(g.display);
     wl_registry_add_listener(g.registry, &kRegistryListener, nullptr);
-    wl_display_roundtrip(g.display);
-    wl_display_roundtrip(g.display);
+    if (wl_display_roundtrip(g.display) < 0) return 1;
     if (!g.manager || !g.compositor || !g.shm) { std::fprintf(stderr, "end4pC-lock: the compositor lacks ext-session-lock-v1\n"); return 1; }
 
+    const auto requested = std::chrono::steady_clock::now();
     g.lock = ext_session_lock_manager_v1_lock(g.manager);
     ext_session_lock_v1_add_listener(g.lock, &kLockListener, nullptr);
     for (auto& o : g.outputs) createLockSurface(*o);
-    wl_display_roundtrip(g.display);
+    wl_display_flush(g.display);
+    startPlayer();
+    while (!g.locked && !g.finished)
+        if (wl_display_dispatch(g.display) < 0) return 1;
     if (g.finished) { std::fprintf(stderr, "end4pC-lock: another lock screen is already running\n"); return 1; }
+    if (reportTiming) {
+        using Milliseconds = std::chrono::duration<double, std::milli>;
+        std::fprintf(stderr, "end4pC-lock: startup to request %.1f ms, request to locked %.1f ms\n",
+                     Milliseconds(requested - started).count(), Milliseconds(g.lockedAt - requested).count());
+    }
 
+    loadVisuals();
+    g.visualsReady = true;
+    if (g.animMode != LockAnim::None) g.animPhase = App::AnimEntering;
+    drawAll();
     std::thread(weatherLoop).detach();
     startFingerprint();
-    startPlayer();
 
     int lastMinute = -1;
     while (!g.done && !g.finished) {
@@ -1648,25 +1792,39 @@ int main(int argc, char** argv) {
         std::vector<pollfd> fds = {{wl_display_get_fd(g.display), POLLIN, 0}, {g_wake[0], POLLIN, 0}};
         for (const auto& [key, f] : g_feeds) if (f.fd >= 0) fds.push_back({f.fd, POLLIN, 0});
         const bool playerMoving = playerPlaying() || playerSliding();
-        if (poll(fds.data(), fds.size(), g.animPhase != App::AnimIdle ? 30 : playerMoving ? 66 : 1000) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
+        if (poll(fds.data(), fds.size(), g.animPhase != App::AnimIdle || playerMoving ? 33 : 1000) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
         if (fds[0].revents & POLLIN) wl_display_read_events(g.display);
         else wl_display_cancel_read(g.display);
         wl_display_dispatch_pending(g.display);
 
-        bool redraw = playerMoving && !g.unlocking;  // (the line of the song moves)
+        bool refreshPlayer = playerMoving && !g.unlocking;
+        bool staticChanged = false;
+        bool redraw = false;
+        const auto frameNow = std::chrono::steady_clock::now();
+        for (auto& o : g.outputs) {
+            if (o->framePending && frameNow - o->frameAt > std::chrono::milliseconds(120)) {
+                wl_callback_destroy(o->frameCb);
+                o->frameCb = nullptr;
+                o->framePending = false;
+            }
+        }
         if (!g_feeds.empty() && readFeeds()) {
-            redraw = true;
-            for (auto& o : g.outputs) o->cacheDirty = true;
+            redraw = staticChanged = true;
         }
         if (fds[1].revents & POLLIN) {
             char b[16];
             const ssize_t n = read(g_wake[0], b, sizeof b);
             for (ssize_t i = 0; i < n; i++) {
-                if (b[i] == 'w') redraw = true;
+                if (b[i] == 'w') redraw = staticChanged = true;
+                if (b[i] == 'p') {
+                    refreshPlayer = true;
+                    if (g.animPhase != App::AnimIdle)
+                        for (auto& o : g.outputs) o->cacheDirty = true;
+                }
                 if (b[i] == 'a') {
                     if (g.authResult == 1 || g.authResult == 2) { startUnlock(); break; }
                     g.status = App::Wrong;
-                    redraw = true;
+                    redraw = staticChanged = true;
                 }
             }
         }
@@ -1676,8 +1834,11 @@ int main(int argc, char** argv) {
         const time_t now = time(nullptr);
         tm lt{};
         localtime_r(&now, &lt);
-        if (lt.tm_min != lastMinute) { lastMinute = lt.tm_min; redraw = true; }
-        if (redraw) drawAll();
+        if (lastMinute >= 0 && lt.tm_min != lastMinute) redraw = staticChanged = true;
+        lastMinute = lt.tm_min;
+        if (redraw || refreshPlayer) drawAll(staticChanged, !redraw && refreshPlayer);
+        else for (auto& o : g.outputs)
+            if (o->repaintPending) draw(*o, o->playerOnlyPending);
 #ifdef LOCK_DEBUG
         if (g.locked && std::chrono::steady_clock::now() - g.lockedAt > std::chrono::seconds(LOCK_DEBUG)) unlockAndExit();
 #endif
