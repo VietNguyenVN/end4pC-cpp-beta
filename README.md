@@ -30,7 +30,7 @@ It started as a C++ port of my Quickshell config and keeps its Material 3 look.
 > [!WARNING]
 > **Beta.** The project changes quickly and things may break. Tested on Arch Linux with Hyprland 0.57.1 (Lua config); niri and sway (SwayFX) are supported too.
 >
-> **NVIDIA:** there is no support for NVIDIA graphics for the moment. The shell has only been tested on Intel and AMD.
+> **NVIDIA:** it works on NVIDIA graphics: a user has tried it and it runs well. It has been tested on Intel, AMD and NVIDIA.
 
 ## Contents
 
