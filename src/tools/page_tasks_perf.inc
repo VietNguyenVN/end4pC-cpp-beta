@@ -168,7 +168,7 @@ void tkStatGrid(cairo_t* cr, const Rect& a, const std::vector<std::pair<std::str
     }
 }
 
-struct TkPerf {
+struct TkPerfSample {
     // ---- the machine ----
     std::string cpuModel;
     int cores = 1;
@@ -185,16 +185,6 @@ struct TkPerf {
     bool nvidiaMissing = false;
     int tickCount = 0;
     Clock::time_point last{};
-
-    // ---- the list on the left ----
-    enum Kind { Cpu, Mem, Disk, Net, Gpu };
-    struct Res { Kind kind; int index; };
-    std::vector<Res> list;
-    int sel = 0, hover = -1;
-    struct ListHit { Rect r; int index; };
-    std::vector<ListHit> hits;
-    Elastic listScroll;
-    Rect listArea;
 
     void init() {
         cores = std::max<long>(1, sysconf(_SC_NPROCESSORS_ONLN));
@@ -224,7 +214,6 @@ struct TkPerf {
         sampleDisks(dt);
         sampleNets(dt);
         sampleGpus(dt);
-        buildList();
     }
 
     void sampleCpu() {
@@ -533,10 +522,10 @@ struct TkPerf {
             else if (!g2.rc6Primed) g2.busy = 0;
             g2.lastRc6 = v;
             g2.rc6Primed = true;
-            g2.note = tkT("Use is the time the GPU is not in standby (RC6).");
+            g2.note = "Use is the time the GPU is not in standby (RC6).";
         } else {
             g2.busy = -1;
-            g2.note = tkT("This driver does not expose the GPU use.");
+            g2.note = "This driver does not expose the GPU use.";
         }
         const std::string hw = hwmonOf(card + "/device");
         if (!hw.empty()) {
@@ -574,10 +563,23 @@ struct TkPerf {
         }
         const int rc = pclose(p);
         if (!any || rc != 0) {
-            for (TkGpu& g2 : gpus) if (g2.kind == 1) g2.note = tkT("Reading this GPU needs nvidia-smi (package nvidia-utils).");
+            for (TkGpu& g2 : gpus) if (g2.kind == 1) g2.note = "Reading this GPU needs nvidia-smi (package nvidia-utils).";
             if (rc != 0) nvidiaMissing = true;
         }
     }
+
+};
+
+struct TkPerf : TkPerfSample {
+    // ---- the list on the left ----
+    enum Kind { Cpu, Mem, Disk, Net, Gpu };
+    struct Res { Kind kind; int index; };
+    std::vector<Res> list;
+    int sel = 0, hover = -1;
+    struct ListHit { Rect r; int index; };
+    std::vector<ListHit> hits;
+    Elastic listScroll;
+    Rect listArea;
 
     // ---- the list ----
     void buildList() {
@@ -763,7 +765,7 @@ struct TkPerf {
             st.push_back({tkT("Power"), gp.power >= 0 ? b : "—"});
             st.push_back({tkT("Driver"), gp.driver.empty() ? "—" : gp.driver});
             cols = 3;
-            note = gp.asleep ? tkT("The GPU is powered off to save energy; it is not read so it stays off.") : gp.note;
+            note = gp.asleep ? tkT("The GPU is powered off to save energy; it is not read so it stays off.") : tkT(gp.note.c_str());
         }
         // from the bottom up: the boxes of numbers, the note, the cores; the chart takes what is left
         const int rows = (static_cast<int>(st.size()) + cols - 1) / cols;

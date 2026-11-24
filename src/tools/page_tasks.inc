@@ -134,14 +134,9 @@ std::string tkPercent(double v) {
 
 #include "page_tasks_perf.inc"
 
-struct TasksPage : ToolPage {
-    const char* name() const override { return "Processes"; }
-    const char* icon() const override { return "list-check"; }
-
-    // ---- data ----
+struct TkProcessSample {
     std::vector<TkApp> apps;
     std::map<std::string, TkEntry> entries;
-    std::map<std::string, cairo_surface_t*> icons;  // by icon name; nullptr: none found (a letter is drawn)
     std::map<int, std::pair<unsigned long long, unsigned long long>> before;  // pid -> ticks, io bytes
     std::vector<double> cpuH, memH, diskH, netH;
     double cpuNow = 0, memNow = 0, memTotalKb = 0, memUsedKb = 0, diskNow = 0, netNow = 0, netUp = 0, netDown = 0;
@@ -152,39 +147,6 @@ struct TasksPage : ToolPage {
     bool primed = false;
     int procTotal = 0;
     bool netWifi = false;  // the connection that carries the traffic is Wi-Fi (the icon of the network tile)
-
-    // ---- view ----
-    int sortCol = 1;  // 0 name, 1 cpu, 2 memory, 3 disk
-    bool sortDesc = true;
-    std::string filter, selKey;
-    int selPid = 0;  // 0: the whole app
-    std::set<std::string> open;
-    Elastic scrollY;
-    struct Hit { Rect r; int app = -1, pid = 0; bool chevron = false; };
-    std::vector<Hit> hits;
-    Rect tiles[4], endBtn, killBtn, search, table, head;
-    Rect colRect[4];
-    int hover = -1, hoverBtn = -1, hoverHead = -1;
-    Clock::time_point pressAt{};
-    bool dirtyView = false;
-    // the confirmation before a program is ended: 0 none, else the signal that goes when it is accepted
-    int askSig = 0;
-    std::string askName;
-    int askCount = 0;
-    bool askCritical = false;
-    Rect askCard, askYes, askNo;
-    int askHover = -1;
-
-    void init() override {
-        cores = std::max<long>(1, sysconf(_SC_NPROCESSORS_ONLN));
-        clkTck = std::max<long>(1, sysconf(_SC_CLK_TCK));
-        entries = tkLoadEntries();
-        sample();
-    }
-    ~TasksPage() override {
-        for (auto& [k, s] : icons) if (s) cairo_surface_destroy(s);
-    }
-    bool animating() const override { return scrollY.busy(); }
 
     static void push(std::vector<double>& h, double v) {
         h.push_back(v);
@@ -346,8 +308,56 @@ struct TasksPage : ToolPage {
         lastSample = t;
         sampleMachine(dt);
         sampleProcesses(dt);
-        sortApps();
     }
+
+};
+
+struct TasksPage : ToolPage, TkProcessSample {
+    const char* name() const override { return "Processes"; }
+    const char* icon() const override { return "list-check"; }
+
+    std::map<std::string, cairo_surface_t*> icons;  // by icon name; nullptr: none found (a letter is drawn)
+    std::future<TkProcessSample> pending;
+
+    // ---- view ----
+    int sortCol = 1;  // 0 name, 1 cpu, 2 memory, 3 disk
+    bool sortDesc = true;
+    std::string filter, selKey;
+    int selPid = 0;  // 0: the whole app
+    std::set<std::string> open;
+    Elastic scrollY;
+    struct Hit { Rect r; int app = -1, pid = 0; bool chevron = false; };
+    std::vector<Hit> hits;
+    Rect tiles[4], endBtn, killBtn, search, table, head;
+    Rect colRect[4];
+    int hover = -1, hoverBtn = -1, hoverHead = -1;
+    Clock::time_point pressAt{};
+    bool dirtyView = false;
+    // the confirmation before a program is ended: 0 none, else the signal that goes when it is accepted
+    int askSig = 0;
+    std::string askName;
+    int askCount = 0;
+    bool askCritical = false;
+    Rect askCard, askYes, askNo;
+    int askHover = -1;
+
+    void init() override { startSample(); }
+    void startSample() {
+        if (pending.valid()) return;
+        pending = sampleInBackground([snapshot = static_cast<const TkProcessSample&>(*this)]() mutable {
+            if (snapshot.lastSample == Clock::time_point{}) {
+                snapshot.cores = std::max<long>(1, sysconf(_SC_NPROCESSORS_ONLN));
+                snapshot.clkTck = std::max<long>(1, sysconf(_SC_CLK_TCK));
+                snapshot.entries = tkLoadEntries();
+            }
+            snapshot.sample();
+            return std::move(snapshot);
+        });
+    }
+    ~TasksPage() override {
+        for (auto& [k, s] : icons) if (s) cairo_surface_destroy(s);
+    }
+    bool animating() const override { return scrollY.busy(); }
 
     static std::string lowerStr(std::string s) {
         for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -375,9 +385,14 @@ struct TasksPage : ToolPage {
 
     bool tick() override {
         bool moved = scrollY.step();
-        if (lastSample != Clock::time_point{} && Clock::now() - lastSample < std::chrono::milliseconds(static_cast<int>(kTkSampleSec * 1000))) return moved;
-        sample();
-        return true;
+        if (sampleReady(pending)) {
+            static_cast<TkProcessSample&>(*this) = pending.get();
+            sortApps();
+            moved = true;
+        }
+        if (lastSample == Clock::time_point{} || Clock::now() - lastSample >= std::chrono::milliseconds(static_cast<int>(kTkSampleSec * 1000)))
+            startSample();
+        return moved;
     }
 
     // ---- actions ----
@@ -482,6 +497,7 @@ struct TasksPage : ToolPage {
 
     void draw(cairo_t* cr, Rect r) override {
         hits.clear();
+        if (lastSample == Clock::time_point{}) { drawSampleLoading(cr, r); return; }
         const double w = r.w, tileW = (w - 3 * kTkGap) / 4;
         char b1[64], b2[64];
         std::snprintf(b1, sizeof b1, "%s / %s", tkBytes(memUsedKb * 1024).c_str(), tkBytes(memTotalKb * 1024).c_str());
@@ -808,25 +824,32 @@ struct TasksPage : ToolPage {
 // The second tab of the Task Manager window: CPU, memory, disks, network and GPUs. It reads only while it is the tab in view.
 struct PerfPage : ToolPage {
     TkPerf perf;
-    bool ready = false;
+    std::future<TkPerfSample> pending;
     const char* name() const override { return "Performance"; }
     const char* icon() const override { return "graph-up"; }
-    void start() {
-        if (ready) return;
-        ready = true;
-        perf.init();
-        perf.sample();
+    void init() override { startSample(); }
+    void startSample() {
+        if (pending.valid()) return;
+        pending = sampleInBackground([snapshot = static_cast<const TkPerfSample&>(perf)]() mutable {
+            if (snapshot.last == Clock::time_point{}) snapshot.init();
+            snapshot.sample();
+            return std::move(snapshot);
+        });
     }
     void draw(cairo_t* cr, Rect r) override {
-        start();
+        if (perf.last == Clock::time_point{}) { drawSampleLoading(cr, r); return; }
         perf.draw(cr, {0, 0, r.w, r.h});
     }
     bool tick() override {
-        const bool moved = perf.listScroll.step();
-        start();
-        if (perf.last != Clock::time_point{} && Clock::now() - perf.last < std::chrono::milliseconds(static_cast<int>(kTkSampleSec * 1000))) return moved;
-        perf.sample();
-        return true;
+        bool moved = perf.listScroll.step();
+        if (sampleReady(pending)) {
+            static_cast<TkPerfSample&>(perf) = pending.get();
+            perf.buildList();
+            moved = true;
+        }
+        if (perf.last == Clock::time_point{} || Clock::now() - perf.last >= std::chrono::milliseconds(static_cast<int>(kTkSampleSec * 1000)))
+            startSample();
+        return moved;
     }
     bool animating() const override { return perf.listScroll.busy(); }
     bool motion(double x, double y) override { return perf.motion(x, y); }
@@ -835,6 +858,7 @@ struct PerfPage : ToolPage {
     bool scroll(double x, double y, double dy) override { return perf.scroll(x, y, dy); }
     Cursor cursor(double x, double y) const override { return perf.listArea.contains(x, y) || perf.copyBtn.contains(x, y) ? Cursor::Pointer : Cursor::Default; }
     bool key(const KeyEvent& k) override {
+        if (perf.list.empty()) return false;
         if (k.sym == XKB_KEY_Down) { perf.move(1); return true; }
         if (k.sym == XKB_KEY_Up) { perf.move(-1); return true; }
         return false;

@@ -51,7 +51,7 @@ executable('end4pC-settings', 'src/settings.cpp', generated,
   install: false)
 
 executable('end4pC-tools', 'src/tools.cpp', generated,
-  dependencies: [wayland_client, pangocairo, pangoft2, fontconfig, gdkpixbuf, rsvg, xkb],
+  dependencies: [wayland_client, pangocairo, pangoft2, fontconfig, gdkpixbuf, rsvg, xkb, threads],
   install: false)
 
 executable('end4pC-lock', 'src/lock.cpp', generated,
