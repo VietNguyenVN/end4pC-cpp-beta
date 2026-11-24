@@ -490,41 +490,48 @@ Rect contentRect() { return {kPad, kBarH, g.width - 2.0 * kPad, g.height - kBarH
 Rect closeRect() { return {g.width - kPad - kCloseSize, (kBarH - kCloseSize) / 2, kCloseSize, kCloseSize}; }
 
 constexpr double kSegPad = 4, kBtnPadX = 18, kBtnGap = 8, kBtnIcon = 20, kLabelPx = 15;
-// With room for all the labels each page shows its name; without it only the chosen one does, and the others are their icon.
-bool tabsCompact() {
-    double total = 2 * kSegPad;
-    for (auto& p : g.pages) {
-        double tw = 0, th = 0;
-        measure(p->name(), kLabelPx, true, 0, tw, th);
-        total += 2 * kBtnPadX + kBtnIcon + kBtnGap + tw;
+struct TabLayout {
+    std::vector<Rect> rects;
+    std::vector<double> labelWidths, labelHeights;
+    Rect segment{};
+    int width = 0, page = -1;
+    bool compact = false;
+};
+
+const TabLayout& tabLayout() {
+    static TabLayout layout;
+    const size_t count = g.pages.size();
+    if (layout.labelWidths.size() != count) {
+        layout.labelWidths.resize(count);
+        layout.labelHeights.resize(count);
+        for (size_t i = 0; i < count; ++i)
+            measure(g.pages[i]->name(), kLabelPx, true, 0, layout.labelWidths[i], layout.labelHeights[i]);
+        layout.page = -1;
     }
-    return total > g.width - 2 * 240.0;  // (the title is on the left and the close button on the right)
-}
-std::vector<Rect> tabRects() {
-    std::vector<double> w;
-    double total = 2 * kSegPad;
-    const bool compact = tabsCompact();
-    int index = 0;
-    for (auto& p : g.pages) {
-        double tw = 0, th = 0;
-        measure(p->name(), kLabelPx, true, 0, tw, th);
-        const bool label = !compact || index == g.page;
-        w.push_back(2 * kBtnPadX + kBtnIcon + (label ? kBtnGap + tw : 0));
-        total += w.back();
-        index++;
+    if (layout.width == g.width && layout.page == g.page) return layout;
+
+    layout.width = g.width;
+    layout.page = g.page;
+    constexpr double tabBase = 2 * kBtnPadX + kBtnIcon;
+    double fullWidth = 2 * kSegPad;
+    for (double width : layout.labelWidths) fullWidth += tabBase + kBtnGap + width;
+    layout.compact = fullWidth > g.width - 2 * 240.0;
+    const double total = layout.compact ? 2 * kSegPad + count * tabBase + kBtnGap + layout.labelWidths[g.page] : fullWidth;
+    const double left = (g.width - total) / 2, top = (kBarH - kSegH) / 2;
+    layout.segment = {left, top, total, kSegH};
+    layout.rects.resize(count);
+    double x = left + kSegPad;
+    for (size_t i = 0; i < count; ++i) {
+        const bool label = !layout.compact || static_cast<int>(i) == g.page;
+        const double w = tabBase + (label ? kBtnGap + layout.labelWidths[i] : 0);
+        layout.rects[i] = {x, top + kSegPad, w, kSegH - 2 * kSegPad};
+        x += w;
     }
-    std::vector<Rect> out;
-    double x = (g.width - total) / 2 + kSegPad;
-    const double y = (kBarH - kSegH) / 2 + kSegPad;
-    for (double bw : w) { out.push_back({x, y, bw, kSegH - 2 * kSegPad}); x += bw; }
-    return out;
+    return layout;
 }
-Rect segRect() {
-    const auto t = tabRects();
-    return {t.front().x - kSegPad, t.front().y - kSegPad, t.back().x + t.back().w - t.front().x + 2 * kSegPad, kSegH};
-}
+
 int tabAt(double x, double y) {
-    const auto t = tabRects();
+    const auto& t = tabLayout().rects;
     for (size_t i = 0; i < t.size(); i++) if (t[i].contains(x, y)) return static_cast<int>(i);
     return -1;
 }
@@ -542,11 +549,12 @@ void drawTitle(cairo_t* cr) {
 }
 
 void drawTabs(cairo_t* cr) {
-    const Rect s = segRect();
+    const auto& layout = tabLayout();
+    const Rect s = layout.segment;
     rrect(cr, s.x, s.y, s.w, s.h, s.h / 2);
     src(cr, g.color("surface_container_high"));
     cairo_fill(cr);
-    const auto t = tabRects();
+    const auto& t = layout.rects;
     const double e = easeOut(g.switchT);
     const Rect a = t[g.prevPage], b = t[g.page];
     const double hx = lerp(a.x, b.x, e), hw = lerp(a.w, b.w, e);
@@ -563,10 +571,9 @@ void drawTabs(cairo_t* cr) {
         const double over = std::clamp(1 - std::abs(t[i].x + t[i].w / 2 - (hx + hw / 2)) / (t[i].w / 2), 0.0, 1.0);
         const Color c = mix(g.color("on_primary"), g.color(hot ? "on_surface" : "on_surface_variant"), over);
         const char* name = g.pages[i]->name();
-        double tw = 0, th = 0;
-        measure(name, kLabelPx, true, 0, tw, th);
         icon(cr, g.pages[i]->icon(), t[i].x + kBtnPadX, t[i].y + (t[i].h - kBtnIcon) / 2, static_cast<int>(kBtnIcon), c, on);
-        if (!tabsCompact() || on) text(cr, name, t[i].x + kBtnPadX + kBtnIcon + kBtnGap, t[i].y + (t[i].h - th) / 2, kLabelPx, true, c);
+        if (!layout.compact || on)
+            text(cr, name, t[i].x + kBtnPadX + kBtnIcon + kBtnGap, t[i].y + (t[i].h - layout.labelHeights[i]) / 2, kLabelPx, true, c);
     }
 }
 
