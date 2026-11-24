@@ -435,14 +435,28 @@ int fpConv(int n, const pam_message**, pam_response** resp, void*) {
     return *resp ? PAM_SUCCESS : PAM_BUF_ERR;
 }
 
+constexpr const char* kFpService = "end4pc-fprintd";
+
 std::string fpConfDir() {
     const char* rt = std::getenv("XDG_RUNTIME_DIR");
     if (!rt || !*rt) return "";
     const std::string dir = std::string(rt) + "/end4pC-lock-pam";
     ::mkdir(dir.c_str(), 0700);
-    std::ofstream o(dir + "/end4pC-fprintd", std::ios::trunc);
+    // (the name of the file is all lowercase: libpam lowercases the service name before it looks for the file, so a name with capitals is never found
+    // and pam_start fails with "no default config other")
+    std::ofstream o(dir + "/" + kFpService, std::ios::trunc);
     o << "auth sufficient pam_fprintd.so\nauth required pam_deny.so\n";
     return o ? dir : "";
+}
+
+// Where the module of fprintd is, if it is installed (the distros keep PAM modules in different folders).
+std::string fpModule() {
+    for (const char* d : {"/usr/lib/security", "/lib/security", "/usr/lib64/security", "/lib64/security", "/usr/lib/x86_64-linux-gnu/security", "/lib/x86_64-linux-gnu/security",
+                          "/usr/lib/aarch64-linux-gnu/security", "/lib/aarch64-linux-gnu/security"}) {
+        const std::string path = std::string(d) + "/pam_fprintd.so";
+        if (access(path.c_str(), R_OK) == 0) return path;
+    }
+    return "";
 }
 
 bool fpEnrolled(const std::string& user) {
@@ -960,8 +974,10 @@ void onKbModifiers(void*, wl_keyboard*, uint32_t, uint32_t depressed, uint32_t l
 void onKbRepeatInfo(void*, wl_keyboard*, int32_t, int32_t) {}
 
 void fingerprintLoop(std::string user) {
+    if (!fpEnrolled(user)) return;
+    if (fpModule().empty()) { std::fprintf(stderr, "end4pC-lock: fingerprint: the finger is enrolled but pam_fprintd.so is not installed (package fprintd, or libpam-fprintd)\n"); return; }
     const std::string dir = fpConfDir();
-    if (dir.empty() || !fpEnrolled(user)) return;
+    if (dir.empty()) { std::fprintf(stderr, "end4pC-lock: fingerprint: could not write the PAM stack in XDG_RUNTIME_DIR\n"); return; }
     g.fingerprint = true;
     if (g_wake[1] >= 0) { const char b = 'w'; (void)!write(g_wake[1], &b, 1); }
     int quick = 0;
@@ -969,7 +985,7 @@ void fingerprintLoop(std::string user) {
         const auto began = std::chrono::steady_clock::now();
         pam_conv conv = {fpConv, nullptr};
         pam_handle_t* h = nullptr;
-        int rc = pam_start_confdir("end4pC-fprintd", user.c_str(), &conv, dir.c_str(), &h);
+        int rc = pam_start_confdir(kFpService, user.c_str(), &conv, dir.c_str(), &h);
         if (rc == PAM_SUCCESS) {
             rc = pam_authenticate(h, 0);
             pam_end(h, rc);
@@ -980,6 +996,7 @@ void fingerprintLoop(std::string user) {
             (void)!write(g_wake[1], &b, 1);
             return;
         }
+        if (quick == 0 && rc != PAM_SUCCESS && rc != PAM_AUTH_ERR && rc != PAM_MAXTRIES) std::fprintf(stderr, "end4pC-lock: fingerprint: PAM answered %d\n", rc);
         // A reader that fails at once, again and again (unplugged, fprintd gone): give up instead of spinning.
         quick = std::chrono::steady_clock::now() - began < std::chrono::seconds(2) ? quick + 1 : 0;
         if (quick >= 5) { g.fingerprint = false; if (g_wake[1] >= 0) { const char b = 'w'; (void)!write(g_wake[1], &b, 1); } return; }
