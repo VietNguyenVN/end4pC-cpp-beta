@@ -189,8 +189,7 @@ void pwPrefill(PwDev& v) {
 }
 
 // A preview with made-up devices, to see the tabs on a machine without a battery: TASKS_FAKE_POWER=1 end4pC-tools tasks
-void pwFake() {
-    PwData& d = pwData();
+void pwFake(PwData& d) {
     d.last = Clock::now();
     d.lastProfile = d.last;
     if (!d.devs.empty()) {  // (the numbers move a little each time)
@@ -222,15 +221,15 @@ void pwFake() {
     d.devs = {bat, mouse, kb, head, pad};
 }
 
-void pwSample() {
-    PwData& d = pwData();
-    if (std::getenv("TASKS_FAKE_POWER")) { pwFake(); return; }
+void pwSample(PwData& d, bool details) {
+    if (std::getenv("TASKS_FAKE_POWER")) { pwFake(d); return; }
     const auto now = Clock::now();
     d.last = now;
     const std::string up = pwPopen("upower -d 2>/dev/null");
     d.haveUpower = up.find("Device:") != std::string::npos;
     if (d.haveUpower) pwParseUpower(up, d);
     else pwReadSysfs(d);
+    if (!details) { d.last = {}; return; }
     if (d.profile.empty() || now - d.lastProfile > std::chrono::seconds(15)) {
         d.lastProfile = now;
         d.profile = tkTrim(pwPopen("powerprofilesctl get 2>/dev/null"));
@@ -244,6 +243,23 @@ void pwSample() {
             v.lastPush = now;
         }
     }
+}
+
+std::future<PwData> pendingPower;
+bool powerDiscoveryPending = true;
+
+void startPowerSample(bool details) {
+    if (pendingPower.valid()) return;
+    pendingPower = sampleInBackground([snapshot = pwData(), details]() mutable {
+        pwSample(snapshot, details);
+        return std::move(snapshot);
+    });
+}
+
+bool finishPowerSample() {
+    if (!sampleReady(pendingPower)) return false;
+    pwData() = pendingPower.get();
+    return true;
 }
 
 const char* pwKindLabel(const std::string& k) {
@@ -295,8 +311,7 @@ struct PowerPage : ToolPage {
 
     // Is there something for this tab? (asked before the tabs are built)
     static bool available(bool inner) {
-        PwData& d = pwData();
-        if (d.last == Clock::time_point{}) pwSample();
+        const PwData& d = pwData();
         for (const PwDev& v : d.devs) if (pwIsBatteryKind(v.kind) && v.powerSupply == inner) return true;
         if (inner) return false;
         for (const PwDev& v : d.devs) if (!pwIsBatteryKind(v.kind)) return true;
@@ -314,12 +329,13 @@ struct PowerPage : ToolPage {
     Rect listArea;
     std::vector<std::pair<Rect, int>> hits;
 
+    void init() override { startPowerSample(true); }
+
     bool tick() override {
         const bool moved = listScroll.step();
         PwData& d = pwData();
-        if (d.last != Clock::time_point{} && Clock::now() - d.last < std::chrono::seconds(3)) return moved;
-        pwSample();
-        return true;
+        if (d.last == Clock::time_point{} || Clock::now() - d.last >= std::chrono::seconds(3)) startPowerSample(true);
+        return moved;
     }
     bool animating() const override { return listScroll.busy(); }
     bool motion(double x, double y) override {
@@ -447,7 +463,6 @@ struct PowerPage : ToolPage {
 
     void draw(cairo_t* cr, Rect r) override {
         PwData& d = pwData();
-        if (d.last == Clock::time_point{}) pwSample();
         const auto list = items();
         if (list.empty()) {
             const std::string s = tkT("Nothing to show");

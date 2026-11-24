@@ -16,6 +16,7 @@
 #include "shellfont.h"
 #include <poll.h>
 #include <sys/file.h>
+#include <sys/eventfd.h>
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -36,6 +37,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <future>
+#include <thread>
 #include <map>
 #include <set>
 #include <memory>
@@ -185,6 +188,7 @@ struct App {
     xdg_toplevel* toplevel = nullptr;
     uint32_t enterSerial = 0;
     int cursorShape = -1;
+    int sampleEvent = -1;
 
     bool solo = false;  // `end4pC-tools tasks`: the window of the Task Manager alone (no tabs)
     bool running = true, configured = false, dirty = true;
@@ -196,7 +200,7 @@ struct App {
     std::vector<std::unique_ptr<ToolPage>> pages;
     int page = 0, prevPage = 0;
     double switchT = 1;
-    Clock::time_point switchStart;
+    Clock::time_point switchStart{};
     wl_callback* switchFrame = nullptr;
     using PageImage = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;
     PageImage switchImages[2]{{nullptr, cairo_surface_destroy}, {nullptr, cairo_surface_destroy}};
@@ -456,6 +460,34 @@ private:
 #include "tools/keybinds_store.inc"
 #include "tools/page_keybinds.inc"
 #include "tools/page_phone.inc"
+// Workers get their own data snapshots and never touch page or Wayland state.
+template<class F>
+auto sampleInBackground(F read) {
+    std::packaged_task<std::invoke_result_t<F>()> task(std::move(read));
+    auto result = task.get_future();
+    const int event = g.sampleEvent < 0 ? -1 : fcntl(g.sampleEvent, F_DUPFD_CLOEXEC, 0);
+    std::thread([task = std::move(task), event]() mutable {
+        task();
+        if (event >= 0) {
+            eventfd_write(event, 1);
+            close(event);
+        }
+    }).detach();
+    return result;
+}
+
+template<class T>
+bool sampleReady(const std::future<T>& sample) {
+    return sample.valid() && sample.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+}
+
+void drawSampleLoading(cairo_t* cr, Rect r) {
+    const std::string label = i18n::tr("Loading…");
+    double w = 0, h = 0;
+    measure(label, 16, false, 0, w, h);
+    text(cr, label, (r.w - w) / 2, (r.h - h) / 2, 16, false, g.color("outline"));
+}
+
 #include "tools/page_tasks.inc"
 #include "tools/page_power.inc"
 #include "tools/icon_theme.inc"
@@ -466,8 +498,7 @@ void buildPages() {
     if (g.solo) {
         g.pages.push_back(std::make_unique<TasksPage>());
         g.pages.push_back(std::make_unique<PerfPage>());
-        if (PowerPage::available(true)) g.pages.push_back(std::make_unique<PowerPage>(true));
-        if (PowerPage::available(false)) g.pages.push_back(std::make_unique<PowerPage>(false));
+        startPowerSample(false);
         return;
     }
     g.pages.push_back(std::make_unique<TranslatorPage>());
@@ -643,15 +674,52 @@ void onSwitchFrame(void*, wl_callback* callback, uint32_t) {
 }
 const wl_callback_listener kSwitchFrameListener = {onSwitchFrame};
 
-void wlBufferRelease(void*, wl_buffer* b) { wl_buffer_destroy(b); }
-const wl_buffer_listener kBufferListener = {wlBufferRelease};
+struct ToolsBuffer {
+    hidpi::Frame frame;
+    wl_buffer* buffer = nullptr;
+    bool busy = false;
+
+    void clear() {
+        if (buffer) wl_buffer_destroy(buffer);
+        hidpi::abandon(frame);
+        buffer = nullptr;
+        busy = false;
+    }
+};
+ToolsBuffer toolsBuffers[3];
+
+void onToolsBufferRelease(void* data, wl_buffer*) { static_cast<ToolsBuffer*>(data)->busy = false; }
+const wl_buffer_listener kBufferListener = {onToolsBufferRelease};
+
+ToolsBuffer* acquireToolsBuffer(int width, int height, double scale) {
+    ToolsBuffer* spare = nullptr;
+    for (auto& slot : toolsBuffers) {
+        if (slot.busy) continue;
+        if (slot.buffer && slot.frame.lw == width && slot.frame.lh == height && slot.frame.scale == scale) return &slot;
+        if (!spare) spare = &slot;
+    }
+    if (!spare) return nullptr;
+    spare->clear();
+    auto& frame = spare->frame;
+    if (!hidpi::begin(frame, width, height, scale, "end4pC-tools")) return nullptr;
+    wl_shm_pool* pool = wl_shm_create_pool(g.shm, frame.fd, static_cast<int32_t>(frame.size));
+    if (pool) {
+        spare->buffer = wl_shm_pool_create_buffer(pool, 0, frame.pw, frame.ph, frame.stride, WL_SHM_FORMAT_ARGB8888);
+        wl_shm_pool_destroy(pool);
+    }
+    close(frame.fd);
+    frame.fd = -1;
+    if (!spare->buffer) { spare->clear(); return nullptr; }
+    wl_buffer_add_listener(spare->buffer, &kBufferListener, spare);
+    return spare;
+}
 
 void render() {
     if (!g.configured || !g.surface || g.switchFrame) return;
     const int W = g.width, H = g.height;
-    hidpi::Frame hf;
-    if (!hidpi::begin(hf, W, H, g.scale.factor(), "end4pC-tools")) return;
-    cairo_t* cr = mkcr(hf.surface);
+    ToolsBuffer* slot = acquireToolsBuffer(W, H, g.scale.factor());
+    if (!slot) return;
+    cairo_t* cr = mkcr(slot->frame.surface);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
@@ -664,14 +732,15 @@ void render() {
     drawClose(cr);
     drawContent(cr);
     cairo_destroy(cr);
-    wl_buffer* buf = hidpi::buffer(hf, g.shm);
-    if (!buf) return;
-    wl_buffer_add_listener(buf, &kBufferListener, nullptr);
+    cairo_surface_flush(slot->frame.surface);
     if (g.switchT < 1) {
         g.switchFrame = wl_surface_frame(g.surface);
         if (g.switchFrame) wl_callback_add_listener(g.switchFrame, &kSwitchFrameListener, nullptr);
     }
-    hidpi::present(g.surface, buf, hf, g.scale);
+    slot->busy = true;
+    hidpi::present(g.surface, slot->buffer, slot->frame, g.scale);
+    // Building a page's first snapshot can take longer than an animation frame.
+    if (g.switchT < 1 && g.switchStart == Clock::time_point{}) g.switchStart = Clock::now();
     g.dirty = false;
 }
 
@@ -717,7 +786,7 @@ void switchTo(int index) {
     rememberPage();
     clearSwitchImages();
     g.switchT = 0;
-    g.switchStart = Clock::now();
+    g.switchStart = {};
     g.dirty = true;
 }
 
@@ -942,7 +1011,7 @@ int pollTimeoutMs() {
 
 void tickAll() {
     const auto now = Clock::now();
-    if (g.switchT < 1 && !g.switchFrame) {
+    if (g.switchT < 1 && !g.switchFrame && g.switchStart != Clock::time_point{}) {
         g.switchT = std::min(1.0, std::chrono::duration<double>(now - g.switchStart).count() / 0.26);
         g.dirty = true;
         if (g.switchT >= 1) { clearSwitchImages(); motion(); }
@@ -952,7 +1021,15 @@ void tickAll() {
         g.repeatAt = now + std::chrono::milliseconds(std::max(1, 1000 / std::max(1, g.kbRate)));
     }
     if (mtimeOf(colorsPath()) != g.colorsStamp) { loadColors(); clearSwitchImages(); g.dirty = true; }
-    if (cur().tick() || cur().animating()) g.dirty = true;
+    if (g.solo && finishPowerSample()) {
+        if (powerDiscoveryPending) {
+            powerDiscoveryPending = false;
+            if (PowerPage::available(true)) g.pages.push_back(std::make_unique<PowerPage>(true));
+            if (PowerPage::available(false)) g.pages.push_back(std::make_unique<PowerPage>(false));
+        }
+        g.dirty = true;
+    }
+    if (g.switchT >= 1 && (cur().tick() || cur().animating())) g.dirty = true;
 }
 
 void teardown() {
@@ -966,7 +1043,9 @@ void teardown() {
     if (g.xsurface) xdg_surface_destroy(g.xsurface);
     hidpi::detach(g.scale);
     if (g.surface) wl_surface_destroy(g.surface);
+    for (auto& slot : toolsBuffers) slot.clear();
     if (g.display) { wl_display_roundtrip(g.display); wl_display_disconnect(g.display); }
+    if (g.sampleEvent >= 0) close(g.sampleEvent);
     g.pages.clear();  // last: the roundtrip above can still deliver a pointer event, which asks for the current page
 }
 }
@@ -987,6 +1066,7 @@ int main(int argc, char** argv) {
     cairo_t* dcr = mkcr(dummy);
     g_measure = pango_cairo_create_layout(dcr);
     loadConfig();
+    if (g.solo) g.sampleEvent = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     buildPages();
     g.page = g.prevPage = rememberedPage();
     if (const char* p = g.solo ? nullptr : std::getenv("TOOLS_PAGE")) g.page = g.prevPage = std::clamp(std::atoi(p), 0, pageCount() - 1);
@@ -999,12 +1079,13 @@ int main(int argc, char** argv) {
     while (g.running && !g_term) {
         while (wl_display_prepare_read(g.display) != 0) wl_display_dispatch_pending(g.display);
         wl_display_flush(g.display);
-        pollfd pfd = {wl_display_get_fd(g.display), POLLIN, 0};
-        if (poll(&pfd, 1, pollTimeoutMs()) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
-        if (pfd.revents & POLLIN) wl_display_read_events(g.display);
+        pollfd fds[] = {{wl_display_get_fd(g.display), POLLIN, 0}, {g.sampleEvent, POLLIN, 0}};
+        if (poll(fds, 2, pollTimeoutMs()) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
+        if (fds[0].revents & POLLIN) wl_display_read_events(g.display);
         else wl_display_cancel_read(g.display);
         wl_display_dispatch_pending(g.display);
-        if (pfd.revents & (POLLERR | POLLHUP)) break;
+        if (fds[0].revents & (POLLERR | POLLHUP)) break;
+        if (fds[1].revents & POLLIN) { eventfd_t count; eventfd_read(g.sampleEvent, &count); }
         tickAll();
         if (g.dirty) render();
     }
