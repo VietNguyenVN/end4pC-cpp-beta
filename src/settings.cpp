@@ -571,6 +571,8 @@ std::vector<Page> makePages() {
         {Choice, "clock24", "Clock format", "24-hour or 12-hour with am/pm, in the bar.", {{"1", "24-hour"}, {"0", "12-hour"}}},
         {Toggle, "clockDate", "Show the date", "The date next to the time in a horizontal bar."},
         {Text, "worldClocks", "World clocks", "Time zones for the World tab of the clock popup, separated by commas: Europe/Madrid, Asia/Tokyo. Type - for none. The names are in /usr/share/zoneinfo."},
+        {Split, "sys:timezone", "Time zone", "The time zone of the computer, for every app. It asks for your password. Type to search the list.", {}},
+        {Toggle, "sys:ntp", "Set the time automatically", "Keeps the clock right from the internet (NTP). It asks for your password.", {}},
         {Slider, "volumeMax", "Volume limit", "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner.", {}, 30, 100, 5, "%"},
         {Slider, "volumeStep", "Volume step", "How much one wheel notch changes the volume.", {}, 1, 10, 1, "%"},
         {Split, "sys:sink", "Output device", "Where the sound comes out.", {}},
@@ -1318,7 +1320,7 @@ bool niriPoll() {
 }
 
 bool g_sysLoaded = false;
-bool g_sysHasPower = false;
+bool g_sysHasPower = false, g_sysHasTime = false;
 std::string sysCmd(const std::string& script, const std::string& args) { return "python3 -I '" + scriptPath(script.c_str()) + "' " + args + " 2>/dev/null"; }
 std::string g_sysBundle;
 std::thread g_sysThread;
@@ -1362,7 +1364,7 @@ void loadSystem() {
                 r.opts.push_back({bar == std::string::npos ? line : line.substr(0, bar), bar == std::string::npos ? line : line.substr(bar + 1)});
             }
         }
-    for (const char* name : {"get-appearance", "get-apps", "get-audio"})
+    for (const char* name : {"get-appearance", "get-apps", "get-audio", "get-time"})
         for (const std::string& l : sec[name]) {
             const size_t eq = l.find('=');
             if (eq == std::string::npos) continue;
@@ -1371,6 +1373,7 @@ void loadSystem() {
     const std::string power = sec["get-power"].empty() ? "" : sec["get-power"][0];
     g.val["sys:power"] = power;
     g_sysHasPower = !power.empty();
+    g_sysHasTime = g.val.count("sys:timezone") && !g.val["sys:timezone"].empty();
     g.dirty = true;
 }
 std::string shq(const std::string& v);
@@ -1512,6 +1515,8 @@ void sysSend(const std::string& key, const std::string& value) {
     else if (key == "sys:sink" || key == "sys:source") cmd = sysCmd("system_session.py", "--audio-set " + shq(value));
     else if (key == "sys:micMute") cmd = sysCmd("system_session.py", "--mic-mute " + std::string(value == "1" ? "1" : "0"));
     else if (key == "sys:power") cmd = sysCmd("system_session.py", "--power-set " + shq(value));
+    else if (key == "sys:timezone") cmd = sysCmd("system_session.py", "--time-zone " + shq(value));
+    else if (key == "sys:ntp") cmd = sysCmd("system_session.py", "--time-ntp " + std::string(value == "1" ? "1" : "0"));
     if (!cmd.empty()) spawn({"bash", "-c", cmd});
 }
 
@@ -2761,6 +2766,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "clockDaily") return g.val["clockStyle"] == "daily";
     if (r.key == "clockPixel") return g.val["clockStyle"] == "pixel";
     if (r.key == "sys:power") return g_sysHasPower;
+    if (r.key == "sys:timezone" || r.key == "sys:ntp") return g_sysHasTime;
     if (r.key == "centeredWallpaperShape" || r.key == "centeredWallpaperColor" || r.key == "centeredWallpaperSize") return g.val["centeredWallpaper"] == "1";
     if (r.key.compare(0, 7, "collage") == 0 && r.key != "collage") return g.val["collage"] == "1";
     if (r.key == "frameColor" || r.key == "barFollowsFrame") return g.val["frame"] != "0";

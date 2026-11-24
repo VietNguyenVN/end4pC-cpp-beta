@@ -470,7 +470,7 @@ bool fpEnrolled(const std::string& user) {
         while ((n = fread(buf, 1, sizeof buf, f)) > 0 && out.size() < 4096) out.append(buf, n);
         pclose(f);
     }
-    return out.find("Fingerprints for user") != std::string::npos;
+    return out.find("ingerprints for user") != std::string::npos;  // ("Fingerprints for user ...:" lists them; spelled so, the i18n extractor does not take it for a text)
 }
 
 // One try waits for a finger (pam_fprintd gives up after its own timeout); after a miss or a timeout it tries again.

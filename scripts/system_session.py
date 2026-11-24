@@ -9,6 +9,7 @@ Usage:
   system_session.py --audio-list sinks|sources "ID|Name" lines
   system_session.py --audio-set ID | --mic-mute 0|1
   system_session.py --power-get | --power-list | --power-set PROFILE
+  system_session.py --time-get | --time-list | --time-zone NAME | --time-ntp 0|1   (time zone and automatic time, through timedatectl)
   system_session.py --bundle                   everything the System page lists and reads, in one process:
                                                "@@name" lines, each followed by that command's lines
 KIND is one of: browser mail files video music image pdf text
@@ -252,6 +253,37 @@ def power_set(name):
     run(*PP, "set-property", *PP_OBJ, "ActiveProfile", "s", name)
 
 
+# ---- time zone and automatic time (timedatectl asks polkit; the shell's own agent shows the password box)
+def time_get():
+    for line in run("timedatectl", "show", "-p", "Timezone", "-p", "NTP").splitlines():
+        key, _, value = line.partition("=")
+        if key == "Timezone" and value:
+            print("timezone=" + value)
+        elif key == "NTP":
+            print("ntp=" + ("1" if value == "yes" else "0"))
+
+
+def time_list():
+    for name in run("timedatectl", "list-timezones").split():
+        print(name + "|" + name.replace("_", " "))
+
+
+def run_wait(*cmd):
+    """For the changes that ask for the password: the box of the polkit agent stays open for as long as the person takes."""
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    except Exception:
+        pass
+
+
+def time_zone(name):
+    run_wait("timedatectl", "set-timezone", name)
+
+
+def time_ntp(on):
+    run_wait("timedatectl", "set-ntp", "true" if on == "1" else "false")
+
+
 def bundle():
     """One run for the whole page (nineteen separate Python starts made opening Settings visibly slower)."""
     import contextlib
@@ -273,6 +305,7 @@ def bundle():
     section("get-apps", apps_get)
     section("get-audio", audio_get)
     section("get-power", power_get)
+    section("get-time", time_get)
     section("sys:cursor", lambda: print("\n".join(ap.themes("cursors"))))
     section("sys:icons", lambda: print("\n".join(ap.themes("icons"))))
     section("sys:font", lambda: print("\n".join(ap.fonts(False))))
@@ -282,6 +315,7 @@ def bundle():
     section("sys:sink", audio_list, "sinks")
     section("sys:source", audio_list, "sources")
     section("sys:power", power_list)
+    section("sys:timezone", time_list)
 
 
 def main(a):
@@ -307,6 +341,14 @@ def main(a):
         power_list()
     elif a[:1] == ["--power-set"] and len(a) > 1 and re.fullmatch(r"[\w-]+", a[1]):
         power_set(a[1])
+    elif a[:1] == ["--time-get"]:
+        time_get()
+    elif a[:1] == ["--time-list"]:
+        time_list()
+    elif a[:1] == ["--time-zone"] and len(a) > 1 and re.fullmatch(r"[A-Za-z0-9_+/-]+", a[1]):
+        time_zone(a[1])
+    elif a[:1] == ["--time-ntp"] and len(a) > 1 and a[1] in ("0", "1"):
+        time_ntp(a[1])
     else:
         print(__doc__)
         return 1
