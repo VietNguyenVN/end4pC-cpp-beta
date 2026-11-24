@@ -329,6 +329,12 @@ struct Config {
     int updatesInterval = 60;
     int updatesMinShow = 0;  // the bar shows the updates widget from this many pending updates (0: always)
     std::string cornerTL = "none", cornerTR = "controlcenter", cornerBL = "media", cornerBR = "wallpapers";
+    const std::string& cornerAction(int corner) const {
+        return corner == 0 ? cornerTL : corner == 1 ? cornerTR : corner == 2 ? cornerBL : cornerBR;
+    }
+    bool cornerHighlighted(int corner) const {
+        return hotCornerVisible && cornerAction(corner) != "none";
+    }
     int dividerSpacing = 0;
     int barShadow = 0;
     std::string islandView = "media";
@@ -416,6 +422,7 @@ struct Config {
     std::string dividerLooks;  // what some dividers of the bar look like on their own, by their order in the bar: "<n>:<line|dot|space|slash|backslash|->:<spacing|->,..." (a "-" follows the bar's)
     int aiClaude = 1, aiCodex = 1;
     std::string aiCodexPercent = "used";
+    std::string aiCodexWindow = "5h";
     int aiTokenLimit = 1000;
     std::string resStyle = "filled";
     int weatherTheme = 0;
@@ -1720,7 +1727,7 @@ struct App {
     double islandMusicT = 0;
     std::chrono::steady_clock::time_point islandLast{};
     struct BarWeather { bool ok = false; int temp = 0, code = 0; bool day = true; } barWeather;
-    struct BarAi { bool seen = false; double pct = 0; int sessions = 0; long long resetsAt = 0; } barAi[2];
+    struct BarAi { bool seen = false; double pct = 0; int sessions = 0; long long resetsAt = 0; } barAi[2], codexWeekly;
     int weatherBarW = 0, aiBarW = 0;
     double aiPillSplit = 0;
     // The bar's "keyboard" module and its popup: the layouts of the main keyboard (Hyprland's input:kb_layout) and the one in use.

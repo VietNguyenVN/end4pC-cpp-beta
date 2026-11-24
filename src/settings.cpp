@@ -456,9 +456,10 @@ std::vector<Page> makePages() {
         {Slider, "resWarnMem", "RAM warning", "It turns red at this use.", {}, 50, 100, 5, "%"},
         {Slider, "resWarnSwap", "Swap warning", "It turns red at this use.", {}, 50, 100, 5, "%"},
         {Toggle, "aiClaude", "Claude Code", "The tokens used in the current 5 hour window, as a percentage. It shows only while Claude Code has left data on this machine.", {}},
-        {Toggle, "aiCodex", "Codex", "The usage limit Codex reports. It shows only while Codex has left data on this machine.", {}},
-        {Choice, "aiCodexPercent", "Codex percentage", "Show how much of the Codex limit has been used or is still available.", {{"used", "Used"}, {"available", "Available"}}},
         {Slider, "aiTokenLimit", "Claude limit", "How many thousands of tokens count as 100 % of the window. Anthropic does not publish the number of your plan, so set the one you reach.", {}, 100, 5000, 100, "k"},
+        {Toggle, "aiCodex", "Codex", "The usage limit Codex reports. It shows only while Codex has left data on this machine.", {}},
+        {Choice, "aiCodexPercent", "Codex percentage", "Show the percentage left or used for Codex.", {{"available", "Remaining"}, {"used", "Used"}}},
+        {Choice, "aiCodexWindow", "Codex bar limit", "Choose which Codex limit the bar displays.", {{"5h", "5h"}, {"weekly", "Weekly"}}},
     }});
     p.push_back({"Interface", "layers-minimalistic", {
         {Toggle, "animEnabled", "Animations", "Popups, menus, the launcher and the wallpaper picker grow and settle with a motion. Off: they appear and go at once.", {}},
@@ -656,8 +657,9 @@ std::vector<Page> makePages() {
         else if (pg.name == "System") sections(pg, {{"sys:cursor", "Cursor"}, {"sys:icons", "Icons"}, {"sys:font", "Fonts"}, {"sys:app:browser", "Default Apps"}, {"screenshotDir", "Capture"}, {"doNotDisturb", "Notifications"}, {"periphSummary", "Devices"}});
         else if (pg.name == "Interface") sections(pg, {{"animEnabled", "Animations"}, {"hotCorners", "Hot Corners"}, {"lockOnStart", "Lock screen"}, {"dock", "Dock"}, {"osdPosition", "OSD"}, {"overviewLive", "Overview"}, {"switcherStyle", "Window switcher"}, {"magnifier", "Accessibility"}});
         else if (pg.name == "Services") sections(pg, {{"weatherUnit", "Weather"}, {"updatesEnable", "Updates"}, {"lyricsProvider", "Lyrics"}, {"webappAdd", "Webapps"}, {"searchEngine", "Search"}});
-        if (pg.name == "System")
-            for (auto& r : pg.rows) if (r.key.compare(0, 8, "sys:app:") == 0) r.splitW = 280;
+        // Every dropdown of System and the font of the shell has the same width: it must not depend on the options, which arrive later (the list of installed
+        // fonts is read when the page opens), or the button grows when they do.
+        for (auto& r : pg.rows) if (r.kind == Split && (r.key.compare(0, 4, "sys:") == 0 || r.key == "fontFamily")) r.splitW = 280;
     }
     if (compositorName() != "Hyprland" && compositorName() != "Niri")
         for (auto& pg : p) std::erase_if(pg.rows, [](const Row& r) { return r.key == "borderColor"; });
@@ -836,6 +838,7 @@ void loadConfig() {
     g.val.insert({"mediaAlways", "0"});
     g.val.insert({"mediaHorizontalStyle", "classic"});
     g.val.insert({"aiCodexPercent", "used"});
+    g.val.insert({"aiCodexWindow", "5h"});
     g.val.insert({"lyricsProvider", "auto"});
     g.val.insert({"updatesEnable", "1"});
     for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"hotCornerWidth", "6"}, {"hotCornerHeight", "6"}, {"hotCornerVisible", "0"}, {"hotCornerHover", "0"}}) g.val.insert(d);
@@ -2789,7 +2792,7 @@ bool rowAvailable(const Row& r) {
     }
     for (const char* k : {"resCpu", "resRam", "resTemp", "resDisk", "resSwap", "resValue", "resInterval", "resWarnCpu", "resWarnMem", "resWarnSwap"})
         if (r.key == k) return moduleUsed("resources");
-    if (r.key == "aiCodexPercent") return moduleUsed("aiusage") && g.val["aiCodex"] == "1";
+    if (r.key == "aiCodexWindow" || r.key == "aiCodexPercent") return moduleUsed("aiusage") && g.val["aiCodex"] == "1";
     if (r.key == "aiClaude" || r.key == "aiCodex" || r.key == "aiTokenLimit") return moduleUsed("aiusage");
     return true;
 }

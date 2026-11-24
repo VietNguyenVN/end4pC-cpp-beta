@@ -77,6 +77,25 @@ wlsunset
 ydotool
 pacman-contrib
 
+# --- file manager (the default one; Super+E and 'Show in folder' open it)
+dolphin
+
+# --- video: wallpaper stills and thumbnails, the video on the lock screen (ffmpeg), the trim preview of Tools (mpv; mpvpaper from the AUR needs it too)
+ffmpeg
+mpv
+
+# --- settings the shell reads: the icon theme in use (gsettings)
+glib2
+dconf
+gsettings-desktop-schemas
+
+# --- archives: Ark adds Extract / Compress to the menu of Dolphin; the others are what it calls to open each format
+ark
+zip
+unzip
+7zip
+unrar
+
 # --- fonts
 ttf-jetbrains-mono-nerd
 ttf-nerd-fonts-symbols
