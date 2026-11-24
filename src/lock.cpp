@@ -585,7 +585,7 @@ struct Output {
     hidpi::SurfaceScale scale;
     ext_session_lock_surface_v1* lockSurface = nullptr;
     int w = 0, h = 0;
-    bool configured = false;
+    bool configured = false, themedFrameSubmitted = false;
     LockBuffer buffers[3];
     unsigned revision = 1;
     cairo_surface_t* chrome = nullptr;
@@ -1243,9 +1243,9 @@ void paintChrome(cairo_t* cr, int H) {
 }
 
 // ---- how the lock screen comes in and goes out (cfg lockAnimation) ----------------------------------------------------------------
-void paintFrame(cairo_t* cr, int W, int H) {
+void paintFrame(cairo_t* cr, int W, int H, bool showPlayer = true) {
     paintBackdrop(cr, W, H);
-    paintPlayer(cr, W, H);
+    if (showPlayer) paintPlayer(cr, W, H);
     paintChrome(cr, H);
 }
 
@@ -1372,6 +1372,9 @@ void draw(Output& o, bool playerOnly = false) {
     if (!o.configured || o.w <= 0 || o.h <= 0) return;
     o.playerOnlyPending = playerOnly && (!o.repaintPending || o.playerOnlyPending);
     o.repaintPending = true;
+    const bool firstThemed = g.visualsReady && !o.themedFrameSubmitted;
+    const bool addPlayerAfterFrame = firstThemed && g_playerOn && nowSnapshot().have;
+    const auto paintStarted = firstThemed && g.reportTiming ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     const bool animating = g.visualsReady && g.animPhase != App::AnimIdle;
     const bool paced = animating || (g.visualsReady && playerSliding());
     if (o.framePending && paced) return;
@@ -1394,7 +1397,7 @@ void draw(Output& o, bool playerOnly = false) {
             o.cache = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, hf.pw, hf.ph);  // (at the buffer's pixels, painting in logical units)
             cairo_surface_set_device_scale(o.cache, sc, sc);
             cairo_t* cc = mkcr(o.cache);
-            paintFrame(cc, W, H);
+            paintFrame(cc, W, H, !firstThemed);
             cairo_destroy(cc);
             o.cacheW = W;
             o.cacheH = H;
@@ -1422,7 +1425,7 @@ void draw(Output& o, bool playerOnly = false) {
             cairo_clip(cr);
         }
         paintBackdrop(cr, W, H);
-        paintPlayer(cr, W, H);
+        if (!firstThemed) paintPlayer(cr, W, H);
         cairo_set_source_surface(cr, o.chrome, 0, 0);
         cairo_paint(cr);
         slot->revision = o.revision;
@@ -1443,7 +1446,19 @@ void draw(Output& o, bool playerOnly = false) {
     if (o.scale.viewport) wp_viewport_set_destination(o.scale.viewport, W, H);
     slot->busy = true;
     wl_surface_commit(o.surface);
-    o.repaintPending = false;
+    o.repaintPending = addPlayerAfterFrame;
+    if (addPlayerAfterFrame) {
+        o.playerOnlyPending = true;
+        o.cacheDirty = true;
+    }
+    if (firstThemed) {
+        o.themedFrameSubmitted = true;
+        if (g.reportTiming) {
+            const auto elapsed = std::chrono::steady_clock::now() - paintStarted;
+            std::fprintf(stderr, "end4pC-lock: first themed frame %dx%d paint and submit %.1f ms\n",
+                         W, H, std::chrono::duration<double, std::milli>(elapsed).count());
+        }
+    }
     if (!g.visualsReady && g.reportTiming && !g.reportedCover) {
         g.reportedCover = true;
         const auto elapsed = std::chrono::steady_clock::now() - g.lockRequestedAt;
