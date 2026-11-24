@@ -249,6 +249,7 @@ void handleClient(App& app, int listenFd) {
         reply = "ok";
     }
     else if (cmd == "videosync") { videoPauseSync(app, true); reply = "ok"; }
+    else if (cmd == "tzsync") { timeZoneSync(app); reply = "ok"; }
     else if (cmd.rfind("wallpaper ", 0) == 0) { changeWallpaper(app, cmd.substr(10)); reply = "ok"; }
     else if (cmd.rfind("workspace ", 0) == 0) { focusWorkspace(std::atoi(cmd.c_str() + 10)); reply = "ok"; }
     else if (cmd == "workspace") reply = std::to_string(app.workspace);
@@ -608,6 +609,27 @@ bool lockScreenUp() {
     int pid = 0;
     return (f >> pid) && pid > 0 && kill(pid, 0) == 0;
 }
+// The time zone of the computer is what /etc/localtime points to (timedatectl swaps it). localtime_r keeps the zone it first read, so after a change
+// tzset() has to be called: then the bar, the clocks of the desktop and the calendar show the new time without restarting the shell.
+bool timeZoneSync(App& app) {
+    static std::string last;
+    char buf[PATH_MAX];
+    const ssize_t n = readlink("/etc/localtime", buf, sizeof buf - 1);
+    std::string now = n > 0 ? std::string(buf, static_cast<size_t>(n)) : "";
+    if (n <= 0) {  // (a copy of the file instead of a link: its modification time says)
+        struct stat st{};
+        if (stat("/etc/localtime", &st) == 0) now = "file:" + std::to_string(static_cast<long long>(st.st_mtime));
+    }
+    if (last.empty()) { last = now; return false; }
+    if (now == last) return false;
+    last = now;
+    tzset();
+    app.clockTime.clear();
+    updateClock(app);
+    drawAll(app);
+    return true;
+}
+
 void videoPauseSync(App& app, bool askCovered) {
     if (!videoWallpaperOn()) { app.videoPaused = false; return; }
     if (askCovered && app.cfg.videoPauseFullscreen && wmKind() == Wm::Hyprland)

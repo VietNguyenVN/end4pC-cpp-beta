@@ -2045,6 +2045,7 @@ void deskVizIdle(App& app);
 bool deskVizWanted(const App& app);
 void deskVizReopen(App& app);
 void videoPauseSync(App& app, bool askCovered);
+bool timeZoneSync(App& app);  // the computer's time zone changed: the clocks follow it at once
 void deskVizCheckCovered(App& app);
 void deskRedrawAll(App& app);
 void mediaWTick(App& app, std::chrono::steady_clock::time_point now, int& timeoutMs);

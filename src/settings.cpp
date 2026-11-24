@@ -1515,7 +1515,14 @@ void sysSend(const std::string& key, const std::string& value) {
     else if (key == "sys:sink" || key == "sys:source") cmd = sysCmd("system_session.py", "--audio-set " + shq(value));
     else if (key == "sys:micMute") cmd = sysCmd("system_session.py", "--mic-mute " + std::string(value == "1" ? "1" : "0"));
     else if (key == "sys:power") cmd = sysCmd("system_session.py", "--power-set " + shq(value));
-    else if (key == "sys:timezone") cmd = sysCmd("system_session.py", "--time-zone " + shq(value));
+    else if (key == "sys:timezone") {
+        char exe[4096];
+        const ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+        std::string bin(exe, n > 0 ? static_cast<size_t>(n) : 0);
+        bin = bin.substr(0, bin.rfind('/')) + "/end4pC";
+        // (the shell is told when the zone is changed, so its clocks follow at once; it also notices it by itself within a minute)
+        cmd = sysCmd("system_session.py", "--time-zone " + shq(value)) + "; " + shq(bin) + " tzsync >/dev/null 2>&1";
+    }
     else if (key == "sys:ntp") cmd = sysCmd("system_session.py", "--time-ntp " + std::string(value == "1" ? "1" : "0"));
     if (!cmd.empty()) spawn({"bash", "-c", cmd});
 }

@@ -438,6 +438,7 @@ int main(int argc, char** argv) {
     refreshOccupied(app);
     refreshWsApps(app);
     timersLoad();
+    timeZoneSync(app);  // (the zone it starts with is the one to compare with)
 
     pollfd fds[26] = {
         {wl_display_get_fd(app.display), POLLIN, 0},
@@ -761,6 +762,7 @@ int main(int argc, char** argv) {
                 bool bat = false;
                 if (tickNow - lastBattery >= std::chrono::seconds(295)) { lastBattery = tickNow; bat = updateBattery(app); }
                 videoPauseSync(app, false);
+                timeZoneSync(app);
                 const bool clk = updateClock(app);
                 ccRunScript("night-apply");
                 if (clk || bat) drawAll(app);
