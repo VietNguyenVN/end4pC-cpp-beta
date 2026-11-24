@@ -65,6 +65,7 @@ local fcs_class = {
     {class = "^(org.kde.dolphin)$",                         size = {"(monitor_w*0.65)", "(monitor_h*0.65)"}},
     {class = "^(walls.py)$",                                size = {"(monitor_w*0.45)", "(monitor_h*0.55)"}},
     {class = "^(mpv)$",                                     size = {"(monitor_w*0.75)", "(monitor_h*0.75)"}},
+    {class = "^(org.gnome.Calculator)$",                    size = {"(monitor_w*0.21)", "(monitor_h*0.70)"}},
 }
 for _, r in ipairs(fcs_class) do
     float_center({class = r.class}, r.size)
