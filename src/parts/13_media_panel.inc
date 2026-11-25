@@ -671,17 +671,24 @@ void drawMediaPanel(App& app) {
         pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
         int detailH = 0;
         pango_layout_get_pixel_size(layout, nullptr, &detailH);
-        constexpr int gap = 6;
-        const double top = (ch - titleH - gap - detailH) / 2;
+        constexpr double badge = 44, icon = 22, badgeGap = 10, textGap = 6;
+        const double top = (ch - badge - badgeGap - titleH - textGap - detailH) / 2;
+        shapePath(cr, "Cookie9Sided", (cw - badge) / 2, top, badge);
+        setSource(cr, app.color("secondary_container"));
+        cairo_fill(cr);
+        drawIcon(cr, "music_note", (cw - icon) / 2, top + (badge - icon) / 2,
+                 icon, app.color("on_secondary_container"), true);
+
+        const double titleY = top + badge + badgeGap;
         setSource(cr, app.color("outline"));
-        cairo_move_to(cr, 20, top + titleH + gap);
+        cairo_move_to(cr, 20, titleY + titleH + textGap);
         pango_cairo_show_layout(cr, layout);
 
         pango_layout_set_width(layout, -1);
         font(17, true);
         pango_layout_set_text(layout, i18n::tr("No active player"), -1);
         setSource(cr, app.color("on_background"));
-        cairo_move_to(cr, (cw - titleW) / 2, top);
+        cairo_move_to(cr, (cw - titleW) / 2, titleY);
         pango_cairo_show_layout(cr, layout);
         M.rPrev = M.rPlay = M.rNext = M.rArt = M.rSlider = M.rPin = M.rLyrics = M.rLyricsRetry = M.rEq = M.rEqToggle = {};
     } else {
