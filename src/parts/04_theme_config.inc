@@ -187,6 +187,10 @@ bool validIconStyle(const std::string& v) {
 }
 
 std::vector<std::string> splitList(const std::string& v, char sep = ',');
+bool validMediaPopupPosition(const std::string& position) {
+    return position == "island" || position == "widget" || position == "start" || position == "center" || position == "end";
+}
+
 Config sanitized(Config c) {
     c.workspaces = std::clamp(c.workspaces, 1, 20);
     c.animEnabled = c.animEnabled ? 1 : 0;
@@ -233,6 +237,7 @@ Config sanitized(Config c) {
     if (c.overviewPosition != "top" && c.overviewPosition != "bottom" && c.overviewPosition != "left" && c.overviewPosition != "right") c.overviewPosition = "top";
     if (c.overviewIcon != "left" && c.overviewIcon != "center" && c.overviewIcon != "right") c.overviewIcon = "right";
     c.mediaAlways = std::clamp(c.mediaAlways, 0, 1);
+    if (!validMediaPopupPosition(c.mediaPopupPosition)) c.mediaPopupPosition = "island";
     if (c.mediaHorizontalStyle != "compact") c.mediaHorizontalStyle = "classic";
     c.privacyAlways = std::clamp(c.privacyAlways, 0, 1);
     c.privacyMic = std::clamp(c.privacyMic, 0, 1);
@@ -465,6 +470,7 @@ bool loadConfig(App& app) {
         readStringKey(t, "overviewPosition", next.overviewPosition);
         readIntKey(t, "mediaAlways", next.mediaAlways);
         readStringKey(t, "mediaHorizontalStyle", next.mediaHorizontalStyle);
+        readStringKey(t, "mediaPopupPosition", next.mediaPopupPosition);
         readIntKey(t, "privacyAlways", next.privacyAlways);
         readIntKey(t, "privacyMic", next.privacyMic);
         readIntKey(t, "privacyCam", next.privacyCam);
@@ -760,6 +766,7 @@ void saveConfig(const App& app) {
           << "  \"overviewIcon\": \"" << app.cfg.overviewIcon << "\",\n"
           << "  \"overviewPosition\": \"" << app.cfg.overviewPosition << "\",\n"
           << "  \"mediaHorizontalStyle\": " << "\"" << app.cfg.mediaHorizontalStyle << "\"" << ",\n"
+          << "  \"mediaPopupPosition\": " << "\"" << app.cfg.mediaPopupPosition << "\"" << ",\n"
           << "  \"mediaAlways\": " << app.cfg.mediaAlways << ",\n"
           << "  \"privacyAlways\": " << app.cfg.privacyAlways << ",\n"
           << "  \"privacyMic\": " << app.cfg.privacyMic << ",\n"
@@ -1145,6 +1152,9 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
         const auto& list = key == "deskVizStyle" ? kDeskVizStyles : key == "deskVizPos" ? kDeskVizPositions : kDeskVizColors;
         if (!inList(list, value)) return "unknown value";
         (key == "deskVizStyle" ? next.deskVizStyle : key == "deskVizPos" ? next.deskVizPos : next.deskVizColor) = value;
+    } else if (key == "mediaPopupPosition") {
+        if (!validMediaPopupPosition(value)) return "value must be island, widget, start, center or end";
+        next.mediaPopupPosition = value;
     } else if (key == "mediaHorizontalStyle") {
         if (value != "classic" && value != "compact") return "value must be classic or compact";
         next.mediaHorizontalStyle = value;

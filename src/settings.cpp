@@ -429,6 +429,8 @@ std::vector<Page> makePages() {
         {Toggle, "networkSpeed", "Show the speed", "Upload and download speed next to the icon, two small lines.", {}},
         {Choice, "mediaHorizontalStyle", "Horizontal player style", "Classic shows track details and controls. Compact uses a single button like the vertical bar.", {{"classic", "Classic"}, {"compact", "Compact"}}},
         {Toggle, "mediaAlways", "Always show the player", "Keep the Player visible when idle on vertical bars and in Compact mode.", {}},
+        {Choice, "mediaPopupPosition", "Player shortcut popup position", "Start and End mean left and right on a horizontal bar, or top and bottom on a vertical bar.",
+         {{"island", "Prefer Dynamic Island"}, {"widget", "Next to Player"}, {"start", "Start"}, {"center", "Center"}, {"end", "End"}}},
         {Toggle, "privacyAlways", "Always show the indicators", "Show the privacy icons even when nothing is using them. Off: they only appear while an app uses the microphone, a camera or the screen.", {}},
         {Toggle, "privacyMic", "Microphone", "Show when an app is listening to the microphone.", {}},
         {Toggle, "privacyCam", "Camera", "Show when an app is using a camera.", {}},
@@ -840,6 +842,7 @@ void loadConfig() {
     if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
     g.val.insert({"mediaAlways", "0"});
     g.val.insert({"mediaHorizontalStyle", "classic"});
+    g.val.insert({"mediaPopupPosition", "island"});
     g.val.insert({"aiCodexPercent", "used"});
     g.val.insert({"aiCodexWindow", "5h"});
     g.val.insert({"lyricsProvider", "auto"});

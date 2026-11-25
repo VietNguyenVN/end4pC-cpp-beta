@@ -350,19 +350,11 @@ std::string friendlyTime(double seconds) {
     return buf;
 }
 
-void mediaCardOrigin(const App& app, int& surfLeft, int& cardX) {
-    const Bar* bar = mainBar(const_cast<App&>(app));
-    const int sideMargin = app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0);
-    const double screenW = bar ? bar->width + 2.0 * sideMargin : 1920;
-    const auto has = [](const std::vector<std::string>& v) { return std::find(v.begin(), v.end(), "media") != v.end(); };
-    double left;
-    const double inset = app.cfg.frame + 12;
-    if (islandActive(app) && !has(app.cfg.layoutRight) && !has(app.cfg.layoutLeft)) left = (screenW - kMediaCardW) / 2;
-    else if (has(app.cfg.layoutRight)) left = screenW - inset - kMediaCardW;
-    else if (has(app.cfg.layoutCenter)) left = (screenW - kMediaCardW) / 2;
-    else left = inset;
-    surfLeft = std::max(0, static_cast<int>(left) - static_cast<int>(kMediaRoom));
-    cardX = static_cast<int>(left) - surfLeft;
+Bar* mediaShortcutBar(App& app) {
+    const std::string focused = focusedOutputName();
+    for (const auto& bar : app.bars)
+        if (!focused.empty() && bar->connector == focused) return bar.get();
+    return mainBar(app);
 }
 
 double mediaWidgetCentre(const Bar& bar, bool vertical) {
@@ -679,17 +671,24 @@ void drawMediaPanel(App& app) {
         pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
         int detailH = 0;
         pango_layout_get_pixel_size(layout, nullptr, &detailH);
-        constexpr int gap = 6;
-        const double top = (ch - titleH - gap - detailH) / 2;
+        constexpr double badge = 44, icon = 22, badgeGap = 10, textGap = 6;
+        const double top = (ch - badge - badgeGap - titleH - textGap - detailH) / 2;
+        shapePath(cr, "Cookie9Sided", (cw - badge) / 2, top, badge);
+        setSource(cr, app.color("secondary_container"));
+        cairo_fill(cr);
+        drawIcon(cr, "music_note", (cw - icon) / 2, top + (badge - icon) / 2,
+                 icon, app.color("on_secondary_container"), true);
+
+        const double titleY = top + badge + badgeGap;
         setSource(cr, app.color("outline"));
-        cairo_move_to(cr, 20, top + titleH + gap);
+        cairo_move_to(cr, 20, titleY + titleH + textGap);
         pango_cairo_show_layout(cr, layout);
 
         pango_layout_set_width(layout, -1);
         font(17, true);
         pango_layout_set_text(layout, i18n::tr("No active player"), -1);
         setSource(cr, app.color("on_background"));
-        cairo_move_to(cr, (cw - titleW) / 2, top);
+        cairo_move_to(cr, (cw - titleW) / 2, titleY);
         pango_cairo_show_layout(cr, layout);
         M.rPrev = M.rPlay = M.rNext = M.rArt = M.rSlider = M.rPin = M.rLyrics = M.rLyricsRetry = M.rEq = M.rEqToggle = {};
     } else {
@@ -962,43 +961,49 @@ void openMediaPanel(App& app, Bar* bar = nullptr) {
     popStart(M.anim);
     M.lyricsMode = mediaLyricsSaved();
     M.lyricT = M.lyricsMode ? 1.0 : 0.0;
-    int surfLeft = 0;
+    const bool clicked = bar != nullptr;
+    if (!bar) bar = mediaShortcutBar(app);
     const bool vert = sideBar(app), atBottom = app.cfg.barPosition == "bottom";
-    const double barInset = app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0);
+    const double gap = app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0;
     const double inset = app.cfg.frame + 12;
-    const double centre = bar ? mediaWidgetCentre(*bar, vert) : -1;
-    const double length = bar ? bar->width + 2 * barInset : 0;
-    const double widget = centre + barInset;
-    if (!vert) {
-        if (centre >= 0) {
-            const int left = static_cast<int>(mediaNearEdge(widget, length, kMediaCardW, kMediaCardW, inset));
-            surfLeft = std::max(0, left - static_cast<int>(kMediaRoom));
-            M.cardX = left - surfLeft;
-            M.along = widget - surfLeft;
-        } else mediaCardOrigin(app, surfLeft, M.cardX);
+    const bool haveBar = bar && bar->surface && bar->configured && bar->width > 0;
+    const double outputLength = bar ? (vert ? bar->wpH : bar->wpW) : 0;
+    const double length = haveBar ? bar->width + 2 * gap : outputLength > 0 ? outputLength : vert ? 1080 : 1920;
+    const std::string& position = app.cfg.mediaPopupPosition;
+    double centre = -1;
+    if (haveBar) {
+        if (!clicked && position == "island" && islandActive(app) && hasSlot(*bar, "island"))
+            centre = slotX(*bar, "island") + islandW(app) / 2;
+        else if (clicked || position == "island" || position == "widget")
+            centre = mediaWidgetCentre(*bar, vert);
     }
+    double anchor = length / 2;
+    if (centre >= 0) anchor = centre + gap;
+    else if (!clicked && position == "start") anchor = 0;
+    else if (!clicked && position == "end") anchor = length;
 
     M.surface = wl_compositor_create_surface(app.compositor);
     attachScale(app, M.scale, M.surface, [&app] { drawMediaPanel(app); });
     M.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, M.surface, bar ? bar->output : nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-media");
     constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
-    M.anchoredBottom = vert ? (centre >= 0 ? widget > length / 2 : sideModuleAtBottom(app, "media", false)) : atBottom;
+    M.anchoredBottom = vert ? anchor > length / 2 : atBottom;
     const bool right = vert && app.cfg.barPosition == "right";
     zwlr_layer_surface_v1_set_anchor(M.layer, (M.anchoredBottom ? kB : kT) | (right ? kR : kL));
     if (vert) {
         M.cardX = static_cast<int>(kMediaRoom);
         const int side = std::max(0, sideCardEdge(app) - static_cast<int>(kMediaRoom));
-        int edge = static_cast<int>(inset - kMediaRoom);
-        if (centre >= 0) {
-            const double height = M.lyricsMode && !app.musicStatus.empty() ? kMediaLyricsH : kMediaCardH;
-            const double near = M.anchoredBottom ? length - widget : widget;
-            edge = static_cast<int>(mediaNearEdge(near, length, height, kMediaEqH, inset) - kMediaRoom);
-            M.along = widget - (M.anchoredBottom ? length - kMediaSurfH - edge : edge);
-        }
+        const double height = M.lyricsMode && !app.musicStatus.empty() ? kMediaLyricsH : kMediaCardH;
+        const double near = M.anchoredBottom ? length - anchor : anchor;
+        const int edge = static_cast<int>(mediaNearEdge(near, length, height, kMediaEqH, inset) - kMediaRoom);
+        if (centre >= 0) M.along = anchor - (M.anchoredBottom ? length - kMediaSurfH - edge : edge);
         zwlr_layer_surface_v1_set_margin(M.layer, M.anchoredBottom ? 0 : edge, right ? side : 0,
                                         M.anchoredBottom ? edge : 0, right ? 0 : side);
     } else {
-        const int margin = std::max(0, static_cast<int>(barInset + kBarHeight + 12 - kMediaRoom));
+        const int left = static_cast<int>(mediaNearEdge(anchor, length, kMediaCardW, kMediaCardW, inset));
+        const int surfLeft = std::max(0, left - static_cast<int>(kMediaRoom));
+        M.cardX = left - surfLeft;
+        if (centre >= 0) M.along = anchor - surfLeft;
+        const int margin = std::max(0, static_cast<int>(app.cfg.frame + gap + kBarHeight + 12 - kMediaRoom));
         zwlr_layer_surface_v1_set_margin(M.layer, atBottom ? 0 : margin, 0, atBottom ? margin : 0, surfLeft);
     }
     zwlr_layer_surface_v1_set_size(M.layer, kMediaSurfW, kMediaSurfH);
