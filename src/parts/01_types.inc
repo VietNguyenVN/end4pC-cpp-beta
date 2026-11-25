@@ -358,6 +358,7 @@ struct Config {
     int notificationTimeout = 4000;
     int mediaAlways = 0;
     std::string mediaHorizontalStyle = "classic";
+    std::string mediaPopupPosition = "island";
     int privacyAlways = 0, privacyMic = 1, privacyCam = 1, privacyScreen = 1;  // privacy indicators: show them even when idle; which of the three to watch
     std::string overviewPosition = "top";  // the overview strip: top, bottom, left or right
     std::string switcherStyle = "grid";   // Alt + Tab: "grid" of cards, or a "row" across the middle
