@@ -504,6 +504,8 @@ enum class LockAnim { None, SplitH, SplitV, Shape, Zoom };
 struct Output {
     wl_output* output = nullptr;
     uint32_t name = 0;
+    std::string connector;
+    bool fullLockScreen = true, wallpaperDrawn = false;
     wl_surface* surface = nullptr;
     hidpi::SurfaceScale scale;
     ext_session_lock_surface_v1* lockSurface = nullptr;
@@ -529,6 +531,7 @@ struct App {
     ext_session_lock_manager_v1* manager = nullptr;
     ext_session_lock_v1* lock = nullptr;
     std::vector<std::unique_ptr<Output>> outputs;
+    std::vector<std::string> lockScreens;
     xkb_context* xkbCtx = nullptr;
     xkb_keymap* keymap = nullptr;
     xkb_state* xkbState = nullptr;
@@ -959,11 +962,15 @@ void paintPlayer(cairo_t* cr, int W, int H) {
     g_playerHits[key] = hits;
 }
 
-// The lock screen as it is when it has come in: the wallpaper with its veil, and the clock, the weather, the avatar and the password box.
-void paintFrame(cairo_t* cr, int W, int H) {
+void paintDimmedWallpaper(cairo_t* cr, int W, int H) {
     paintWallpaper(cr, W, H);
     cairo_set_source_rgba(cr, 0, 0, 0, 0.38);
     cairo_paint(cr);
+}
+
+// The full lock screen adds the clock, weather, avatar, player and password box.
+void paintFrame(cairo_t* cr, int W, int H) {
+    paintDimmedWallpaper(cr, W, H);
     paintPlayer(cr, W, H);
 
     const Color white{0.97, 0.97, 0.97};
@@ -1171,7 +1178,8 @@ const wl_callback_listener kFrameListener = {frameDone};
 
 void draw(Output& o) {
     if (!o.configured || o.w <= 0 || o.h <= 0) return;
-    const bool animating = g.animPhase != App::AnimIdle;
+    if (!o.fullLockScreen && o.wallpaperDrawn) return;
+    const bool animating = o.fullLockScreen && g.animPhase != App::AnimIdle;
     if (animating && o.framePending) return;  // (the last frame has not been shown yet)
     const int W = o.w, H = o.h;
     const double sc = o.scale.factor();
@@ -1179,7 +1187,9 @@ void draw(Output& o) {
     if (!hidpi::begin(hf, W, H, sc, "end4pC-lock")) return;
     cairo_t* cr = mkcr(hf.surface);
 
-    if (animating) {
+    if (!o.fullLockScreen) {
+        paintDimmedWallpaper(cr, W, H);
+    } else if (animating) {
         if (!o.cache || o.cacheW != W || o.cacheH != H || o.cacheDirty || cairo_image_surface_get_width(o.cache) != hf.pw) {
             if (o.cache) cairo_surface_destroy(o.cache);
             o.cache = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, hf.pw, hf.ph);  // (at the buffer's pixels, painting in logical units)
@@ -1205,8 +1215,31 @@ void draw(Output& o) {
     if (!buffer) return;
     wl_buffer_add_listener(buffer, &kBufferListener, nullptr);
     hidpi::present(o.surface, buffer, hf, o.scale);
+    o.wallpaperDrawn = !o.fullLockScreen;
 }
 void drawAll() { for (auto& o : g.outputs) draw(*o); }
+
+void updateLockOutputs() {
+    const auto selected = [](const Output& output) {
+        return !output.connector.empty() && std::find(g.lockScreens.begin(), g.lockScreens.end(), output.connector) != g.lockScreens.end();
+    };
+    const bool matched = std::any_of(g.outputs.begin(), g.outputs.end(), [&](const auto& output) { return selected(*output); });
+    for (auto& output : g.outputs) {
+        const bool fullLockScreen = !matched || output->connector.empty() || selected(*output);
+        if (fullLockScreen == output->fullLockScreen) continue;
+        output->fullLockScreen = fullLockScreen;
+        output->wallpaperDrawn = false;
+        output->cacheDirty = true;
+        if (output->frameCb) wl_callback_destroy(output->frameCb);
+        output->frameCb = nullptr;
+        output->framePending = false;
+        if (!fullLockScreen && output->cache) {
+            cairo_surface_destroy(output->cache);
+            output->cache = nullptr;
+        }
+        draw(*output);
+    }
+}
 
 void onLockSurfaceConfigure(void* d, ext_session_lock_surface_v1* ls, uint32_t serial, uint32_t w, uint32_t h) {
     auto* o = static_cast<Output*>(d);
@@ -1215,7 +1248,8 @@ void onLockSurfaceConfigure(void* d, ext_session_lock_surface_v1* ls, uint32_t s
     o->h = static_cast<int>(h);
     o->configured = true;
     o->cacheDirty = true;
-    if (!g.animStarted) {  // the first screen that is ready starts the animation of coming in
+    o->wallpaperDrawn = false;
+    if (o->fullLockScreen && !g.animStarted) {  // the first screen that is ready starts the animation of coming in
         g.animStarted = true;
         if (g.animMode != LockAnim::None) { g.animPhase = App::AnimEntering; g.animStart = std::chrono::steady_clock::now(); }
     }
@@ -1226,7 +1260,7 @@ const ext_session_lock_surface_v1_listener kLockSurfaceListener = {onLockSurface
 void createLockSurface(Output& o) {
     if (!g.lock || o.lockSurface) return;
     o.surface = wl_compositor_create_surface(g.compositor);
-    hidpi::attach(o.scale, o.surface, g.viewporter, g.fscaleMgr, [op = &o] { op->cacheDirty = true; draw(*op); });
+    hidpi::attach(o.scale, o.surface, g.viewporter, g.fscaleMgr, [op = &o] { op->cacheDirty = true; op->wallpaperDrawn = false; draw(*op); });
     o.lockSurface = ext_session_lock_v1_get_lock_surface(g.lock, o.surface, o.output);
     ext_session_lock_surface_v1_add_listener(o.lockSurface, &kLockSurfaceListener, &o);
 }
@@ -1364,7 +1398,7 @@ double g_ptrX = 0, g_ptrY = 0;
 const std::vector<PlayerHit>* playerHitsHere() {
     if (!g_playerOn) return nullptr;
     for (const auto& o : g.outputs)
-        if (o->surface == g_ptrSurface) {
+        if (o->fullLockScreen && o->surface == g_ptrSurface) {
             const auto it = g_playerHits.find(std::to_string(o->w) + "x" + std::to_string(o->h));
             return it == g_playerHits.end() ? nullptr : &it->second;
         }
@@ -1434,6 +1468,18 @@ void onSeatCaps(void*, wl_seat* seat, uint32_t caps) {
 void onSeatName(void*, wl_seat*, const char*) {}
 const wl_seat_listener kSeatListener = {onSeatCaps, onSeatName};
 
+const wl_output_listener kLockOutputListener = {
+    [](void*, wl_output*, int32_t, int32_t, int32_t, int32_t, int32_t, const char*, const char*, int32_t) {},
+    [](void*, wl_output*, uint32_t, int32_t, int32_t, int32_t) {},
+    [](void*, wl_output*) {},
+    [](void*, wl_output*, int32_t) {},
+    [](void* data, wl_output*, const char* name) {
+        static_cast<Output*>(data)->connector = name ? name : "";
+        updateLockOutputs();
+    },
+    [](void*, wl_output*, const char*) {},
+};
+
 void onGlobal(void*, wl_registry* reg, uint32_t name, const char* iface, uint32_t version) {
     if (!std::strcmp(iface, wl_compositor_interface.name)) g.compositor = static_cast<wl_compositor*>(wl_registry_bind(reg, name, &wl_compositor_interface, std::min(version, 4u)));
     else if (!std::strcmp(iface, wl_shm_interface.name)) g.shm = static_cast<wl_shm*>(wl_registry_bind(reg, name, &wl_shm_interface, 1));
@@ -1449,8 +1495,9 @@ void onGlobal(void*, wl_registry* reg, uint32_t name, const char* iface, uint32_
     } else if (!std::strcmp(iface, wl_output_interface.name)) {
         auto o = std::make_unique<Output>();
         o->name = name;
-        o->output = static_cast<wl_output*>(wl_registry_bind(reg, name, &wl_output_interface, std::min(version, 3u)));
+        o->output = static_cast<wl_output*>(wl_registry_bind(reg, name, &wl_output_interface, std::min(version, 4u)));
         Output* raw = o.get();
+        wl_output_add_listener(raw->output, &kLockOutputListener, raw);
         g.outputs.push_back(std::move(o));
         createLockSurface(*raw);
     }
@@ -1466,6 +1513,7 @@ void onGlobalRemove(void*, wl_registry*, uint32_t name) {
             if (o.surface) wl_surface_destroy(o.surface);
             if (o.output) wl_output_destroy(o.output);
             g.outputs.erase(it);
+            updateLockOutputs();
             return;
         }
 }
@@ -1619,6 +1667,11 @@ int main(int argc, char** argv) {
     loadProfile();
     loadWeatherCache();
     readAnimConfig();
+    std::string screens;
+    jsonValue(readFile(configFile()), "lockScreens", screens);
+    std::istringstream monitorList(screens);
+    for (std::string name; std::getline(monitorList, name, ',');)
+        if (!name.empty()) g.lockScreens.push_back(name);
     if (argc >= 3 && std::strcmp(argv[1], "--dump-frames") == 0) { dumpFrames(argv[2]); return 0; }
     if (argc >= 3 && std::strcmp(argv[1], "--dump-player") == 0) { dumpPlayer(argv[2]); return 0; }
 
@@ -1656,7 +1709,10 @@ int main(int argc, char** argv) {
         bool redraw = playerMoving && !g.unlocking;  // (the line of the song moves)
         if (!g_feeds.empty() && readFeeds()) {
             redraw = true;
-            for (auto& o : g.outputs) o->cacheDirty = true;
+            for (auto& o : g.outputs) {
+                o->cacheDirty = true;
+                o->wallpaperDrawn = false;
+            }
         }
         if (fds[1].revents & POLLIN) {
             char b[16];

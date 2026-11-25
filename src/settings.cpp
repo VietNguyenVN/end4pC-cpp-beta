@@ -480,6 +480,7 @@ std::vector<Page> makePages() {
         {Choice, "lockAnimation", "Lock animation", "How the lock screen comes in and goes out. Split: two halves slide in from the top and bottom (or from the sides) and meet in the middle. Shape: the shape of the centered wallpaper grows from the center until it fills the screen, and shrinks back when you unlock. Zoom: the lock screen settles from a bigger picture with a small rebound, fading in over the desktop.", {{"none", "None"}, {"split_h", "Split top and bottom"}, {"split_v", "Split sides"}, {"shape", "Shape"}, {"zoom", "Zoom"}}},
         {Toggle, "unlockKeyring", "Unlock the keyring", "When you unlock the lock screen, also unlock the password keyring (gnome-keyring) with the same password, so apps do not ask for it again. Your API keys for the online wallpapers live there.", {}},
         {Toggle, "lockPlayer", "Show the player", "While music plays, the lock screen shows the title, the artist and the controls on the right side.", {}},
+        {Choice, "lockScreens", "Lock screen monitors", "Pick the screens that show the full lock screen. Other screens show the dimmed wallpaper.", {}},
         {Toggle, "dock", "Dock", "A floating dock at the edge of the screen with your pinned apps and the ones that are open."},
         {Choice, "dockPosition", "Position", "Which edge of the screen the dock sits on.", {{"bottom", "Bottom"}, {"left", "Left"}, {"right", "Right"}, {"top", "Top"}}},
         {Choice, "dockScreen", "Dock on screen", "The screen where the dock is shown.", {}},
@@ -1185,6 +1186,10 @@ void loadScreens() {
                 if (mask & (1u << i)) { value += (value.empty() ? "" : ",") + g_screens[i]; label += (label.empty() ? "" : " + ") + g_screens[i]; }
             r->opts.push_back({value, label});
         }
+    }
+    if (Row* r = hyprRow("lockScreens")) {
+        r->opts = {{"", "All screens"}};
+        for (const auto& name : g_screens) r->opts.push_back({name, name});
     }
     if (Row* r = hyprRow("dockScreen")) {
         r->opts.clear();
@@ -2765,7 +2770,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "dockBorderColor") return g.val["dock"] == "1" && g.val["dockBorder"] != "0";
     if (r.key == "dockMagnification") return g.val["dock"] == "1" && g.val["dockMagnify"] == "1";
     if (r.key == "dockScreen") return g.val["dock"] == "1" && g_screens.size() > 1;
-    if (r.key == "barScreens" || r.key == "widgetScreen") return g_screens.size() > 1;
+    if (r.key == "barScreens" || r.key == "widgetScreen" || r.key == "lockScreens") return g_screens.size() > 1;
     if (r.key == "themePrimary" || r.key == "themeSecondary" || r.key == "themeTertiary") return !g.val["theme"].empty();
     if (r.key == "uiBackground") return (g.val["colorMode"] == "light") == (r.opts.size() == 2 && r.opts[1].first == "white");  // (OLED in the dark mode, White in the light one)
     if (r.key == "colorScheme" || r.key == "accent") return g.val["theme"].empty();
@@ -4031,9 +4036,11 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
             }
         } else if (r.kind == Choice) {
             const std::string cur = valStr(r);
+            const auto selected = r.key == "lockScreens" ? splitOn(cur, ',') : std::vector<std::string>{};
             for (size_t o = 0; o < r.opts.size(); o++) {
                 Rect c = rl.chips[o];
-                const bool active = r.opts[o].first == cur;
+                const auto& value = r.opts[o].first;
+                const bool active = value == cur || std::find(selected.begin(), selected.end(), value) != selected.end();
                 bool hot = false;
                 if (live) {
                     g.hits.push_back({c, static_cast<int>(i), static_cast<int>(o), Choice});
@@ -5340,6 +5347,16 @@ void click() {
     const Row& r = g.pages[g.page].rows[h.row];
     if (h.kind != Text && g.focusRow >= 0) commitText();
     if (h.kind == Toggle) sendSet(r.key, valInt(r) ? "0" : "1");
+    else if (h.kind == Choice && r.key == "lockScreens") {
+        const auto& clicked = r.opts[h.opt].first;
+        auto selected = splitOn(g.val[r.key], ',');
+        if (clicked.empty()) selected.clear();
+        else if (std::erase(selected, clicked) == 0) selected.push_back(clicked);
+        std::string screens;
+        for (const auto& name : selected)
+            if (!name.empty()) screens += (screens.empty() ? "" : ",") + name;
+        sendSet(r.key, screens);
+    }
     else if (h.kind == Choice || h.kind == Scheme || h.kind == IconStyle || h.kind == StyleCards) sendSet(r.key, r.opts[h.opt].first);
     else if (h.kind == Slider) { g.dragHit = g.hoverHit; setSliderFrom(g.dragHit, false); }
     else if (h.kind == Action) {

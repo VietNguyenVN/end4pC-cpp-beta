@@ -492,6 +492,7 @@ bool loadConfig(App& app) {
         readIntKey(t, "fakeRounding", next.fakeRounding);
         readIntKey(t, "unlockKeyring", next.unlockKeyring);
         readIntKey(t, "lockPlayer", next.lockPlayer);
+        readStringKey(t, "lockScreens", next.lockScreens);
         readIntKey(t, "lockVideo", next.lockVideo);
         readIntKey(t, "videoPauseFullscreen", next.videoPauseFullscreen);
         readIntKey(t, "videoPauseBattery", next.videoPauseBattery);
@@ -731,6 +732,7 @@ void saveConfig(const App& app) {
           << "  \"fakeRounding\": " << app.cfg.fakeRounding << ",\n"
           << "  \"unlockKeyring\": " << app.cfg.unlockKeyring << ",\n"
           << "  \"lockPlayer\": " << app.cfg.lockPlayer << ",\n"
+          << "  \"lockScreens\": \"" << app.cfg.lockScreens << "\",\n"
           << "  \"lockVideo\": " << app.cfg.lockVideo << ",\n"
           << "  \"videoPauseFullscreen\": " << app.cfg.videoPauseFullscreen << ",\n"
           << "  \"videoPauseBattery\": " << app.cfg.videoPauseBattery << ",\n"
@@ -1090,10 +1092,10 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
     } else if (key == "barPosition") {
         if (value != "top" && value != "bottom" && value != "left" && value != "right") return "value must be top, bottom, left or right";
         next.barPosition = value;
-    } else if (key == "barScreens" || key == "widgetScreen") {
+    } else if (key == "barScreens" || key == "widgetScreen" || key == "lockScreens") {
         const std::string v = value == "-" ? "" : value;
         if (v.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.:+,") != std::string::npos) return "value must be monitor names separated by commas";
-        (key == "barScreens" ? next.barScreens : next.widgetScreen) = v;
+        (key == "barScreens" ? next.barScreens : key == "widgetScreen" ? next.widgetScreen : next.lockScreens) = v;
     } else if (key == "screenshotDir" || key == "recordDir") {
         (key == "screenshotDir" ? next.screenshotDir : next.recordDir) = value == "-" ? "" : value;
     } else if (key == "customImagePath") {
