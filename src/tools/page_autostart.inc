@@ -658,6 +658,26 @@ struct AutostartPage final : ToolPage {
         cur += k.text.size();
         return true;
     }
+    bool imeContext(ImeContext& context) override {
+        if (cap || (!dlg && !pick)) return false;
+        const auto& value = !dlg ? search : focus == 1 ? d.name : d.cmd;
+        const size_t cursor = !dlg ? curSearch : focus == 1 ? curName : curCmd;
+        for (const auto& hit : hits) {
+            if ((dlg && hit.id == DlgField && hit.arg == focus) || (!dlg && pick && hit.id == PickItem && hit.arg == -1)) {
+                context = imeField(value, cursor, imeCaretFor(value, cursor,
+                    {hit.r.x + 16, hit.r.y, hit.r.w - 32, hit.r.h}, 15));
+                return true;
+            }
+        }
+        return false;
+    }
+    void imeEdit(const ImeEdit& edit) override {
+        lastKey = Clock::now();
+        if (!dlg) { if (applyImeText(search, curSearch, edit, 60)) pickScroll.reset(); }
+        else if (focus == 1) applyImeText(d.name, curName, edit, 80);
+        else if (focus == 2) applyImeText(d.cmd, curCmd, edit, 600);
+    }
+
     bool key(const KeyEvent& k) override {
         lastKey = Clock::now();
         if (dlg) {

@@ -41,7 +41,9 @@ struct TrEditor {
     size_t cur = 0, anc = 0;
     double scroll = 0, wantX = -1;
     bool reveal = false;
-    Rect box;
+    Rect box, imeCaret;
+    std::string preedit;
+    int32_t preeditCursor = 0;
 
     bool hasSel() const { return cur != anc; }
     size_t selBegin() const { return std::min(cur, anc); }
@@ -57,6 +59,20 @@ struct TrEditor {
         if (t.empty() && !hasSel()) return false;
         s.replace(selBegin(), selEnd() - selBegin(), t);
         cur = anc = selBegin() + t.size();
+        wantX = -1;
+        reveal = true;
+        return true;
+    }
+    bool deleteSurrounding(uint32_t before, uint32_t after) {
+        const size_t low = selBegin(), high = selEnd();
+        size_t first = low - std::min<size_t>(before, low), last = high + std::min<size_t>(after, s.size() - high);
+        while (first < low && (static_cast<unsigned char>(s[first]) & 0xc0) == 0x80) ++first;
+        while (last > high && last < s.size() && (static_cast<unsigned char>(s[last]) & 0xc0) == 0x80) --last;
+        if (first == low && last == high) return false;
+        s.erase(high, last - high);
+        s.erase(first, low - first);
+        cur -= low - first;
+        anc -= low - first;
         wantX = -1;
         reveal = true;
         return true;
@@ -150,10 +166,25 @@ struct TrEditor {
     void draw(cairo_t* cr, Rect area, const Color& fg, const Color& selColor, bool caretOn) {
         box = area;
         PangoLayout* l = pango_cairo_create_layout(cr);
-        trFillLayout(l, s, box.w, kEdPx);
-        int w = 0, h = 0;
-        pango_layout_get_pixel_size(l, &w, &h);
-        const PangoRectangle p = caretPos();
+        const bool composing = !preedit.empty();
+        const size_t start = selBegin();
+        const std::string display = composing ? s.substr(0, start) + preedit + s.substr(selEnd()) : s;
+        trFillLayout(l, display, box.w, kEdPx);
+        size_t cursor = cur;
+        if (composing) {
+            PangoAttrList* attrs = pango_attr_list_new();
+            PangoAttribute* underline = pango_attr_underline_new(PANGO_UNDERLINE_SINGLE);
+            underline->start_index = start;
+            underline->end_index = start + preedit.size();
+            pango_attr_list_insert(attrs, underline);
+            pango_layout_set_attributes(l, attrs);
+            pango_attr_list_unref(attrs);
+            cursor = start + std::min<size_t>(std::max(0, preeditCursor), preedit.size());
+        }
+        int h = 0;
+        pango_layout_get_pixel_size(l, nullptr, &h);
+        PangoRectangle p{};
+        pango_layout_index_to_pos(l, static_cast<int>(cursor), &p);
         if (reveal) {
             const double top = p.y / double(PANGO_SCALE), bot = (p.y + p.height) / double(PANGO_SCALE);
             if (top < scroll) scroll = top;
@@ -161,14 +192,17 @@ struct TrEditor {
             reveal = false;
         }
         clampScroll(box.h, h);
+        imeCaret = {box.x + p.x / double(PANGO_SCALE),
+                    std::clamp(box.y - scroll + p.y / double(PANGO_SCALE), box.y, box.y + box.h),
+                    2, p.height / double(PANGO_SCALE)};
         cairo_save(cr);
         cairo_rectangle(cr, box.x - 2, box.y, box.w + 4, box.h);
         cairo_clip(cr);
-        drawSelection(cr, l, selColor);
+        if (!composing) drawSelection(cr, l, selColor);
         src(cr, fg);
         cairo_move_to(cr, box.x, box.y - scroll);
         pango_cairo_show_layout(cr, l);
-        if (caretOn) {
+        if (caretOn && (!composing || preeditCursor >= 0)) {
             cairo_rectangle(cr, box.x + p.x / double(PANGO_SCALE) - 1, box.y - scroll + p.y / double(PANGO_SCALE), 2, p.height / double(PANGO_SCALE));
             cairo_fill(cr);
         }

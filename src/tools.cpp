@@ -50,6 +50,7 @@
 #include "cursor-shape-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 #include "hidpi.h"
+#include "text-input-unstable-v3-client-protocol.h"
 
 static cairo_t* mkcr(cairo_surface_t* s) {
     static cairo_font_options_t* fo = nullptr;
@@ -141,6 +142,55 @@ struct KeyEvent {
     std::string baseName;      // the key with no modifier (Shift+1 is "1"), as xkb names it: what a Hyprland bind calls the key
 };
 
+struct ImeContext {
+    std::string text;
+    size_t cursor = 0, anchor = 0;
+    Rect caret{};
+    const void* field = nullptr;
+};
+
+struct ImeEdit {
+    std::string commit, preedit;
+    uint32_t before = 0, after = 0;
+    int32_t preeditCursor = 0;
+};
+
+struct ImeReplacement {
+    size_t first, last;
+    std::string text;
+};
+
+ImeReplacement imeReplacement(const std::string& text, size_t cursor, size_t anchor, const ImeEdit& edit) {
+    cursor = std::min(cursor, text.size());
+    anchor = std::min(anchor, text.size());
+    const size_t low = std::min(cursor, anchor), high = std::max(cursor, anchor);
+    size_t first = low - std::min<size_t>(low, edit.before);
+    size_t last = high + std::min<size_t>(text.size() - high, edit.after);
+    while (first < low && (static_cast<unsigned char>(text[first]) & 0xc0) == 0x80) ++first;
+    while (last > high && last < text.size() && (static_cast<unsigned char>(text[last]) & 0xc0) == 0x80) --last;
+    if (edit.commit.empty()) {
+        if (first == low && last == high) return {cursor, cursor, {}};
+        return {first, last, text.substr(low, high - low)};
+    }
+    return {first, last, edit.commit};
+}
+
+bool applyImeText(std::string& text, size_t& cursor, const ImeEdit& edit, size_t limit, bool singleLine = true) {
+    auto replacement = imeReplacement(text, cursor, cursor, edit);
+    if (singleLine)
+        for (char& ch : replacement.text) if (ch == '\n' || ch == '\r' || ch == '\t') ch = ' ';
+    if (replacement.first == replacement.last && replacement.text.empty()) return false;
+    if (text.size() - (replacement.last - replacement.first) + replacement.text.size() > limit) return false;
+    text.replace(replacement.first, replacement.last - replacement.first, replacement.text);
+    cursor = replacement.first + replacement.text.size();
+    return true;
+}
+
+ImeContext imeField(const std::string& text, size_t cursor, Rect caret) {
+    cursor = std::min(cursor, text.size());
+    return {text, cursor, cursor, caret, &text};
+}
+
 struct ToolPage {
 private:
     bool initialized = false;
@@ -166,6 +216,10 @@ public:
     virtual bool mouseButton(uint32_t) { return false; }  // a press of any button (Linux code), before the click is handled; true: taken
     virtual bool grabsKeys() const { return false; }  // true: every key, shortcuts of the window included, goes to key()
     virtual void blur() {}
+    virtual bool imeContext(ImeContext&) { return false; }
+    virtual void imeEdit(const ImeEdit&) {}
+    virtual void imeCancel() {}
+    virtual bool imeInlinePreedit() const { return false; }
     virtual bool roundClip() const { return true; }  // false: the page may use the corners of its area (the clip is a plain rectangle)                            // the keyboard left the window
     virtual Cursor cursor(double, double) const { return Cursor::Default; }
 };
@@ -180,6 +234,14 @@ struct App {
     wl_seat* seat = nullptr;
     wl_pointer* pointer = nullptr;
     wl_keyboard* keyboard = nullptr;
+    zwp_text_input_manager_v3* imeManager = nullptr;
+    zwp_text_input_v3* ime = nullptr;
+    bool imeEntered = false, imeNeedsDone = false;
+    uint32_t imeSerial = 0, imeActivation = 0;
+    ToolPage* imePage = nullptr;
+    ImeEdit imePending;
+    std::string imePreedit;
+    ImeContext imeSent;
     xdg_wm_base* wm = nullptr;
     wp_cursor_shape_manager_v1* cursorMgr = nullptr;
     wp_cursor_shape_device_v1* cursorDev = nullptr;
@@ -450,6 +512,12 @@ private:
         text(cr, card.label, c.x + 20, c.y + c.h - 20 - th, 16, true, fg);
     }
 };
+
+Rect imeCaretFor(const std::string& value, size_t at, Rect field, double px) {
+    double width = 0, height = 0;
+    measure(value.substr(0, std::min(at, value.size())), px, false, 0, width, height);
+    return {field.x + std::min(width, std::max(0.0, field.w)), field.y + (field.h - px) / 2, 2, px};
+}
 
 #include "tools/page_translator.inc"
 #include "tools/page_notes.inc"
@@ -734,6 +802,21 @@ void render() {
     drawTabs(cr);
     drawClose(cr);
     drawContent(cr);
+    if (g.switchT >= 1 && !g.imePreedit.empty() && g.imePage == &cur() && !cur().imeInlinePreedit()) {
+        ImeContext context;
+        if (cur().imeContext(context) && context.field == g.imeSent.field) {
+            const Rect r = contentRect(), caret = context.caret;
+            double tw = 0, th = 0;
+            measure(g.imePreedit, 15, false, 0, tw, th);
+            const double w = std::min(tw + 16, r.w), h = th + 8;
+            const double x = std::clamp(r.x + caret.x, r.x, r.x + r.w - w);
+            const double y = std::clamp(r.y + caret.y + caret.h, r.y, std::max(r.y, r.y + r.h - h));
+            rrect(cr, x, y, w, h, 6);
+            src(cr, g.color("surface_container_highest"));
+            cairo_fill(cr);
+            text(cr, g.imePreedit, x + 8, y + 4, 15, false, g.color("on_surface"), w - 16);
+        }
+    }
     cairo_destroy(cr);
     cairo_surface_flush(slot->frame.surface);
     if (g.switchT < 1) {
@@ -779,9 +862,12 @@ int rememberedPage() {
     return 0;
 }
 
+#include "tools/ime.inc"
+
 void switchTo(int index) {
     index = ((index % pageCount()) + pageCount()) % pageCount();
     if (index == g.page) return;
+    disableIme();
     cur().leave();
     g.prevPage = g.page;
     g.page = index;
@@ -973,6 +1059,8 @@ void onGlobal(void*, wl_registry* reg, uint32_t name, const char* iface, uint32_
     else if (!std::strcmp(iface, wl_seat_interface.name)) {
         g.seat = static_cast<wl_seat*>(wl_registry_bind(reg, name, &wl_seat_interface, std::min(version, 5u)));
         wl_seat_add_listener(g.seat, &kSeatListener, nullptr);
+    } else if (!std::strcmp(iface, zwp_text_input_manager_v3_interface.name)) {
+        g.imeManager = static_cast<zwp_text_input_manager_v3*>(wl_registry_bind(reg, name, &zwp_text_input_manager_v3_interface, 1));
     } else if (!std::strcmp(iface, xdg_wm_base_interface.name)) {
         g.wm = static_cast<xdg_wm_base*>(wl_registry_bind(reg, name, &xdg_wm_base_interface, 1));
         xdg_wm_base_add_listener(g.wm, &kWmListener, nullptr);
@@ -989,6 +1077,10 @@ bool connectWayland() {
     wl_registry_add_listener(g.registry, &kRegistryListener, nullptr);
     if (wl_display_roundtrip(g.display) < 0) return false;
     if (!g.compositor || !g.shm || !g.wm) { std::fprintf(stderr, "end4pC-tools: missing Wayland globals\n"); return false; }
+    if (g.imeManager && g.seat) {
+        g.ime = zwp_text_input_manager_v3_get_text_input(g.imeManager, g.seat);
+        zwp_text_input_v3_add_listener(g.ime, &kImeListener, nullptr);
+    }
     g.surface = wl_compositor_create_surface(g.compositor);
     hidpi::attach(g.scale, g.surface, g.viewporter, g.fscaleMgr, [] { g.dirty = true; });
     g.xsurface = xdg_wm_base_get_xdg_surface(g.wm, g.surface);
@@ -1042,6 +1134,9 @@ void teardown() {
     if (g.xkbMap) xkb_keymap_unref(g.xkbMap);
     if (g.xkbCtx) xkb_context_unref(g.xkbCtx);
     if (g.cursorDev) wp_cursor_shape_device_v1_destroy(g.cursorDev);
+    disableIme();
+    if (g.ime) zwp_text_input_v3_destroy(g.ime);
+    if (g.imeManager) zwp_text_input_manager_v3_destroy(g.imeManager);
     if (g.toplevel) xdg_toplevel_destroy(g.toplevel);
     if (g.xsurface) xdg_surface_destroy(g.xsurface);
     hidpi::detach(g.scale);
@@ -1090,7 +1185,10 @@ int main(int argc, char** argv) {
         if (fds[0].revents & (POLLERR | POLLHUP)) break;
         if (fds[1].revents & POLLIN) { eventfd_t count; eventfd_read(g.sampleEvent, &count); }
         tickAll();
-        if (g.dirty) render();
+        if (g.dirty) {
+            render();
+            syncIme();
+        }
     }
     kbGrab(false);
     teardown();

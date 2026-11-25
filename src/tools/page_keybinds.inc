@@ -838,6 +838,27 @@ struct KeybindsPage final : ToolPage {
         if (focus == 2) { const bool used = typeInto(d.desc, curDesc, k, 80); if (used) lastAutoName.clear(); return used; }
         return false;
     }
+    bool imeContext(ImeContext& context) override {
+        if (capturing || (dlg && !focus)) return false;
+        const auto& value = !dlg ? search : focus == 1 ? d.arg : d.desc;
+        const size_t cursor = !dlg ? curSearch : focus == 1 ? curArg : curDesc;
+        for (const auto& hit : hits) {
+            if ((!dlg && hit.id == Search) || (dlg && hit.id == DlgField && hit.arg == focus)) {
+                const double inset = dlg ? 16 : 52;
+                context = imeField(value, cursor, imeCaretFor(value, cursor,
+                    {hit.r.x + inset, hit.r.y, std::max(0.0, hit.r.w - inset - 16), hit.r.h}, dlg ? 15 : 16));
+                return true;
+            }
+        }
+        return false;
+    }
+    void imeEdit(const ImeEdit& edit) override {
+        lastKey = Clock::now();
+        if (!dlg) { if (applyImeText(search, curSearch, edit, 80)) listScroll.reset(); }
+        else if (focus == 1) applyImeText(d.arg, curArg, edit, 600);
+        else if (focus == 2 && applyImeText(d.desc, curDesc, edit, 80)) lastAutoName.clear();
+    }
+
     bool key(const KeyEvent& k) override {
         lastKey = Clock::now();
         if (capturing) return captureKey(k);

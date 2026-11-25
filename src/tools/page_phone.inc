@@ -534,6 +534,21 @@ struct PhonePage final : ToolPage {
         focus = 0;
         return h.id != None ? act(h) : had;
     }
+    bool imeContext(ImeContext& context) override {
+        if (focus != 1) return false;
+        context = {fa.s, fa.cur, fa.anc, imeCaretFor(fa.s, fa.cur,
+            {addrBox.x + 14, addrBox.y, addrBox.w - 28, addrBox.h}, 15), &fa.s};
+        return true;
+    }
+    void imeEdit(const ImeEdit& edit) override {
+        auto replacement = imeReplacement(fa.s, fa.cur, fa.anc, edit);
+        if (replacement.first == replacement.last && replacement.text.empty()) return;
+        for (char& ch : replacement.text) if (ch == '\n' || ch == '\r' || ch == '\t') ch = ' ';
+        fa.s.replace(replacement.first, replacement.last - replacement.first, replacement.text);
+        fa.cur = fa.anc = replacement.first + replacement.text.size();
+        save();
+    }
+
     bool key(const KeyEvent& k) override {
         lastKey = Clock::now();
         PhField& f = field(focus == 1 ? 1 : 2);
