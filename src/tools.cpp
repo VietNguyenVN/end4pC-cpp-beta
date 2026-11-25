@@ -1,6 +1,7 @@
 #include <random>
 #include <cairo.h>
 #include "bubble.h"
+#include "freeform.h"
 #include "elastic.h"
 #include "i18n.h"
 #include "oled.h"
@@ -452,6 +453,7 @@ private:
 
 #include "tools/page_translator.inc"
 #include "tools/page_notes.inc"
+#include "tools/page_freeform.inc"
 #include "tools/page_converter.inc"
 #include "tools/page_video.inc"
 #include "tools/page_timers.inc"
@@ -503,6 +505,7 @@ void buildPages() {
     }
     g.pages.push_back(std::make_unique<TranslatorPage>());
     g.pages.push_back(std::make_unique<NotesPage>());
+    g.pages.push_back(std::make_unique<FreeformPage>());
     g.pages.push_back(std::make_unique<ConverterPage>());
     g.pages.push_back(std::make_unique<VideoPage>());
     g.pages.push_back(std::make_unique<UnitsPage>());

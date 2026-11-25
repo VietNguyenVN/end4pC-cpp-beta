@@ -76,6 +76,9 @@ test('textsel', executable('textsel-test', 'tests/text/test_textsel.cpp', instal
 # The geometry of the display arrangement editor (src/displaymap.h): `meson test -C build`, or tests/display/run.sh
 test('displaymap', executable('displaymap-test', 'tests/display/test_displaymap.cpp', install: false))
 
+# The Freeform board of the Tools window: shapes, concept links, undo and the file form (src/freeform.h): `meson test -C build`, or tests/freeform/run.sh
+test('freeform', executable('freeform-test', 'tests/freeform/test_freeform.cpp', install: false))
+
 # Headless media integration: real shell code with a temporary fake playerctl.
 test('media', executable('media-test', 'tests/media/test_media.cpp',
   'src/notify_dbus.c', 'src/tray_dbus.c', 'src/polkit_dbus.c', generated,
