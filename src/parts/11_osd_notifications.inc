@@ -190,18 +190,6 @@ void startBrightnessJob(App& app, const char* verb, int percent, const std::stri
     app.brightJobOut = out;
 }
 
-// The monitor that has the focus (the one the pointer is on): its name, asked of the compositor at most every 300 ms.
-std::string focusedOutputName() {
-    static std::string name;
-    static std::chrono::steady_clock::time_point at{};
-    const auto now = std::chrono::steady_clock::now();
-    if (now - at < std::chrono::milliseconds(300) && !name.empty()) return name;
-    const std::string info = wmFocusedOutputInfo();
-    name = info.substr(0, info.find_first_of(" \n"));
-    at = now;
-    return name;
-}
-
 // The screen of a laptop goes fully dark at 0% (nothing left to find the slider by), so it never goes under this.
 constexpr int kMinLaptopBrightness = 5;
 bool isLaptopOutput(const std::string& o) { return o.rfind("eDP", 0) == 0 || o.rfind("LVDS", 0) == 0 || o.rfind("DSI", 0) == 0; }
@@ -267,10 +255,63 @@ void drawNotifPopup(App& app);
 void closeNotifPopup(App& app);
 void drawNotifPanel(App& app);
 
+BarPopupAnchor notifToastWidgetAnchor(App& app, Bar* bound = nullptr) {
+    auto placement = barPopupAnchor(app, bound, "widget", notifWidgetCentre);
+    if (bound || placement.followsWidget) return placement;
+    for (const auto& bar : app.bars) {
+        auto candidate = barPopupAnchor(app, bar.get(), "widget", notifWidgetCentre);
+        if (candidate.followsWidget) return candidate;
+    }
+    return placement;
+}
+
+double notifToastStackY(const NotifPopup& popup, double used, double inset) {
+    if (popup.widgetAxisLength > 0) {
+        const double top = barPopupNearEdge(popup.widgetPosition, popup.widgetAxisLength, used, used, inset);
+        return std::clamp(top - popup.widgetSurfaceTop, 0.0, std::max(0.0, kNotifSurfH - used));
+    }
+    return popup.bottom ? kNotifSurfH - used : 0;
+}
+
 void placeNotifSurface(App& app) {
     if (!app.np.layer) return;
-    const std::string& pos = app.cfg.notificationPosition;
-    const bool bottom = pos.compare(0, 6, "bottom") == 0, left = pos.size() > 4 && pos.compare(pos.size() - 4, 4, "left") == 0, right = pos.size() > 5 && pos.compare(pos.size() - 5, 5, "right") == 0;
+    auto& popup = app.np;
+    popup.followsWidget = false;
+    popup.widgetAxisLength = 0;
+    const auto& configured = app.cfg.notificationPosition;
+    constexpr uint32_t T = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, B = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM,
+                       L = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, R = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+    if (configured == "widget") {
+        Bar* bound = nullptr;
+        if (popup.widgetOutput)
+            for (const auto& bar : app.bars) if (bar->output == popup.widgetOutput) { bound = bar.get(); break; }
+        const auto placement = notifToastWidgetAnchor(app, bound);
+        if (placement.followsWidget) {
+            const int inset = app.cfg.frame + 12;
+            popup.followsWidget = true;
+            popup.bottom = app.cfg.barPosition == "bottom";
+            if (sideBar(app)) {
+                const bool right = app.cfg.barPosition == "right";
+                popup.widgetAxisLength = placement.length;
+                popup.widgetPosition = placement.position;
+                popup.widgetSurfaceTop = static_cast<int>(barPopupNearEdge(
+                    placement.position, placement.length, kNotifSurfH, kNotifSurfH, inset));
+                const int side = sideCardEdge(app);
+                zwlr_layer_surface_v1_set_anchor(popup.layer, T | (right ? R : L));
+                zwlr_layer_surface_v1_set_margin(popup.layer, popup.widgetSurfaceTop, right ? side : 0, 0, right ? 0 : side);
+            } else {
+                const int left = static_cast<int>(barPopupNearEdge(placement.position, placement.length, kNotifCardW, kNotifCardW, inset));
+                const int edge = inset + kBarHeight + static_cast<int>(placement.gap);
+                zwlr_layer_surface_v1_set_anchor(popup.layer, (popup.bottom ? B : T) | L);
+                zwlr_layer_surface_v1_set_margin(popup.layer, popup.bottom ? 0 : edge, 0, popup.bottom ? edge : 0, left);
+            }
+            if (popup.configured) wl_surface_commit(popup.surface);
+            return;
+        }
+    }
+    const std::string pos = configured == "widget" ? "top_right" : configured;
+    const bool bottom = pos.compare(0, 6, "bottom") == 0, left = pos.ends_with("_left"), right = pos.ends_with("_right");
+    popup.bottom = bottom;
     const bool floating = app.cfg.barStyle == "float" || app.cfg.barStyle == "island";
     auto edge = [&](const char* side) {
         int m = app.cfg.frame + 12;
@@ -346,8 +387,13 @@ double notifCardReveal(const Notif& n, std::chrono::steady_clock::time_point now
     return 1 + u * u * u;
 }
 void notifSlideOffset(const App& app, double& dx, double& dy) {
-    const std::string& pos = app.cfg.notificationPosition;
-    const bool bottom = pos.compare(0, 6, "bottom") == 0, left = pos.size() > 4 && pos.compare(pos.size() - 4, 4, "left") == 0, right = pos.size() > 5 && pos.compare(pos.size() - 5, 5, "right") == 0;
+    if (app.np.followsWidget) {
+        dx = sideBar(app) ? (app.cfg.barPosition == "right" ? 56 : -56) : 0;
+        dy = sideBar(app) ? 0 : app.np.bottom ? 40 : -40;
+        return;
+    }
+    const std::string pos = app.cfg.notificationPosition == "widget" ? "top_right" : app.cfg.notificationPosition;
+    const bool bottom = app.np.bottom, left = pos.ends_with("_left"), right = pos.ends_with("_right");
     dx = right ? 56 : left ? -56 : 0;
     dy = left || right ? 0 : bottom ? 40 : -40;
 }
@@ -404,7 +450,7 @@ uint32_t onNotifyRequest(void*, const NotifyRequest* r) {
     if (r->hasImage) n->image = notifImageFromData(*r);
     n->time = std::time(nullptr);
     const bool wasUp = existed && n->popup && !n->leaving;
-    const bool inIsland = !app.cfg.doNotDisturb && islandActive(app);
+    const bool inIsland = !app.cfg.doNotDisturb && app.cfg.notificationPosition != "widget" && islandActive(app);
     n->popup = !app.cfg.doNotDisturb && !inIsland;
     n->leaving = false;
     if (!wasUp) n->shownAt = std::chrono::steady_clock::now();
@@ -414,7 +460,12 @@ uint32_t onNotifyRequest(void*, const NotifyRequest* r) {
     } else if (!app.np.open()) {
         app.np.surface = wl_compositor_create_surface(app.compositor);
         attachScale(app, app.np.scale, app.np.surface, [&app] { drawNotifPopup(app); });
-        app.np.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, app.np.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-notifications");
+        if (app.cfg.notificationPosition == "widget") {
+            const auto placement = notifToastWidgetAnchor(app);
+            if (placement.followsWidget) app.np.widgetOutput = placement.bar->output;
+        }
+        app.np.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, app.np.surface, app.np.widgetOutput,
+                                                            ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-notifications");
         placeNotifSurface(app);
         zwlr_layer_surface_v1_set_size(app.np.layer, kNotifCardW, kNotifSurfH);
         zwlr_layer_surface_v1_set_exclusive_zone(app.np.layer, -1);
@@ -617,7 +668,9 @@ void drawNotifPopup(App& app) {
         const double textBlock = appH + 2 + titleH + (bodyH ? 2 + bodyH : 0);
         const double actionsH = shownActions.empty() ? 0 : 8 + 30;
         const double h = kNotifPad * 2 + std::max<double>(kNotifIcon, textBlock) + actionsH;
-        if (y + h > H) break;
+        const int inset = app.cfg.frame + 12;
+        const double available = np.widgetAxisLength > 0 ? std::min<double>(H, np.widgetAxisLength - 2 * inset) : H;
+        if (y + h > available) break;
 
         NotifPopup::Card card;
         card.id = n.id;
@@ -737,7 +790,7 @@ void drawNotifPopup(App& app) {
     g_object_unref(layout);
     {
         const double used = y > 0 ? y - kNotifGapY : 0;
-        const double dy = app.cfg.notificationPosition.compare(0, 6, "bottom") == 0 ? H - used : 0;
+        const double dy = notifToastStackY(np, used, app.cfg.frame + 12);
         cairo_pattern_t* group = cairo_pop_group(cr);
         cairo_translate(cr, 0, dy);
         cairo_set_source(cr, group);

@@ -55,28 +55,10 @@ PanelRowMetrics measurePanelRow(PangoLayout* layout, const Notif& n, double text
     return m;
 }
 
-void notifPanelAnchor(App& app, int& surfLeft, int& pillX, double* bellAlong = nullptr) {
-    const Bar* bar = mainBar(const_cast<App&>(app));
-    const int sideMargin = app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0);
-    const double screenW = bar ? bar->width + 2.0 * sideMargin : 1920;
-    double bellCx = screenW - 60;
-    if (bar && hasSlot(*bar, "notifications")) bellCx = sideMargin + notifX(*bar) + notifW(app) / 2.0;
-    const double left = std::clamp(bellCx - kPanelW / 2.0, double(app.cfg.frame + 12), screenW - app.cfg.frame - 12 - kPanelW);
-    surfLeft = std::max(0, static_cast<int>(left) - kPanelRoom);
-    pillX = static_cast<int>(left) - surfLeft;
-    if (bellAlong) *bellAlong = bellCx - surfLeft;
-}
-
-bool panelAtBottom(const App& app) {
-    if (sideBar(app)) return sideModuleAtBottom(app, "notifications", true);
-    return app.cfg.barPosition != "top";
-}
-
 void drawNotifPanel(App& app) {
     NotifPanel& P = app.panel;
     if (!P.open() || !P.configured) return;
     const int W = kPanelSurfW, H = kPanelSurfH;
-    const bool atBottom = panelAtBottom(app);
     hidpi::Frame hf;
     if (!hidpi::begin(hf, W, H, P.scale.factor(), "end4pC-notif-panel")) return;
     cairo_surface_t* surface = hf.surface;
@@ -103,14 +85,17 @@ void drawNotifPanel(App& app) {
     }
     contentH -= kPanelItemGap;
     const bool empty = app.notifs.empty();
-    const double viewportH = empty ? 190 - kPanelItemPad : std::min<double>(kPanelListMax, contentH);
+    double maxViewport = kPanelListMax;
+    if (P.side.length > 0)
+        maxViewport = std::min(maxViewport, std::max(0.0, P.side.length - 2 * P.side.inset - kPanelHeaderH - kPanelItemPad));
+    const double viewportH = std::min(maxViewport, empty ? 190.0 - kPanelItemPad : contentH);
     const double listH = viewportH + kPanelItemPad;
     const double ph = kPanelHeaderH + listH;
     P.contentH = contentH;
     P.maxScroll = std::max(0.0, contentH - viewportH);
     P.scroll = std::clamp(P.scroll, 0.0, P.maxScroll);
 
-    const double py = atBottom ? H - kPanelRoom - ph : kPanelRoom;
+    const double py = P.side.length > 0 ? barPopupSideCardY(P.side, ph) : P.anchoredBottom ? H - kPanelRoom - ph : kPanelRoom;
     if (!P.shadow || P.shadowH != static_cast<int>(ph)) {
         if (P.shadow) cairo_surface_destroy(P.shadow);
         P.shadow = makeShadowMask(kPanelW, ph, kPanelRadius);
@@ -389,7 +374,7 @@ void onPanelConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, ui
 void onPanelClosed(void* d, zwlr_layer_surface_v1*) { closeNotifPanel(*static_cast<App*>(d)); }
 const zwlr_layer_surface_v1_listener kPanelListener = {onPanelConfigure, onPanelClosed};
 
-void openNotifPanel(App& app) {
+void openNotifPanel(App& app, Bar* bar = nullptr) {
     NotifPanel& P = app.panel;
     if (P.open()) return;
     closeSelector(app);
@@ -403,26 +388,32 @@ void openNotifPanel(App& app) {
             if (n.popup) up.push_back(n.id);
         for (uint32_t id : up) dismissNotif(app, id, 2);
     }
-    int surfLeft = 0;
-    const bool vert = sideBar(app);
-    if (vert) P.pillX = kPanelRoom;
-    else notifPanelAnchor(app, surfLeft, P.pillX, &P.along);
+    const auto placement = barPopupAnchor(app, bar, app.cfg.notificationPanelPosition, notifWidgetCentre);
+    const bool vert = sideBar(app), right = app.cfg.barPosition == "right";
+    const double inset = app.cfg.frame + 12;
+    P.anchoredBottom = !vert && app.cfg.barPosition == "bottom";
     popStart(P.anim);
     P.surface = wl_compositor_create_surface(app.compositor);
     attachScale(app, P.scale, P.surface, [&app] { drawNotifPanel(app); });
-    P.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, P.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-notif-panel");
-    const bool atBottom = panelAtBottom(app);
-    constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
-    zwlr_layer_surface_v1_set_anchor(P.layer, vert ? ((atBottom ? kB : kT) | (app.cfg.barPosition == "right" ? kR : kL)) : ((atBottom ? kB : kT) | kL));
+    P.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, P.surface, placement.bar ? placement.bar->output : nullptr,
+                                                    ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-notif-panel");
+    constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP,
+                       kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+    zwlr_layer_surface_v1_set_anchor(P.layer, (P.anchoredBottom ? kB : kT) | (right ? kR : kL));
     if (vert) {
+        P.pillX = kPanelRoom;
+        P.side = barPopupSide(placement, inset, kPanelRoom, kPanelSurfH);
+        if (placement.followsWidget) P.along = placement.position - P.side.surfaceTop;
         const int side = std::max(0, sideCardEdge(app) - kPanelRoom);
-        const int bottom = app.cfg.frame + 10 - kPanelRoom;
-        zwlr_layer_surface_v1_set_margin(P.layer, atBottom ? 0 : bottom, app.cfg.barPosition == "right" ? side : 0, atBottom ? bottom : 0, app.cfg.barPosition == "left" ? side : 0);
+        zwlr_layer_surface_v1_set_margin(P.layer, P.side.surfaceTop, right ? side : 0, 0, right ? 0 : side);
     } else {
-        int edge = app.cfg.frame + kBarHeight + 12;
-        if (app.cfg.barStyle == "float" || app.cfg.barStyle == "island") edge += kBarGap;
-        const int margin = std::max(0, edge - kPanelRoom);
-        zwlr_layer_surface_v1_set_margin(P.layer, atBottom ? 0 : margin, 0, atBottom ? margin : 0, surfLeft);
+        const int left = static_cast<int>(barPopupNearEdge(placement.position, placement.length, kPanelW, kPanelW, inset));
+        const int surfLeft = std::max(0, left - kPanelRoom);
+        P.pillX = left - surfLeft;
+        if (placement.followsWidget) P.along = placement.position - surfLeft;
+        const int margin = std::max(0, static_cast<int>(app.cfg.frame + placement.gap + kBarHeight + 12 - kPanelRoom));
+        zwlr_layer_surface_v1_set_margin(P.layer, P.anchoredBottom ? 0 : margin, 0,
+                                        P.anchoredBottom ? margin : 0, surfLeft);
     }
     zwlr_layer_surface_v1_set_size(P.layer, kPanelSurfW, kPanelSurfH);
     zwlr_layer_surface_v1_set_exclusive_zone(P.layer, -1);
@@ -442,9 +433,9 @@ void retractNotifPanel(App& app) {
     P.overList = false;
     drawNotifPanel(app);
 }
-void toggleNotifPanel(App& app) {
+void toggleNotifPanel(App& app, Bar* bar = nullptr) {
     NotifPanel& P = app.panel;
-    if (!P.open()) { openNotifPanel(app); return; }
+    if (!P.open()) { openNotifPanel(app, bar); return; }
     if (popIsOut(P.anim)) {
         popReverse(P.anim, std::chrono::steady_clock::now());
         drawNotifPanel(app);
