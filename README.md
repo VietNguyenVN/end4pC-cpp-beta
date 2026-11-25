@@ -117,7 +117,7 @@ The shell has to live in **`~/.config/end4pC`**: the Hyprland, niri and sway fil
 ### Arch Linux: the installer
 
 ```bash
-git clone https://github.com/pctrade/end4pC-cpp-beta.git ~/.config/end4pC
+git clone https://github.com/pctrade/end4pC.git ~/.config/end4pC
 ~/.config/end4pC/installer/install.sh --dry-run    # shows what it would do, changes nothing
 ~/.config/end4pC/installer/install.sh              # asks before it does anything
 ```
@@ -127,7 +127,7 @@ It installs the packages, sets up the compositors you pick (Hyprland, niri, sway
 ### Any other distribution: build it yourself
 
 ```bash
-git clone https://github.com/pctrade/end4pC-cpp-beta.git ~/.config/end4pC
+git clone https://github.com/pctrade/end4pC.git ~/.config/end4pC
 cd ~/.config/end4pC
 meson setup build
 ninja -C build

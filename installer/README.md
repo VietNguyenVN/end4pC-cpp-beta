@@ -4,7 +4,7 @@ A light Wayland shell written in C++ (bar, launcher, notifications, wallpaper, w
 (SwayFX)**, with the dotfiles it was made to work with. **Arch Linux only.**
 
 ```bash
-git clone https://github.com/pctrade/end4pC-cpp-beta.git ~/.config/end4pC
+git clone https://github.com/pctrade/end4pC.git ~/.config/end4pC
 ~/.config/end4pC/installer/install.sh --dry-run    # shows what it would do
 ~/.config/end4pC/installer/install.sh              # asks before it does anything (including which compositors)
 ~/.config/end4pC/installer/install.sh --compositors niri,sway     # no question about it: hyprland, niri, sway or all
