@@ -1,5 +1,6 @@
 #include <cairo.h>
 #include "i18n.h"
+#include "hotcorners.h"
 #include "oled.h"
 #include "bubble.h"
 #include "elastic.h"
@@ -468,6 +469,7 @@ std::vector<Page> makePages() {
         {Choice, "animStyle", "Animation style", "Boing grows out of its widget with a bounce; Fade only fades; Slide comes in from the bar's side; Zoom grows from its own middle.", {{"boing", "Boing"}, {"fade", "Fade"}, {"slide", "Slide"}, {"zoom", "Zoom"}}},
         {Slider, "animSpeed", "Animation speed", "How fast the animations run. 100 % is the default.", {}, 50, 200, 10, "%"},
         {Toggle, "hotCorners", "Hot corners", "Act when the pointer is in a screen corner. Scrolling always works: brightness in the top-left, volume in the top-right. A click opens what you choose below.", {}},
+        {Choice, "hotCornerScreen", "Edit corner actions for", "Set default actions or override them for a monitor.", {}},
         {Toggle, "hotCornerHover", "Open on hover", "Open what a corner holds as soon as the pointer enters it, with no click. Off by default.", {}},
         {Toggle, "hotCornerVisible", "Show the corners", "Paints the regions of the corners, to see where they are.", {}},
         {Slider, "hotCornerWidth", "Corner width", "How wide each corner region is.", {}, 4, 240, 2, "px"},
@@ -838,6 +840,8 @@ bool loadWidgetStates() {
 
 void loadConfig() {
     const std::string t = readFile(configPath());
+    g.val["hotCornerActions"].clear();
+    jsonValue(t, "hotCornerActions", g.val["hotCornerActions"]);
     for (const auto& d : std::vector<std::pair<const char*, const char*>>{{"dividerStyle", "line"}, {"overviewLive", "1"}, {"switcherStyle", "grid"}, {"overviewLauncher", "0"}, {"overviewIcon", "right"}, {"overviewPosition", "top"}, {"privacyMic", "1"}, {"privacyCam", "1"}, {"privacyScreen", "1"}, {"weatherTheme", "0"}, {"materialIcons", "0"}, {"iconScale", "100"}, {"fontWeightText", "450"}, {"fontWeightTitle", "550"}, {"launcherFiles", "0"}, {"batteryPercent", "1"}, {"templateKitty", "0"}, {"templateGtk", "0"}, {"templateKde", "0"}, {"aiClaude", "1"}, {"aiCodex", "1"}, {"aiTokenLimit", "1000"}, {"weatherInterval", "10"}, {"resCpu", "1"}, {"resRam", "1"}, {"resTemp", "0"}, {"resDisk", "0"}, {"resSwap", "0"}, {"resValue", "0"}, {"resInterval", "3000"}, {"resWarnCpu", "90"}, {"resWarnMem", "95"}, {"resWarnSwap", "85"}, {"resStyle", "filled"}, {"trayPinDefault", "0"}, {"trayTint", "0"}, {"notificationPosition", "top_right"}, {"notificationAppIcons", "0"}, {"conflictCheck", "1"}, {"clock24", "1"}, {"clockDate", "1"}, {"workspaceApps", "0"}, {"volumeMax", "100"}, {"volumeStep", "2"}, {"batteryLow", "20"}, {"batteryCritical", "5"}, {"batteryNotify", "1"}, {"widgetsLocked", "0"}, {"widgetShadow", "1"}, {"widgetGap", "12"}, {"calendarMonday", "1"}})
         g.val.insert(d);
     if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
@@ -1168,10 +1172,25 @@ void loadMonitors() {
     showMonitor();
 }
 std::vector<std::string> g_screens;
+std::vector<uint32_t> g_screenGlobals;
+bool g_screensChanged = false;
+std::string g_splitOpen;
+
+void selectHotCornerScreen(const std::string& screen) {
+    g.val["hotCornerScreen"] = screen;
+    for (const auto key : hotcorners::keys) {
+        Row* row = hyprRow(std::string(key));
+        if (!row) continue;
+        if (!row->opts.empty() && row->opts.front().first.empty()) row->opts.erase(row->opts.begin());
+        if (!screen.empty()) row->opts.insert(row->opts.begin(), {"", "Use default"});
+    }
+    g_splitOpen.clear();
+    g.dirty = true;
+}
 void loadScreens() {
     g_screens.clear();
     const std::string screenList = compositorName() == "Niri" ? "niri msg --json outputs 2>/dev/null | jq -r 'keys[]'"
-                                 : compositorName() == "Sway" ? "swaymsg -r -t get_outputs 2>/dev/null | jq -r '.[].name' 2>/dev/null"
+                                 : compositorName() == "Sway" ? "swaymsg -r -t get_outputs 2>/dev/null | jq -r '.[] | select(.active) | .name' 2>/dev/null"
                                                               : "hyprctl monitors -j 2>/dev/null | jq -r '.[].name' 2>/dev/null";
     for (const std::string& l : linesOf(captureCmd(screenList)))
         if (!l.empty()) g_screens.push_back(l);
@@ -1190,6 +1209,13 @@ void loadScreens() {
     if (Row* r = hyprRow("lockScreens")) {
         r->opts = {{"", "All screens"}};
         for (const auto& name : g_screens) r->opts.push_back({name, name});
+    }
+    if (Row* r = hyprRow("hotCornerScreen")) {
+        r->opts = {{"", "Defaults"}};
+        for (const auto& name : g_screens) r->opts.push_back({name, name});
+        const auto& selected = g.val["hotCornerScreen"];
+        if (g_screens.size() < 2 || std::find(g_screens.begin(), g_screens.end(), selected) == g_screens.end())
+            selectHotCornerScreen("");
     }
     if (Row* r = hyprRow("dockScreen")) {
         r->opts.clear();
@@ -1233,7 +1259,6 @@ void monitorSend(const std::string& key, const std::string& value) {
 }
 
 std::string g_armed;
-std::string g_splitOpen;
 double g_splitT = 1, g_splitScroll = 0;
 std::chrono::steady_clock::time_point g_splitStart;
 Rect g_splitRect;
@@ -2770,6 +2795,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "dockBorderColor") return g.val["dock"] == "1" && g.val["dockBorder"] != "0";
     if (r.key == "dockMagnification") return g.val["dock"] == "1" && g.val["dockMagnify"] == "1";
     if (r.key == "dockScreen") return g.val["dock"] == "1" && g_screens.size() > 1;
+    if (r.key == "hotCornerScreen") return g_screens.size() > 1 && g.val["hotCorners"] == "1";
     if (r.key == "barScreens" || r.key == "widgetScreen" || r.key == "lockScreens") return g_screens.size() > 1;
     if (r.key == "themePrimary" || r.key == "themeSecondary" || r.key == "themeTertiary") return !g.val["theme"].empty();
     if (r.key == "uiBackground") return (g.val["colorMode"] == "light") == (r.opts.size() == 2 && r.opts[1].first == "white");  // (OLED in the dark mode, White in the light one)
@@ -3387,6 +3413,10 @@ double maxScroll(const Layout& L) { return std::max(0.0, L.contentH - cardH()); 
 int valInt(const Row& r) { return g.val.count(r.key) ? std::atoi(g.val[r.key].c_str()) : r.min; }
 std::string valStr(const Row& r) {
     const std::string v = g.val.count(r.key) ? g.val[r.key] : "";
+    if (std::find(hotcorners::keys.begin(), hotcorners::keys.end(), r.key) != hotcorners::keys.end() &&
+        !g.val["hotCornerScreen"].empty()) {
+        return std::string(hotcorners::overrideAction(g.val["hotCornerActions"], g.val["hotCornerScreen"], r.key));
+    }
     if (r.kind == Split && r.key == "fontFamily" && v.empty()) return "-";  // (no font chosen: the system default)
     return r.kind == Text && r.key == "groupColor" && (v.empty() || v[0] != '#') ? "" : v;  // (the text field only shows a color of your own)
 }
@@ -5327,7 +5357,16 @@ void click() {
         if (h.opt < 0) {
             if (g_splitOpen == sr.key) g_splitOpen.clear();
             else { g_splitOpen = sr.key; g_splitT = 0; g_splitStart = Clock::now(); g_splitScroll = 0; splitOpenReset(); g.caretReset = Clock::now(); }
-        } else { if (h.opt < static_cast<int>(sr.opts.size())) sendSet(sr.key, sr.opts[h.opt].first); g_splitOpen.clear(); }
+        } else {
+            if (h.opt < static_cast<int>(sr.opts.size())) {
+                const auto& value = sr.opts[h.opt].first;
+                const auto& screen = g.val["hotCornerScreen"];
+                if (!screen.empty() && std::find(hotcorners::keys.begin(), hotcorners::keys.end(), sr.key) != hotcorners::keys.end())
+                    sendSet("hotCornerActions", hotcorners::withAction(g.val["hotCornerActions"], screen, sr.key, value));
+                else sendSet(sr.key, value);
+            }
+            g_splitOpen.clear();
+        }
         g.hoverHit = -1;
         g.dirty = true;
         return;
@@ -5357,6 +5396,7 @@ void click() {
             if (!name.empty()) screens += (screens.empty() ? "" : ",") + name;
         sendSet(r.key, screens);
     }
+    else if (h.kind == Choice && r.key == "hotCornerScreen") selectHotCornerScreen(r.opts[h.opt].first);
     else if (h.kind == Choice || h.kind == Scheme || h.kind == IconStyle || h.kind == StyleCards) sendSet(r.key, r.opts[h.opt].first);
     else if (h.kind == Slider) { g.dragHit = g.hoverHit; setSliderFrom(g.dragHit, false); }
     else if (h.kind == Action) {
@@ -5689,10 +5729,15 @@ void onGlobal(void*, wl_registry* reg, uint32_t name, const char* iface, uint32_
     } else if (!std::strcmp(iface, xdg_wm_base_interface.name)) {
         g.wm = static_cast<xdg_wm_base*>(wl_registry_bind(reg, name, &xdg_wm_base_interface, 1));
         xdg_wm_base_add_listener(g.wm, &kWmListener, nullptr);
+    } else if (!std::strcmp(iface, wl_output_interface.name)) {
+        g_screenGlobals.push_back(name);
+        g_screensChanged = true;
     } else if (!std::strcmp(iface, wp_cursor_shape_manager_v1_interface.name))
         g.cursorMgr = static_cast<wp_cursor_shape_manager_v1*>(wl_registry_bind(reg, name, &wp_cursor_shape_manager_v1_interface, 1));
 }
-void onGlobalRemove(void*, wl_registry*, uint32_t) {}
+void onGlobalRemove(void*, wl_registry*, uint32_t name) {
+    if (std::erase(g_screenGlobals, name)) g_screensChanged = true;
+}
 const wl_registry_listener kRegistryListener = {onGlobal, onGlobalRemove};
 
 void savePage() {  // the page, then the chip each page was on
@@ -5741,6 +5786,7 @@ int main() {
     loadPeripherals();
     loadWebapps();
     loadScreens();
+    g_screensChanged = false;
     preloadHypr();
     if (g.page < static_cast<int>(g.pages.size()) && g.pages[g.page].name == "Hyprland") loadHypr();
     if (g.page < static_cast<int>(g.pages.size()) && g.pages[g.page].name == "Niri") loadNiri();
@@ -5776,6 +5822,11 @@ int main() {
         if (pfd.revents & (POLLERR | POLLHUP)) break;
 
         const auto now = Clock::now();
+        if (g_screensChanged) {
+            g_screensChanged = false;
+            loadScreens();
+            g.dirty = true;
+        }
         if (g_rulesRebuild) { g_rulesRebuild = false; rebuildRuleRows(); }
         if (g.configured && g.animT >= 1 && !g_sysStarted) sysPreload();
         if (g_bubbleMoving) g.dirty = true;

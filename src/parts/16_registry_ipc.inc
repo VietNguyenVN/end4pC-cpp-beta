@@ -141,7 +141,7 @@ void onGlobalRemove(void* d, wl_registry*, uint32_t name) {
             break;
         }
     }
-    std::erase_if(app->outputs, [&](const auto& o) { return o->name == name; });
+    if (std::erase_if(app->outputs, [&](const auto& o) { return o->name == name; })) applyCorners(*app);
 }
 
 const wl_registry_listener kRegistryListener = {onGlobal, onGlobalRemove};

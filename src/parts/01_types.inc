@@ -331,11 +331,14 @@ struct Config {
     int updatesInterval = 60;
     int updatesMinShow = 0;  // the bar shows the updates widget from this many pending updates (0: always)
     std::string cornerTL = "none", cornerTR = "controlcenter", cornerBL = "media", cornerBR = "wallpapers";
-    const std::string& cornerAction(int corner) const {
+    std::string hotCornerActions;
+    std::string_view cornerAction(int corner, std::string_view screen = {}) const {
+        const auto action = hotcorners::overrideAction(hotCornerActions, screen, hotcorners::keys[corner]);
+        if (!action.empty()) return action;
         return corner == 0 ? cornerTL : corner == 1 ? cornerTR : corner == 2 ? cornerBL : cornerBR;
     }
-    bool cornerHighlighted(int corner) const {
-        return hotCornerVisible && cornerAction(corner) != "none";
+    bool cornerHighlighted(int corner, std::string_view screen = {}) const {
+        return hotCornerVisible && cornerAction(corner, screen) != "none";
     }
     int dividerSpacing = 0;
     int barShadow = 0;
@@ -1511,6 +1514,7 @@ struct OverviewState {  // the overview (SUPER + O): a strip with every workspac
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false, dirty = false, gapsSet = false, hoverPlus = false;
     int width = 0, height = 0, monId = 0;      // (the strip's surface)
+    int pressedCorner = -1;
     std::string monName;                       // the monitor it is on: the one in focus, where the pointer is
     int edge = 0;                              // 0 top, 1 bottom, 2 left, 3 right
     double monW = 1, monH = 1, thick = 0, edgeReserved = 0;  // the monitor, how thick the strip is, and what the bar already takes on its edge

@@ -493,6 +493,26 @@ void ovDrawThumb(App& app, cairo_t* cr, PangoLayout* L, int id, const Rect& t, b
     clkText(cr, L, std::to_string(id), 13, selected, t.x, t.y + t.h + kOvLabelH / 2 + 1, app.color("on_surface"), selected ? 1.0 : 0.75, t.w, 1);
 }
 
+constexpr int kOverviewEdgeCorners[4][2] = {{0, 1}, {2, 3}, {0, 2}, {1, 3}};
+
+Rect ovCornerRect(const App& app, int corner) {
+    const auto& O = app.ov;
+    const double w = app.cfg.hotCornerWidth, h = app.cfg.hotCornerHeight;
+    return {corner % 2 ? O.width - w : 0, corner >= 2 ? O.height - h : 0, w, h};
+}
+
+std::string_view ovCornerScreen(const App& app) {
+    return app.outputs.size() > 1 ? std::string_view(app.ov.monName) : std::string_view{};
+}
+
+int ovCornerAt(const App& app, double x, double y) {
+    if (!app.cfg.hotCorners || app.ov.monName.empty()) return -1;
+    for (int corner : kOverviewEdgeCorners[app.ov.edge])
+        if (ovCornerRect(app, corner).contains(x, y) && app.cfg.cornerAction(corner, ovCornerScreen(app)) != "none")
+            return corner;
+    return -1;
+}
+
 void drawOverview(App& app) {
     OverviewState& O = app.ov;
     if (!O.surface || !O.configured || O.width <= 0 || O.height <= 0) return;
@@ -523,6 +543,7 @@ void drawOverview(App& app) {
     cairo_paint(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
     PangoLayout* L = pango_cairo_create_layout(cr);
+    cairo_save(cr);
     {  // the strip slides in from its edge and out to it
         const double off = (1 - ovVisible(O, std::chrono::steady_clock::now())) * O.thick;
         cairo_translate(cr, O.edge == 2 ? -off : O.edge == 3 ? off : 0, O.edge == 0 ? -off : O.edge == 1 ? off : 0);
@@ -565,6 +586,17 @@ void drawOverview(App& app) {
         setSource(cr, app.color("primary"), 0.9);
         cairo_set_line_width(cr, 2);
         cairo_stroke(cr);
+    }
+    cairo_restore(cr);
+    if (app.cfg.hotCorners && !O.monName.empty()) {
+        for (int corner : kOverviewEdgeCorners[O.edge]) {
+            if (!app.cfg.cornerHighlighted(corner, ovCornerScreen(app))) continue;
+            const Rect r = ovCornerRect(app, corner);
+            cairo_save(cr);
+            cairo_translate(cr, r.x, r.y);
+            paintHotCorner(cr, app, app.cfg.hotCornerWidth, app.cfg.hotCornerHeight);
+            cairo_restore(cr);
+        }
     }
     g_object_unref(L);
     cairo_destroy(cr);
@@ -620,7 +652,7 @@ void ovApplyGaps(App& app) {
     wl_surface_set_input_region(O.resSurface, none);
     wl_region_destroy(none);
     wl_output* out = nullptr;
-    for (auto& b : app.bars) if (b->surface && b->connector == O.monName) { out = b->output; break; }
+    for (auto& b : app.bars) if (b->connector == O.monName) { out = b->output; break; }
     O.resLayer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, O.resSurface, out, ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM, "end4pC-overview-room");
     const uint32_t anchors[4] = {ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT};
     zwlr_layer_surface_v1_set_anchor(O.resLayer, anchors[O.edge]);
@@ -630,17 +662,17 @@ void ovApplyGaps(App& app) {
     wl_surface_commit(O.resSurface);
 }
 
-void openOverview(App& app) {
+void openOverview(App& app, const std::string& output) {
     OverviewState& O = app.ov;
     if (O.surface) { closeOverview(app); return; }
     if (wmKind() != Wm::Hyprland || !app.compositor || !app.layerShell || !app.shm) return;
     const std::string pos = app.cfg.overviewPosition;
     O.edge = pos == "bottom" ? 1 : pos == "left" ? 2 : pos == "right" ? 3 : 0;
     // The screen of the overview is the one in focus (where the pointer is), and so is the list of windows it shows.
-    const std::string focused = focusedOutputName();
+    const std::string focused = output.empty() ? focusedOutputName() : output;
     Bar* bar = nullptr;
     for (auto& b : app.bars)
-        if (b->surface && !focused.empty() && b->connector == focused) { bar = b.get(); break; }
+        if (!focused.empty() && b->connector == focused) { bar = b.get(); break; }
     if (!bar) bar = mainBar(app);  // (no bar on that screen: the one of the main bar)
     O.monName = bar ? bar->connector : "";
     ovLoad(app);
@@ -658,6 +690,7 @@ void openOverview(App& app) {
     O.thick = std::ceil(ovStripThickness(app));
     if (app.cfg.overviewLive)
         for (size_t i = 0; i < O.wins.size() && static_cast<int>(i) < kOvMaxCaptures; i++) ovCaptureStart(app, *O.wins[i]);
+    O.pressedCorner = -1;
     O.openT0 = std::chrono::steady_clock::now();
     O.closing = false;
     O.surface = wl_compositor_create_surface(app.compositor);
