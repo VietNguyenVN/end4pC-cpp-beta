@@ -61,13 +61,13 @@ void closeAllPopups(App& app) {
 }
 
 // What a hot corner opens (a click on it, or the pointer entering it when that is turned on).
-void hotCornerAct(App& app, int corner) {
-    const std::string& act = app.cfg.cornerAction(corner);
+void hotCornerAct(App& app, int corner, const std::string& output) {
+    const auto act = app.cfg.cornerAction(corner, app.outputs.size() > 1 ? output : "");
     if (act == "controlcenter") toggleControlCenter(app, false, corner == 0 || corner == 2 ? 1 : 2);  // (on the side of the corner)
     else if (act == "media") toggleMediaPanel(app);
     else if (act == "wallpapers") toggleSelector(app);
     else if (act == "launcher") toggleLauncher(app);
-    else if (act == "overview") openOverview(app);
+    else if (act == "overview") openOverview(app, output);
     else if (act == "notifications") toggleNotifPanel(app);
     else if (act == "power") togglePowerMenu(app);
     else if (act == "lock") startLock();
@@ -94,11 +94,11 @@ void onPointerEnter(void* d, wl_pointer*, uint32_t serial, wl_surface* surface, 
         for (auto& b : app->bars) for (auto& c : b->corners) if (c.surface == surface) app->hotCornerOut = b->connector;
     if (app->hotCorner < 0) {
         if (!anyPopupOpen(*app)) app->cornerLatch = -1;  // (the pointer is somewhere else and nothing is open: the corners are ready again)
-    } else if (app->cfg.hotCorners && app->cfg.hotCornerHover && !anyPopupOpen(*app) && app->cornerLatch != app->hotCorner) {
+    } else if (app->cfg.hotCorners && app->cfg.hotCornerHover && !app->ov.surface && !anyPopupOpen(*app) && app->cornerLatch != app->hotCorner) {
         // Opens on entering, with no click, and only opens: what it opens covers the corner and the compositor sends the pointer in again, which
         // used to close it, and open it again.
         app->cornerLatch = app->hotCorner;
-        hotCornerAct(*app, app->hotCorner);
+        hotCornerAct(*app, app->hotCorner, app->hotCornerOut);
     }
     app->onCap = app->cap.surface && surface == app->cap.surface;
     app->onSw = app->sw.surface && surface == app->sw.surface;
@@ -474,7 +474,24 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     if (app->onViz) { deskVizButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onGame) { gameButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onCf) { cfButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
-    if (app->onOv) { ovButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
+    if (app->onOv) {
+        auto& overview = app->ov;
+        const bool pressed = state == WL_POINTER_BUTTON_STATE_PRESSED;
+        if (button == kBtnLeft && !overview.closing) {
+            if (pressed)
+                overview.pressedCorner = ovCornerAt(*app, app->pointerX, app->pointerY);
+            if (overview.pressedCorner >= 0) {
+                if (!pressed) {
+                    const int corner = std::exchange(overview.pressedCorner, -1);
+                    if (corner == ovCornerAt(*app, app->pointerX, app->pointerY))
+                        hotCornerAct(*app, corner, overview.monName);
+                }
+                return;
+            }
+        }
+        ovButton(*app, button, pressed);
+        return;
+    }
     if (app->onFq) { fqButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onConfirm) { confirmButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
     if (app->onQr) { qrButton(*app, button, state == WL_POINTER_BUTTON_STATE_PRESSED); return; }
@@ -531,7 +548,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     }
     if (button != kBtnLeft) return;
     if (app->hotCorner >= 0) {
-        if (app->cfg.hotCorners) hotCornerAct(*app, app->hotCorner);
+        if (app->cfg.hotCorners) hotCornerAct(*app, app->hotCorner, app->hotCornerOut);
         return;
     }
     if (app->onSelector) { selectorClick(*app); return; }

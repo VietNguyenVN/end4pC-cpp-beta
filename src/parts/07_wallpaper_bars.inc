@@ -401,24 +401,27 @@ void onStripConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, ui
 }
 void onCornerRelease(void*, wl_buffer* buffer) { wl_buffer_destroy(buffer); }
 const wl_buffer_listener kCornerBufferListener = {onCornerRelease};
+void paintHotCorner(cairo_t* cr, const App& app, int w, int h) {
+    const Color c = app.color("primary");
+    roundedRect(cr, 0.75, 0.75, w - 1.5, h - 1.5, std::min(8.0, std::min(w, h) / 3.0));
+    cairo_set_source_rgba(cr, c.r, c.g, c.b, 0.3);
+    cairo_fill_preserve(cr);
+    cairo_set_source_rgba(cr, c.r, c.g, c.b, 0.85);
+    cairo_set_line_width(cr, 1.5);
+    cairo_stroke(cr);
+}
 // One hot corner: an invisible region of the configured size, or a translucent one in the color of the theme (to see where it is).
 void drawCorner(Strip& st) {
     const App& app = *st.bar->app;
     const int w = app.cfg.hotCornerWidth, h = app.cfg.hotCornerHeight, stride = w * 4, size = stride * h;
     const int fd = memfd_create("end4pC-corner", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, size) < 0) { if (fd >= 0) close(fd); return; }  // a fresh memfd is zero-filled: transparent
-    if (app.cfg.cornerHighlighted(st.corner)) {
+    if (app.cfg.cornerHighlighted(st.corner, app.outputs.size() > 1 ? st.bar->connector : "")) {
         void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         if (data != MAP_FAILED) {
             cairo_surface_t* surf = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), CAIRO_FORMAT_ARGB32, w, h, stride);
             cairo_t* cr = mkcr(surf);
-            const Color c = app.color("primary");
-            roundedRect(cr, 0.75, 0.75, w - 1.5, h - 1.5, std::min(8.0, std::min(w, h) / 3.0));
-            cairo_set_source_rgba(cr, c.r, c.g, c.b, 0.3);
-            cairo_fill_preserve(cr);
-            cairo_set_source_rgba(cr, c.r, c.g, c.b, 0.85);
-            cairo_set_line_width(cr, 1.5);
-            cairo_stroke(cr);
+            paintHotCorner(cr, app, w, h);
             cairo_destroy(cr);
             cairo_surface_destroy(surf);
             munmap(data, size);
@@ -436,21 +439,25 @@ void drawCorner(Strip& st) {
 void onCornerConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t, uint32_t) {
     auto* st = static_cast<Strip*>(d);
     zwlr_layer_surface_v1_ack_configure(layer, serial);
+    st->w = st->bar->app->cfg.hotCornerWidth;
     drawCorner(*st);
 }
 // The size or the look of the corners changed: every corner is resized and drawn again.
 void applyCorners(App& app, bool force = false) {
     static std::string last;
-    std::string now = std::to_string(app.cfg.hotCornerWidth) + "x" + std::to_string(app.cfg.hotCornerHeight) + ":";
+    std::string now = std::to_string(app.cfg.hotCornerWidth) + "x" + std::to_string(app.cfg.hotCornerHeight) + ":" + std::to_string(app.cfg.hotCorners) + ":" + std::to_string(app.cfg.hotCornerVisible);
     for (int corner = 0; corner < 4; ++corner)
-        now += app.cfg.cornerHighlighted(corner) ? '1' : '0';
+        now += ":" + std::string(app.cfg.cornerAction(corner));
+    now += app.outputs.size() > 1 ? ":multi:" + app.cfg.hotCornerActions : ":single";
     if (now == last && !force) return;
     last = now;
+    app.ov.dirty = true;
     for (auto& bar : app.bars)
         for (Strip& st : bar->corners) {
             if (!st.layer || !st.surface) continue;
             zwlr_layer_surface_v1_set_size(st.layer, app.cfg.hotCornerWidth, app.cfg.hotCornerHeight);
-            drawCorner(st);
+            if (st.w > 0) drawCorner(st);
+            else wl_surface_commit(st.surface);
         }
 }
 void onCornerClosed(void*, zwlr_layer_surface_v1*) {}
@@ -886,5 +893,6 @@ void createBar(App& app, wl_output* output, uint32_t name) {
     app.bars.back()->frameApplied = app.cfg.frame;
     app.bars.back()->positionApplied = app.cfg.barPosition;
     app.bars.back()->styleApplied = app.cfg.barStyle + (app.cfg.barShadow && app.cfg.barBackground ? "+shadow" : "");
+    if (app.ready) applyCorners(app);
     deskVizReopen(app);
 }

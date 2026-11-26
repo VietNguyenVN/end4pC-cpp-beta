@@ -42,7 +42,7 @@ bool deskTextChanged(const Config& a, const Config& b) {
            a.customTextBold != b.customTextBold || a.customTextItalic != b.customTextItalic || a.customTextShadow != b.customTextShadow;
 }
 bool hotCornerChanged(const Config& a, const Config& b) {
-    return a.hotCornerWidth != b.hotCornerWidth || a.hotCornerHeight != b.hotCornerHeight || a.hotCornerVisible != b.hotCornerVisible || a.hotCornerHover != b.hotCornerHover;
+    return a.hotCornerActions != b.hotCornerActions || a.hotCornerWidth != b.hotCornerWidth || a.hotCornerHeight != b.hotCornerHeight || a.hotCornerVisible != b.hotCornerVisible || a.hotCornerHover != b.hotCornerHover;
 }
 bool deskVizChanged(const Config& a, const Config& b) {
     return a.deskVizStyle != b.deskVizStyle || a.deskVizPos != b.deskVizPos || a.deskVizColor != b.deskVizColor || a.deskVizSize != b.deskVizSize || a.deskVizBars != b.deskVizBars;
@@ -189,6 +189,24 @@ bool validIconStyle(const std::string& v) {
 std::vector<std::string> splitList(const std::string& v, char sep = ',');
 bool validBarPopupPosition(const std::string& position) {
     return position == "widget" || position == "start" || position == "center" || position == "end";
+}
+
+bool validHotCornerActions(std::string_view rules) {
+    while (!rules.empty()) {
+        const auto end = rules.find(',');
+        const auto entry = rules.substr(0, end);
+        const auto slash = entry.find('/'), equal = entry.find('=');
+        if (slash == 0 || slash == entry.npos || equal == entry.npos || equal <= slash) return false;
+        const auto screen = entry.substr(0, slash);
+        const auto key = entry.substr(slash + 1, equal - slash - 1);
+        const auto action = entry.substr(equal + 1);
+        if (screen.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.:+") != screen.npos ||
+            std::find(hotcorners::keys.begin(), hotcorners::keys.end(), key) == hotcorners::keys.end() ||
+            std::find(kCornerActions.begin(), kCornerActions.end(), action) == kCornerActions.end()) return false;
+        if (end == rules.npos) break;
+        rules.remove_prefix(end + 1);
+    }
+    return true;
 }
 
 Config sanitized(Config c) {
@@ -370,6 +388,7 @@ Config sanitized(Config c) {
     c.resWarnMem = std::clamp(c.resWarnMem, 50, 100);
     c.resWarnSwap = std::clamp(c.resWarnSwap, 50, 100);
     c.resWarnCpu = std::clamp(c.resWarnCpu, 50, 100);
+    if (!validHotCornerActions(c.hotCornerActions)) c.hotCornerActions.clear();
     for (std::string* a : {&c.cornerTL, &c.cornerTR, &c.cornerBL, &c.cornerBR})
         if (std::find(kCornerActions.begin(), kCornerActions.end(), *a) == kCornerActions.end()) *a = "none";
     c.cookieSides = std::clamp(c.cookieSides, 6, 20);
@@ -673,6 +692,7 @@ bool loadConfig(App& app) {
         readStringKey(t, "themeTertiary", next.themeTertiary);
         readStringKey(t, "clockDaily", next.clockDaily);
         readStringKey(t, "clockPixel", next.clockPixel);
+        readStringKey(t, "hotCornerActions", next.hotCornerActions);
         readStringKey(t, "cornerTL", next.cornerTL);
         readStringKey(t, "cornerTR", next.cornerTR);
         readStringKey(t, "cornerBL", next.cornerBL);
@@ -888,6 +908,7 @@ void saveConfig(const App& app) {
           << "  \"themeTertiary\": \"" << app.cfg.themeTertiary << "\",\n"
           << "  \"clockDaily\": \"" << app.cfg.clockDaily << "\",\n"
           << "  \"clockPixel\": \"" << app.cfg.clockPixel << "\",\n"
+          << "  \"hotCornerActions\": \"" << app.cfg.hotCornerActions << "\",\n"
           << "  \"cornerTL\": \"" << app.cfg.cornerTL << "\",\n"
           << "  \"cornerTR\": \"" << app.cfg.cornerTR << "\",\n"
           << "  \"cornerBL\": \"" << app.cfg.cornerBL << "\",\n"
@@ -1106,6 +1127,10 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
         (key == "screenshotDir" ? next.screenshotDir : next.recordDir) = value == "-" ? "" : value;
     } else if (key == "customImagePath") {
         next.customImagePath = value == "-" ? "" : value;
+    } else if (key == "hotCornerActions") {
+        const std::string rules = value == "-" ? "" : value;
+        if (!validHotCornerActions(rules)) return "invalid monitor corner actions";
+        next.hotCornerActions = rules;
     } else if (key == "cornerTL" || key == "cornerTR" || key == "cornerBL" || key == "cornerBR") {
         if (std::find(kCornerActions.begin(), kCornerActions.end(), value) == kCornerActions.end()) return "unknown action: " + value;
         (key == "cornerTL" ? next.cornerTL : key == "cornerTR" ? next.cornerTR : key == "cornerBL" ? next.cornerBL : next.cornerBR) = value;

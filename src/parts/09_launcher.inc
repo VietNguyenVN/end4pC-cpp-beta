@@ -12,7 +12,7 @@ constexpr const char* kLaunSmallFont = "Sans 9";
 
 void closeLauncher(App& app);
 void closeOverview(App& app);
-void openOverview(App& app);
+void openOverview(App& app, const std::string& output = {});
 // With the overview strip at the top, the launcher sits below it.
 double launcherTopMargin(const App& app) {
     const double normal = app.cfg.frame + (app.cfg.barPosition == "top" ? kBarHeight : 0) + 30 - kLaunPadTop;
