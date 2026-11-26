@@ -350,13 +350,6 @@ std::string friendlyTime(double seconds) {
     return buf;
 }
 
-Bar* mediaShortcutBar(App& app) {
-    const std::string focused = focusedOutputName();
-    for (const auto& bar : app.bars)
-        if (!focused.empty() && bar->connector == focused) return bar.get();
-    return mainBar(app);
-}
-
 double mediaWidgetCentre(const Bar& bar, bool vertical) {
     const App& app = *bar.app;
     if (vertical) {
@@ -366,11 +359,6 @@ double mediaWidgetCentre(const Bar& bar, bool vertical) {
         return musicX(bar) + moduleWidth(app, "media") / 2;
     }
     return -1;
-}
-
-// Measure from the anchored edge so a taller card grows toward the middle of the output.
-double mediaNearEdge(double centre, double length, double height, double maxHeight, double inset) {
-    return std::clamp(centre - height / 2, inset, std::max(inset, length - inset - maxHeight));
 }
 
 void mediaFont(PangoLayout* layout, double px, bool bold = false) {
@@ -644,7 +632,9 @@ void drawMediaPanel(App& app) {
     const double cw = kMediaCardW;
     const double ch = havePlayer ? std::max(110.0, lerp(kMediaCardH, kMediaLyricsH) + eqT * (kMediaEqH - kMediaLyricsH)) : kMediaCardH;
     M.cardH = ch;
-    const double cx = M.cardX, cy = M.anchoredBottom ? H - kMediaRoom - ch : kMediaRoom;
+    const double cx = M.cardX;
+    const double cy = M.side.length > 0 ? barPopupSideCardY(M.side, ch)
+                                      : M.anchoredBottom ? H - kMediaRoom - ch : kMediaRoom;
     if (M.shadow && M.shadowH != static_cast<int>(ch)) { cairo_surface_destroy(M.shadow); M.shadow = nullptr; }
     if (!M.shadow) { M.shadow = makeShadowMask(cw, ch, kMediaRadius); M.shadowH = static_cast<int>(ch); }
     setSource(cr, app.color("shadow"), 0.45);
@@ -961,49 +951,31 @@ void openMediaPanel(App& app, Bar* bar = nullptr) {
     popStart(M.anim);
     M.lyricsMode = mediaLyricsSaved();
     M.lyricT = M.lyricsMode ? 1.0 : 0.0;
-    const bool clicked = bar != nullptr;
-    if (!bar) bar = mediaShortcutBar(app);
+    const auto placement = barPopupAnchor(app, bar, bar ? app.cfg.mediaClickPopupPosition : app.cfg.mediaPopupPosition, mediaWidgetCentre);
+    bar = placement.bar;
     const bool vert = sideBar(app), atBottom = app.cfg.barPosition == "bottom";
-    const double gap = app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0;
+    const double anchor = placement.position, length = placement.length;
     const double inset = app.cfg.frame + 12;
-    const bool haveBar = bar && bar->surface && bar->configured && bar->width > 0;
-    const double outputLength = bar ? (vert ? bar->wpH : bar->wpW) : 0;
-    const double length = haveBar ? bar->width + 2 * gap : outputLength > 0 ? outputLength : vert ? 1080 : 1920;
-    const std::string& position = app.cfg.mediaPopupPosition;
-    double centre = -1;
-    if (haveBar) {
-        if (!clicked && position == "island" && islandActive(app) && hasSlot(*bar, "island"))
-            centre = slotX(*bar, "island") + islandW(app) / 2;
-        else if (clicked || position == "island" || position == "widget")
-            centre = mediaWidgetCentre(*bar, vert);
-    }
-    double anchor = length / 2;
-    if (centre >= 0) anchor = centre + gap;
-    else if (!clicked && position == "start") anchor = 0;
-    else if (!clicked && position == "end") anchor = length;
 
     M.surface = wl_compositor_create_surface(app.compositor);
     attachScale(app, M.scale, M.surface, [&app] { drawMediaPanel(app); });
     M.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, M.surface, bar ? bar->output : nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-media");
     constexpr uint32_t kB = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM, kT = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP, kL = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT, kR = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
-    M.anchoredBottom = vert ? anchor > length / 2 : atBottom;
+    M.anchoredBottom = !vert && atBottom;
     const bool right = vert && app.cfg.barPosition == "right";
     zwlr_layer_surface_v1_set_anchor(M.layer, (M.anchoredBottom ? kB : kT) | (right ? kR : kL));
     if (vert) {
         M.cardX = static_cast<int>(kMediaRoom);
         const int side = std::max(0, sideCardEdge(app) - static_cast<int>(kMediaRoom));
-        const double height = M.lyricsMode && !app.musicStatus.empty() ? kMediaLyricsH : kMediaCardH;
-        const double near = M.anchoredBottom ? length - anchor : anchor;
-        const int edge = static_cast<int>(mediaNearEdge(near, length, height, kMediaEqH, inset) - kMediaRoom);
-        if (centre >= 0) M.along = anchor - (M.anchoredBottom ? length - kMediaSurfH - edge : edge);
-        zwlr_layer_surface_v1_set_margin(M.layer, M.anchoredBottom ? 0 : edge, right ? side : 0,
-                                        M.anchoredBottom ? edge : 0, right ? 0 : side);
+        M.side = barPopupSide(placement, inset, kMediaRoom, kMediaSurfH);
+        if (placement.followsWidget) M.along = anchor - M.side.surfaceTop;
+        zwlr_layer_surface_v1_set_margin(M.layer, M.side.surfaceTop, right ? side : 0, 0, right ? 0 : side);
     } else {
-        const int left = static_cast<int>(mediaNearEdge(anchor, length, kMediaCardW, kMediaCardW, inset));
+        const int left = static_cast<int>(barPopupNearEdge(anchor, length, kMediaCardW, kMediaCardW, inset));
         const int surfLeft = std::max(0, left - static_cast<int>(kMediaRoom));
         M.cardX = left - surfLeft;
-        if (centre >= 0) M.along = anchor - surfLeft;
-        const int margin = std::max(0, static_cast<int>(app.cfg.frame + gap + kBarHeight + 12 - kMediaRoom));
+        if (placement.followsWidget) M.along = anchor - surfLeft;
+        const int margin = std::max(0, static_cast<int>(app.cfg.frame + placement.gap + kBarHeight + 12 - kMediaRoom));
         zwlr_layer_surface_v1_set_margin(M.layer, atBottom ? 0 : margin, 0, atBottom ? margin : 0, surfLeft);
     }
     zwlr_layer_surface_v1_set_size(M.layer, kMediaSurfW, kMediaSurfH);

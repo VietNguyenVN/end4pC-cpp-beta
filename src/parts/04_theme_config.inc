@@ -187,8 +187,8 @@ bool validIconStyle(const std::string& v) {
 }
 
 std::vector<std::string> splitList(const std::string& v, char sep = ',');
-bool validMediaPopupPosition(const std::string& position) {
-    return position == "island" || position == "widget" || position == "start" || position == "center" || position == "end";
+bool validBarPopupPosition(const std::string& position) {
+    return position == "widget" || position == "start" || position == "center" || position == "end";
 }
 
 Config sanitized(Config c) {
@@ -237,7 +237,9 @@ Config sanitized(Config c) {
     if (c.overviewPosition != "top" && c.overviewPosition != "bottom" && c.overviewPosition != "left" && c.overviewPosition != "right") c.overviewPosition = "top";
     if (c.overviewIcon != "left" && c.overviewIcon != "center" && c.overviewIcon != "right") c.overviewIcon = "right";
     c.mediaAlways = std::clamp(c.mediaAlways, 0, 1);
-    if (!validMediaPopupPosition(c.mediaPopupPosition)) c.mediaPopupPosition = "island";
+    if (!validBarPopupPosition(c.mediaPopupPosition)) c.mediaPopupPosition = "center";
+    if (!validBarPopupPosition(c.mediaClickPopupPosition)) c.mediaClickPopupPosition = "widget";
+    if (!validBarPopupPosition(c.notificationPanelPosition)) c.notificationPanelPosition = "widget";
     if (c.mediaHorizontalStyle != "compact") c.mediaHorizontalStyle = "classic";
     c.privacyAlways = std::clamp(c.privacyAlways, 0, 1);
     c.privacyMic = std::clamp(c.privacyMic, 0, 1);
@@ -471,6 +473,7 @@ bool loadConfig(App& app) {
         readIntKey(t, "mediaAlways", next.mediaAlways);
         readStringKey(t, "mediaHorizontalStyle", next.mediaHorizontalStyle);
         readStringKey(t, "mediaPopupPosition", next.mediaPopupPosition);
+        readStringKey(t, "mediaClickPopupPosition", next.mediaClickPopupPosition);
         readIntKey(t, "privacyAlways", next.privacyAlways);
         readIntKey(t, "privacyMic", next.privacyMic);
         readIntKey(t, "privacyCam", next.privacyCam);
@@ -552,6 +555,7 @@ bool loadConfig(App& app) {
         readStringKey(t, "weatherUnit", next.weatherUnit);
         readStringKey(t, "lyricsProvider", next.lyricsProvider);
         readStringKey(t, "notificationPosition", next.notificationPosition);
+        readStringKey(t, "notificationPanelPosition", next.notificationPanelPosition);
         for (int i = 0; i < kPrefixCount; i++) readStringKey(t, kPrefixKeys[i], next.prefixes[i]);
         if (const size_t lay = t.find("\"layout\""); lay != std::string::npos) {
             readStringArray(t, "left", next.layoutLeft, lay);
@@ -769,6 +773,7 @@ void saveConfig(const App& app) {
           << "  \"overviewPosition\": \"" << app.cfg.overviewPosition << "\",\n"
           << "  \"mediaHorizontalStyle\": " << "\"" << app.cfg.mediaHorizontalStyle << "\"" << ",\n"
           << "  \"mediaPopupPosition\": " << "\"" << app.cfg.mediaPopupPosition << "\"" << ",\n"
+          << "  \"mediaClickPopupPosition\": " << "\"" << app.cfg.mediaClickPopupPosition << "\"" << ",\n"
           << "  \"mediaAlways\": " << app.cfg.mediaAlways << ",\n"
           << "  \"privacyAlways\": " << app.cfg.privacyAlways << ",\n"
           << "  \"privacyMic\": " << app.cfg.privacyMic << ",\n"
@@ -831,6 +836,7 @@ void saveConfig(const App& app) {
           << "  \"fontWeightTitle\": " << app.cfg.fontWeightTitle << ",\n"
           << "  \"launcherFiles\": " << app.cfg.launcherFiles << ",\n"
           << "  \"notificationPosition\": \"" << app.cfg.notificationPosition << "\",\n"
+          << "  \"notificationPanelPosition\": \"" << app.cfg.notificationPanelPosition << "\",\n"
           << "  \"clock24\": " << app.cfg.clock24 << ",\n"
           << "  \"clockDate\": " << app.cfg.clockDate << ",\n"
           << "  \"workspaceApps\": " << app.cfg.workspaceApps << ",\n"
@@ -1154,9 +1160,9 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
         const auto& list = key == "deskVizStyle" ? kDeskVizStyles : key == "deskVizPos" ? kDeskVizPositions : kDeskVizColors;
         if (!inList(list, value)) return "unknown value";
         (key == "deskVizStyle" ? next.deskVizStyle : key == "deskVizPos" ? next.deskVizPos : next.deskVizColor) = value;
-    } else if (key == "mediaPopupPosition") {
-        if (!validMediaPopupPosition(value)) return "value must be island, widget, start, center or end";
-        next.mediaPopupPosition = value;
+    } else if (key == "mediaPopupPosition" || key == "mediaClickPopupPosition" || key == "notificationPanelPosition") {
+        if (!validBarPopupPosition(value)) return "value must be widget, start, center or end";
+        (key == "mediaPopupPosition" ? next.mediaPopupPosition : key == "mediaClickPopupPosition" ? next.mediaClickPopupPosition : next.notificationPanelPosition) = value;
     } else if (key == "mediaHorizontalStyle") {
         if (value != "classic" && value != "compact") return "value must be classic or compact";
         next.mediaHorizontalStyle = value;
@@ -1292,7 +1298,7 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
         }
         next.accent = v;
     } else if (key == "notificationPosition") {
-        if (!validNotifPosition(value)) return "value must be top_left, top_center, top_right, bottom_left, bottom_center or bottom_right";
+        if (!validNotifPosition(value)) return "value must be widget, top_left, top_center, top_right, bottom_left, bottom_center or bottom_right";
         next.notificationPosition = value;
     } else if (key == "borderActive" || key == "borderInactive") {
         if (!validBorderRole(value)) return "unknown palette role";

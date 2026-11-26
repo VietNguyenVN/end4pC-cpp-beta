@@ -569,7 +569,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
     } else if (hit == HitMedia) {
         toggleMediaPanel(*app, app->hoverBar);
     } else if (hit == HitNotif) {
-        toggleNotifPanel(*app);
+        toggleNotifPanel(*app, app->hoverBar);
     } else if (hit == HitPrev) {
         mediaSend(*app, {"previous"});
     } else if (hit == HitPlay) {

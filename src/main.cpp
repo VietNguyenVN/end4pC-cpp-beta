@@ -119,6 +119,7 @@ namespace {
 #include "parts/10e_cc_radios_draw.inc"
 #include "parts/10b_switcher.inc"
 #include "parts/10c_polkit.inc"
+#include "parts/bar_popup_placement.inc"
 #include "parts/11_osd_notifications.inc"
 #include "parts/12_notif_panel.inc"
 #include "parts/13d_eq_backend.inc"

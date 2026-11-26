@@ -160,7 +160,7 @@ const std::vector<std::string> kCornerActions = {"none", "controlcenter", "media
 const std::vector<std::string> kModules = {"workspaces", "media", "quickactions", "network", "volume", "clock", "notifications", "settings", "avatar", "battery", "systray", "resources", "launcher", "power", "tools", "weather", "aiusage", "keyboard", "activewindow", "divider", "visualizer", "updates", "bluetooth", "docktopanel", "drives", "privacy"};
 
 inline bool validNotifPosition(const std::string& p) {
-    for (const char* n : {"top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right"})
+    for (const char* n : {"top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right", "widget"})
         if (p == n) return true;
     return false;
 }
@@ -355,11 +355,13 @@ struct Config {
     int hotCorners = 1;
     int hotCornerWidth = 6, hotCornerHeight = 6, hotCornerVisible = 0, hotCornerHover = 0;  // the size of the corner regions, drawing them, and acting when the pointer enters (no click)
     std::string notificationPosition = "top_right";
+    std::string notificationPanelPosition = "widget";
     int doNotDisturb = 0;
     int notificationTimeout = 4000;
     int mediaAlways = 0;
     std::string mediaHorizontalStyle = "classic";
-    std::string mediaPopupPosition = "island";
+    std::string mediaPopupPosition = "center";
+    std::string mediaClickPopupPosition = "widget";
     int privacyAlways = 0, privacyMic = 1, privacyCam = 1, privacyScreen = 1;  // privacy indicators: show them even when idle; which of the three to watch
     std::string overviewPosition = "top";  // the overview strip: top, bottom, left or right
     std::string switcherStyle = "grid";   // Alt + Tab: "grid" of cards, or a "row" across the middle
@@ -734,12 +736,20 @@ struct NotifPopup {
     hidpi::SurfaceScale scale;
     BlurSurface blur;
     zwlr_layer_surface_v1* layer = nullptr;
-    bool configured = false;
+    bool configured = false, bottom = false, followsWidget = false;
+    wl_output* widgetOutput = nullptr;
+    double widgetAxisLength = 0, widgetPosition = 0;
+    int widgetSurfaceTop = 0;
     std::vector<Card> cards;
     uint32_t hoverId = 0;
     int hoverButton = -1;
     std::map<std::string, cairo_surface_t*> icons;
     bool open() const { return surface != nullptr; }
+};
+
+struct BarPopupSide {
+    double length = 0, position = 0, inset = 0;
+    int surfaceTop = 0;
 };
 
 struct NotifPanel {
@@ -762,6 +772,8 @@ struct NotifPanel {
     Rect clearAll, dnd;
     cairo_surface_t* shadow = nullptr;
     int shadowH = 0;
+    bool anchoredBottom = false;
+    BarPopupSide side;
     int pillX = 0;
     double originX = 0, originY = 0, pillHeight = 0;
     PopAnim anim;
@@ -955,6 +967,7 @@ struct MediaPanel {
     int lyricActive = -2;
     double cardH = 140;
     bool anchoredBottom = false;
+    BarPopupSide side;
     int shadowH = 0;
     int inputPinned = -1, inputH = 0;
     PopAnim anim;

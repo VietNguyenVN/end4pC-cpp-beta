@@ -430,7 +430,11 @@ std::vector<Page> makePages() {
         {Choice, "mediaHorizontalStyle", "Horizontal player style", "Classic shows track details and controls. Compact uses a single button like the vertical bar.", {{"classic", "Classic"}, {"compact", "Compact"}}},
         {Toggle, "mediaAlways", "Always show the player", "Keep the Player visible when idle on vertical bars and in Compact mode.", {}},
         {Choice, "mediaPopupPosition", "Player shortcut popup position", "Start and End mean left and right on a horizontal bar, or top and bottom on a vertical bar.",
-         {{"island", "Prefer Dynamic Island"}, {"widget", "Next to Player"}, {"start", "Start"}, {"center", "Center"}, {"end", "End"}}},
+         {{"widget", "Next to Player"}, {"start", "Start"}, {"center", "Center"}, {"end", "End"}}},
+        {Choice, "mediaClickPopupPosition", "Player click popup position", "Where the player opens when you click its bar widget.",
+         {{"widget", "Next to Player"}, {"start", "Start"}, {"center", "Center"}, {"end", "End"}}},
+        {Choice, "notificationPanelPosition", "Notification panel position", "Where the panel opens when you click the Notifications widget. Start and End mean left and right on horizontal bars, or top and bottom on vertical bars.",
+         {{"widget", "Next to Notifications"}, {"start", "Start"}, {"center", "Center"}, {"end", "End"}}},
         {Toggle, "privacyAlways", "Always show the indicators", "Show the privacy icons even when nothing is using them. Off: they only appear while an app uses the microphone, a camera or the screen.", {}},
         {Toggle, "privacyMic", "Microphone", "Show when an app is listening to the microphone.", {}},
         {Toggle, "privacyCam", "Camera", "Show when an app is using a camera.", {}},
@@ -559,7 +563,7 @@ std::vector<Page> makePages() {
         {Toggle, "doNotDisturb", "Do not disturb", "Keep notifications in the panel without showing popups."},
         {Slider, "notificationTimeout", "Popup time", "How long a popup stays on screen.", {}, 1000, 10000, 500, "ms"},
         {Choice, "notificationPosition", "Popup position", "Where the notification popups appear.",
-         {{"top_left", "Top left"}, {"top_center", "Top center"}, {"top_right", "Top right"}, {"bottom_left", "Bottom left"}, {"bottom_center", "Bottom center"}, {"bottom_right", "Bottom right"}}},
+         {{"top_left", "Top left"}, {"top_center", "Top center"}, {"top_right", "Top right"}, {"bottom_left", "Bottom left"}, {"bottom_center", "Bottom center"}, {"bottom_right", "Bottom right"}, {"widget", "Follow Notifications widget"}}},
         {Toggle, "notificationAppIcons", "App icons", "A notification without a picture shows the icon of the app that sent it, instead of a symbol."},
         {Toggle, "conflictCheck", "Look for conflicting programs", "At the first start of a session, look for other bars, notification daemons or wallpaper programs that fight with end4pC, and offer to close them. You can also run it by hand with: end4pC conflicts", {}},
         {Info, "periphSummary", "Device batteries", "Mouse, keyboard and headset batteries, from upower."},
@@ -656,7 +660,7 @@ std::vector<Page> makePages() {
     for (auto& pg : p) {
         if (pg.name == "General") sections(pg, {{"language", "Language"}, {"preferredPlayer", "Apps"}, {"clock24", "Time"}, {"volumeMax", "Audio"}, {"batteryLow", "Battery"}});
         else if (pg.name == "Appearance") sections(pg, {{"colorMode", "Colors"}, {"fontFamily", "Font & Icons"}, {"theme", "Themes"}, {"presetSave", "Presets"}, {"templateKitty", "Templates"}});
-        else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"mediaHorizontalStyle", "Player"}, {"privacyAlways", "Privacy"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"aiClaude", "AI usage"}});
+        else if (pg.name == "Bar") sections(pg, {{"barPosition", "Position & Style"}, {"layoutFor", "Widgets"}, {"workspaceStyle", "Workspaces"}, {"networkAlways", "Network"}, {"mediaHorizontalStyle", "Player"}, {"notificationPanelPosition", "Notifications"}, {"privacyAlways", "Privacy"}, {"quick:picker", "Quick actions"}, {"trayPinDefault", "Tray"}, {"batteryPercent", "Battery"}, {"resCpu", "Resources"}, {"aiClaude", "AI usage"}});
         else if (pg.name == "Hyprland") sections(pg, {{"mon:map", "Displays"}, {"hypr:general:layout", "Layout"}, {"hypr:input:kb_layout", "Keyboard"}, {"hypr:input:sensitivity", "Mouse"}, {"hypr:input:touchpad:natural_scroll", "Touchpad"}, {"idle:lock", "Idle"}, {"hypr:decoration:rounding", "Look"}, {"borderColor", "Borders"}, {"hypr:animations:enabled", "Animations"}, {"hypr:general:resize_on_border", "Windows"}, {"hypr:misc:focus_on_activate", "Misc"}, {"rule:add", "Rules"}});
         else if (pg.name == "Niri") sections(pg, {{"niri:gaps", "Layout"}, {"niri:radius", "Windows"}, {"niri:follow", "Behavior"}, {"niri:repeatDelay", "Input"}, {"niriReset", "Reset"}});
         else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}, {"deskVizStyle", "Visualizer"}, {"customTextFont", "Text"}});
@@ -843,7 +847,9 @@ void loadConfig() {
     if (const std::string zoom = ipc("magnifier get"); !zoom.empty() && std::isdigit(static_cast<unsigned char>(zoom[0]))) g.val["magnifier"] = zoom.substr(0, 3);
     g.val.insert({"mediaAlways", "0"});
     g.val.insert({"mediaHorizontalStyle", "classic"});
-    g.val.insert({"mediaPopupPosition", "island"});
+    g.val.insert({"mediaPopupPosition", "center"});
+    g.val.insert({"mediaClickPopupPosition", "widget"});
+    g.val.insert({"notificationPanelPosition", "widget"});
     g.val.insert({"aiCodexPercent", "used"});
     g.val.insert({"aiCodexWindow", "5h"});
     g.val.insert({"lyricsProvider", "auto"});
@@ -942,6 +948,7 @@ void loadConfig() {
             std::string v;
             if (jsonValue(t, r.key, v)) g.val[r.key] = v;
         }
+    if (g.val["mediaPopupPosition"] == "island") g.val["mediaPopupPosition"] = "center";
     g.val["collageTree"] = jsonString(t, "collageTree", kCollageDefaultTree);
     {
         std::string pos = "top", list;
@@ -2804,7 +2811,8 @@ bool rowAvailable(const Row& r) {
     if (r.key == "batteryPercent") return moduleUsed("battery");
     if (r.key == "workspaceApps") return moduleUsed("workspaces") && g.val["workspaceStyle"] != "gnome" && g.val["workspaceStyle"] != "bar";
     if (r.key == "trayPinDefault" || r.key == "trayTint") return moduleUsed("systray");
-    if (r.key == "mediaAlways" || r.key == "mediaHorizontalStyle") return moduleUsed("media");
+    if (r.key == "mediaAlways" || r.key == "mediaHorizontalStyle" || r.key == "mediaClickPopupPosition") return moduleUsed("media");
+    if (r.key == "notificationPanelPosition") return moduleUsed("notifications");
     if (r.key == "networkAlways" || r.key == "networkSpeed") return moduleUsed("network");
     if (r.key == "overviewLive" || r.key == "overviewLauncher" || r.key == "overviewIcon" || r.key == "overviewPosition") return compositorName() == "Hyprland";
     if (r.key.compare(0, 7, "privacy") == 0) return moduleUsed("privacy");
