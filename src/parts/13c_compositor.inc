@@ -212,18 +212,8 @@ int wmWorkspaceCount() {
 // The workspace each screen has in use, by connector. A bar that is not on the focused screen still has to put its own
 // workspace in its row of dots, not the one of the screen in focus.
 std::map<std::string, int> wmMonitorActiveWorkspaces() {
-    std::map<std::string, int> out;
-    if (wmKind() != Wm::Hyprland) return out;
-    const std::string tsv = captureArgv({"bash", "-c",
-        "hyprctl monitors -j 2>/dev/null | jq -r '.[] | [.name, (.activeWorkspace.id|tostring)] | @tsv'"});
-    std::istringstream in(tsv);
-    for (std::string line; std::getline(in, line);) {
-        const size_t tab = line.find('\t');
-        if (tab == std::string::npos) continue;
-        const int id = std::atoi(line.c_str() + tab + 1);
-        if (id > 0) out[line.substr(0, tab)] = id;
-    }
-    return out;
+    if (wmKind() != Wm::Hyprland) return {};
+    return wsmon::activeWorkspaces(hyprRequest("j/monitors"));  // (the socket: no program started on each event)
 }
 
 void refreshOccupied(App& app) {
@@ -295,6 +285,7 @@ struct WmEvents {
     bool keyboard = false;
     bool covered = false;   // a window may have gone fullscreen or left it
     bool reread = false;    // the workspace in use must be asked again (niri's events do not name it)
+    bool monitors = false;  // a screen came, went, or got another workspace: what each bar shows may change
     int workspace = 0;
 };
 
@@ -338,6 +329,7 @@ void wmClassifyEvent(const std::string& line, WmEvents& e) {
         const int id = std::atoi(line.c_str() + 11);
         if (id > 0) e.workspace = id;
     }
+    if (starts("monitoradded>>") || starts("monitorremoved>>") || starts("moveworkspace>>") || starts("monitoraddedv2>>") || starts("monitorremovedv2>>")) e.monitors = true;
     // Focusing a workspace already shown on another monitor only moves the focus there: "focusedmon>>MONITOR,WORKSPACE" with no "workspace>>".
     if (starts("focusedmon>>")) {
         const size_t comma = line.find(',');

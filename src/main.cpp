@@ -3,6 +3,7 @@
 #include <future>
 #include "gpuinfo.h"
 #include "hotcorners.h"
+#include "wsmonitors.h"
 #include "oled.h"
 #include "units.h"
 #include "bubble.h"

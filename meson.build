@@ -95,6 +95,9 @@ test('gpuinfo', executable('gpuinfo-test', 'tests/gpu/test_gpuinfo.cpp', install
 # The order and visibility of the Tools tabs (src/tools_tabs.h): `meson test -C build`, or tests/tools_tabs/run.sh
 test('tools_tabs', executable('tools_tabs-test', 'tests/tools_tabs/test_tools_tabs.cpp', install: false))
 
+# The workspaces a bar shows with several screens (src/wsmonitors.h): `meson test -C build`, or tests/wsmonitors/run.sh
+test('wsmonitors', executable('wsmonitors-test', 'tests/wsmonitors/test_wsmonitors.cpp', install: false))
+
 # Headless media integration: real shell code with a temporary fake playerctl.
 test('media', executable('media-test', 'tests/media/test_media.cpp',
   'src/notify_dbus.c', 'src/tray_dbus.c', 'src/polkit_dbus.c', generated,

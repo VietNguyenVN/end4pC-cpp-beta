@@ -1775,9 +1775,6 @@ struct App {
     struct KbdLayout { std::string code, name; };
     struct { std::string cls, title; cairo_surface_t* icon = nullptr; std::string iconFor; int barW = 0, titleW = 0, clsW = 0, m3W = 0; } awin;
     struct { std::vector<KbdLayout> list; std::vector<std::string> variants; int active = 0; std::string device; int barW = 0, codeW = 0, m3W = 0; } kbd;
-    double wsPill = 1;
-    bool wsPillSeen = false;
-    std::chrono::steady_clock::time_point wsPillLast{};
     std::vector<double> vizShown;
     std::chrono::steady_clock::time_point vizNext{};
     int workspace = 1;  // fed by Hyprland socket2
@@ -2383,18 +2380,17 @@ double wsGap(const App& app) {
     if (numberedStyle(app) || ringStyleWs(app)) return kNumGap;
     return barStyleWs(app) ? kWsTickGap : kWsGap;
 }
+int wsShown(const App& app) { return app.wsCount > 0 ? std::clamp(app.wsCount, 1, 20) : app.cfg.workspaces; }
 // The workspaces of a bar are a window on the compositor's ids: the bar of the screen whose workspace 11 is in use shows
-// 11, 12, ... (not 1, 2, ..., which is the other screen's set). The first id of a screen is taken from the workspace in use
-// there, rounded down to its group of ten: the same grouping the workspace action script and the monitor rules use.
+// the group that has it (not 1, 2, ..., which is the other screen's set). The first id of a screen is taken from the workspace
+// in use there, rounded down to a group of as many workspaces as the bar shows (src/wsmonitors.h, as end-4's bar does it): while
+// that workspace is inside the first group, the bar is what it always was.
 int wsActiveId(const Bar& bar) {
     const App& app = *bar.app;
     const auto it = app.monActive.find(bar.connector);
     return it != app.monActive.end() && it->second > 0 ? it->second : app.workspace;
 }
-int wsBaseOf(const Bar& bar) {
-    const int active = wsActiveId(bar);
-    return active > 0 ? ((active - 1) / 10) * 10 + 1 : 1;
-}
+int wsBaseOf(const Bar& bar) { return wsmon::groupBase(wsActiveId(bar), wsShown(*bar.app)); }
 int wsIdOf(const Bar& bar, int slot) { return wsBaseOf(bar) + slot - 1; }
 int wsSlotOf(const Bar& bar, int id) { return id - wsBaseOf(bar) + 1; }
 bool wsIsActive(const Bar& bar, int slot) { return wsIdOf(bar, slot) == wsActiveId(bar); }
@@ -2417,7 +2413,6 @@ double wsInset(const App& app) {
     if (!m3Ws(app) && !numberedStyle(app) && !iconStyleWs(app) && !ringStyleWs(app)) return (cell - kWsDot) / 2.0 - pad;
     return 0;
 }
-int wsShown(const App& app) { return app.wsCount > 0 ? std::clamp(app.wsCount, 1, 20) : app.cfg.workspaces; }
 double wsTotalW(const App& app, const Bar& bar) {
     double w = 0;
     for (int i = 1; i <= wsShown(app); i++) w += wsWidth(app, i, wsIsActive(bar, i)) + (i > 1 ? wsGap(app) : 0);

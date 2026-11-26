@@ -711,7 +711,10 @@ bool readWmEvents(App& app, int fd, std::string& pending) {
         wmClassifyEvent(line, ev);
     }
     if (ev.workspace > 0 && ev.workspace != app.workspace) { app.workspace = ev.workspace; changed = true; }
-    if (ev.workspace > 0) app.monActive = wmMonitorActiveWorkspaces();
+    if (ev.workspace > 0 || ev.monitors) {  // what each screen has in use: a bar that is not the focused one still has to show its own
+        auto active = wmMonitorActiveWorkspaces();
+        if (active != app.monActive) { app.monActive = std::move(active); changed = true; }
+    }
     if (app.ov.surface && changed) ovWorkspaceChanged(app);
     if (app.ov.surface && (ev.occupied || ev.window)) ovSoon(app);
     if (ev.covered && app.dv.surface) deskVizCheckCovered(app);
@@ -728,8 +731,9 @@ bool readWmEvents(App& app, int fd, std::string& pending) {
     if (ev.occupied) {
         const std::set<int> before = app.occupied;
         const int countBefore = app.wsCount;
+        const auto activeBefore = app.monActive;
         refreshOccupied(app);
-        changed = changed || before != app.occupied || countBefore != app.wsCount;
+        changed = changed || before != app.occupied || countBefore != app.wsCount || activeBefore != app.monActive;
         if (refreshWsApps(app)) changed = true;
         dockOnWindowsChanged(app);
     }
