@@ -270,7 +270,7 @@ struct App {
     int page = 0, prevPage = 0;
     double switchT = 1;
     Clock::time_point switchStart{};
-    wl_callback* switchFrame = nullptr;
+    wl_callback* animationFrame = nullptr;
     using PageImage = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;
     PageImage switchImages[2]{{nullptr, cairo_surface_destroy}, {nullptr, cairo_surface_destroy}};
     double switchWidth = 0, switchHeight = 0, switchScale = 0;
@@ -284,6 +284,17 @@ struct App {
     double menuT = 0;               // how far the tab menu is open, for its animation: 0 gone, 1 shown
     Clock::time_point menuStamp{};  // when it was last stepped; empty while it rests
     int tabDragFrom = -1;
+    PageImage menuImage{nullptr, cairo_surface_destroy};
+    PageImage menuBackdrop{nullptr, cairo_surface_destroy};
+    double menuScale = 0;
+    Rect menuContent{};
+    ToolPage* menuPage = nullptr;
+    struct MenuState {
+        unsigned revision;
+        int hover, choice, drag;
+        bool error;
+        bool operator==(const MenuState&) const = default;
+    } menuImageState{};
 
     xkb_context* xkbCtx = nullptr;
     xkb_keymap* xkbMap = nullptr;
@@ -801,12 +812,15 @@ double easeOutBack(double t) {
 }
 void stepMenuAnimation(Clock::time_point now) {
     if (g.menuStamp == Clock::time_point{}) return;
-    const double dt = std::min(0.05, std::chrono::duration<double>(now - g.menuStamp).count());
+    const double dt = std::chrono::duration<double>(now - g.menuStamp).count();
     g.menuStamp = now;
     const double target = g.tabMenu ? 1 : 0, speed = g.tabMenu ? 1 / 0.26 : 1 / 0.15;
     g.menuT = target > g.menuT ? std::min(target, g.menuT + dt * speed) : std::max(target, g.menuT - dt * speed);
     g.dirty = true;
-    if (g.menuT == target) g.menuStamp = Clock::time_point{};
+    if (g.menuT == target) {
+        g.menuStamp = Clock::time_point{};
+        g.menuBackdrop.reset();
+    }
 }
 
 void drawTabMenu(cairo_t* cr) {
@@ -866,6 +880,56 @@ void drawTabMenu(cairo_t* cr) {
          11, false, g.color("on_surface_variant"));
 }
 
+void clearMenuImages() {
+    g.menuImage.reset();
+    g.menuBackdrop.reset();
+    g.menuPage = nullptr;
+}
+
+void drawAnimatedTabMenu(cairo_t* cr) {
+    const Rect menu = tabMenuRect();
+    const double deviceScale = g.scale.factor();
+    const App::MenuState state{g.tabRevision, g.tabMenuHover, g.tabMenuChoice, g.tabDragFrom, g.tabMenuError};
+    const bool fresh = !g.menuImage;
+    if (fresh) {
+        g.menuImage.reset(cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+            hidpi::bufferExtent(menu.w, deviceScale), hidpi::bufferExtent(menu.h, deviceScale)));
+        if (cairo_surface_status(g.menuImage.get()) != CAIRO_STATUS_SUCCESS) g.menuImage.reset();
+        else cairo_surface_set_device_scale(g.menuImage.get(), deviceScale, deviceScale);
+    }
+    if (g.menuImage && (fresh || state != g.menuImageState)) {
+        cairo_t* snapshot = mkcr(g.menuImage.get());
+        cairo_set_operator(snapshot, CAIRO_OPERATOR_CLEAR);
+        cairo_paint(snapshot);
+        cairo_set_operator(snapshot, CAIRO_OPERATOR_OVER);
+        cairo_translate(snapshot, -menu.x, -menu.y);
+        drawTabMenu(snapshot);
+        cairo_destroy(snapshot);
+        g.menuImageState = state;
+    }
+
+    const double ax = menu.x + menu.w - 24, ay = menu.y;  // anchored under the gear
+    const double t = std::clamp(g.menuT, 0.0, 1.0);
+    const double scale = 0.84 + 0.16 * (g.tabMenu ? easeOutBack(t) : t);
+    const double alpha = std::clamp(t * 2.4, 0.0, 1.0);
+    cairo_save(cr);
+    cairo_translate(cr, ax, ay);
+    cairo_scale(cr, scale, scale);
+    cairo_translate(cr, -ax, -ay);
+    if (g.menuImage) {
+        cairo_set_source_surface(cr, g.menuImage.get(), menu.x, menu.y);
+        cairo_paint_with_alpha(cr, alpha);
+    } else {
+        cairo_rectangle(cr, menu.x, menu.y, menu.w, menu.h);
+        cairo_clip(cr);
+        cairo_push_group(cr);
+        drawTabMenu(cr);
+        cairo_pop_group_to_source(cr);
+        cairo_paint_with_alpha(cr, alpha);
+    }
+    cairo_restore(cr);
+}
+
 void clearSwitchImages() {
     for (auto& image : g.switchImages) image.reset();
 }
@@ -916,12 +980,34 @@ void drawContent(cairo_t* cr) {
     drawPageAt(cr, g.page, r, dir * slide * (1 - e), e, g.switchImages[1].get());
 }
 
-void onSwitchFrame(void*, wl_callback* callback, uint32_t) {
-    wl_callback_destroy(callback);
-    g.switchFrame = nullptr;
-    g.dirty = true;
+// The modal menu repaints independently of the page behind it.
+void drawMenuBackdrop(cairo_t* cr) {
+    const Rect r = contentRect();
+    const double scale = g.scale.factor();
+    if (g.switchT < 1) { drawContent(cr); return; }
+    if (!g.menuBackdrop || g.menuPage != g.pages[g.page] || g.menuContent.w != r.w || g.menuContent.h != r.h) {
+        g.menuBackdrop.reset(cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+            hidpi::bufferExtent(r.w, scale), hidpi::bufferExtent(r.h, scale)));
+        if (cairo_surface_status(g.menuBackdrop.get()) != CAIRO_STATUS_SUCCESS) {
+            g.menuBackdrop.reset();
+            drawContent(cr);
+            return;
+        }
+        cairo_surface_set_device_scale(g.menuBackdrop.get(), scale, scale);
+        cairo_t* snapshot = mkcr(g.menuBackdrop.get());
+        drawPageAt(snapshot, g.page, {0, 0, r.w, r.h}, 0, 1);
+        cairo_destroy(snapshot);
+        g.menuContent = r;
+        g.menuPage = g.pages[g.page];
+    }
+    drawPageAt(cr, g.page, r, 0, 1, g.menuBackdrop.get());
 }
-const wl_callback_listener kSwitchFrameListener = {onSwitchFrame};
+
+void onAnimationFrame(void*, wl_callback* callback, uint32_t) {
+    wl_callback_destroy(callback);
+    g.animationFrame = nullptr;
+}
+const wl_callback_listener kAnimationFrameListener = {onAnimationFrame};
 
 struct ToolsBuffer {
     hidpi::Frame frame;
@@ -964,7 +1050,7 @@ ToolsBuffer* acquireToolsBuffer(int width, int height, double scale) {
 }
 
 void render() {
-    if (!g.configured || !g.surface || g.switchFrame) return;
+    if (!g.configured || !g.surface || g.animationFrame) return;
     const int W = g.width, H = g.height;
     ToolsBuffer* slot = acquireToolsBuffer(W, H, g.scale.factor());
     if (!slot) return;
@@ -980,7 +1066,17 @@ void render() {
     drawTabs(cr);
     if (!g.solo) drawTabGear(cr);
     drawClose(cr);
-    drawContent(cr);
+    const bool menuVisible = g.tabMenu || g.menuT > 0;
+    if (menuVisible) {
+        if (g.menuScale != g.scale.factor()) {
+            clearMenuImages();
+            g.menuScale = g.scale.factor();
+        }
+        drawMenuBackdrop(cr);
+    } else {
+        clearMenuImages();
+        drawContent(cr);
+    }
     if (g.switchT >= 1 && !g.imePreedit.empty() && g.imePage == &cur() && !cur().imeInlinePreedit()) {
         ImeContext context;
         if (cur().imeContext(context) && context.field == g.imeSent.field) {
@@ -996,26 +1092,12 @@ void render() {
             text(cr, g.imePreedit, x + 8, y + 4, 15, false, g.color("on_surface"), w - 16);
         }
     }
-    if (g.tabMenu || g.menuT > 0.001) {
-        const Rect menu = tabMenuRect();
-        const double ax = menu.x + menu.w - 24, ay = menu.y, t = std::clamp(g.menuT, 0.0, 1.0);  // (anchored under the gear)
-        const double grow = g.tabMenu ? easeOutBack(t) : t;
-        const double scale = 0.84 + 0.16 * grow, alpha = std::clamp(t * 2.4, 0.0, 1.0);
-        cairo_save(cr);
-        cairo_translate(cr, ax, ay);
-        cairo_scale(cr, scale, scale);
-        cairo_translate(cr, -ax, -ay);
-        cairo_push_group(cr);
-        drawTabMenu(cr);
-        cairo_pop_group_to_source(cr);
-        cairo_paint_with_alpha(cr, alpha);
-        cairo_restore(cr);
-    }
+    if (menuVisible) drawAnimatedTabMenu(cr);
     cairo_destroy(cr);
     cairo_surface_flush(slot->frame.surface);
-    if (g.switchT < 1) {
-        g.switchFrame = wl_surface_frame(g.surface);
-        if (g.switchFrame) wl_callback_add_listener(g.switchFrame, &kSwitchFrameListener, nullptr);
+    if (g.switchT < 1 || menuVisible) {
+        g.animationFrame = wl_surface_frame(g.surface);
+        if (g.animationFrame) wl_callback_add_listener(g.animationFrame, &kAnimationFrameListener, nullptr);
     }
     slot->busy = true;
     hidpi::present(g.surface, slot->buffer, slot->frame, g.scale);
@@ -1159,6 +1241,7 @@ void click(bool press) {
         g.tabMenuClick = false;
         if (g.tabDragFrom >= 0) {
             const int from = std::exchange(g.tabDragFrom, -1);
+            g.menuBackdrop.reset();
             reorderToolTab(from, tabMenuAt(g.px, g.py));
             g.dirty = true;
             motion();
@@ -1404,7 +1487,8 @@ bool connectWayland() {
 
 int pollTimeoutMs() {
     int timeout = 500;
-    if (!g.switchFrame && (g.switchT < 1 || cur().animating() || g.menuStamp != Clock::time_point{})) timeout = 16;
+    if (!g.animationFrame && (g.switchT < 1 || g.menuStamp != Clock::time_point{} ||
+            (g.tabDragFrom < 0 && cur().animating()))) timeout = 16;
     if (g.repeatKey) {
         const long left = std::chrono::duration_cast<std::chrono::milliseconds>(g.repeatAt - Clock::now()).count();
         timeout = static_cast<int>(std::min<long>(timeout, std::max<long>(1, left)));
@@ -1414,8 +1498,8 @@ int pollTimeoutMs() {
 
 void tickAll() {
     const auto now = Clock::now();
-    stepMenuAnimation(now);
-    if (g.switchT < 1 && !g.switchFrame && g.switchStart != Clock::time_point{}) {
+    if (!g.animationFrame) stepMenuAnimation(now);
+    if (g.switchT < 1 && !g.animationFrame && g.switchStart != Clock::time_point{}) {
         g.switchT = std::min(1.0, std::chrono::duration<double>(now - g.switchStart).count() / 0.26);
         g.dirty = true;
         if (g.switchT >= 1) { clearSwitchImages(); motion(); }
@@ -1424,7 +1508,7 @@ void tickAll() {
         if (!handleKey(g.repeatKey)) g.repeatKey = 0;
         g.repeatAt = now + std::chrono::milliseconds(std::max(1, 1000 / std::max(1, g.kbRate)));
     }
-    if (mtimeOf(colorsPath()) != g.colorsStamp) { loadColors(); clearSwitchImages(); g.dirty = true; }
+    if (mtimeOf(colorsPath()) != g.colorsStamp) { loadColors(); clearSwitchImages(); clearMenuImages(); g.dirty = true; }
     if (g.solo && finishPowerSample()) {
         if (powerDiscoveryPending) {
             powerDiscoveryPending = false;
@@ -1433,11 +1517,18 @@ void tickAll() {
         }
         g.dirty = true;
     }
-    if (g.switchT >= 1 && (cur().tick() || cur().animating())) g.dirty = true;
+    if (g.switchT >= 1) {
+        const bool pageChanged = cur().tick();
+        if (g.menuStamp == Clock::time_point{} && g.tabDragFrom < 0 &&
+            (pageChanged || cur().animating())) {
+            g.menuBackdrop.reset();
+            g.dirty = true;
+        }
+    }
 }
 
 void teardown() {
-    if (g.switchFrame) wl_callback_destroy(g.switchFrame);
+    if (g.animationFrame) wl_callback_destroy(g.animationFrame);
     clearSwitchImages();
     if (g.xkbState) xkb_state_unref(g.xkbState);
     if (g.xkbMap) xkb_keymap_unref(g.xkbMap);
