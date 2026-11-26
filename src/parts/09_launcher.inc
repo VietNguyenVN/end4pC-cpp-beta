@@ -4,7 +4,7 @@ constexpr int kLaunPadTop = 16;
 constexpr int kLaunW = 500 + 2 * 20, kLaunH = 700;
 constexpr double kLaunCollapsedW = 370, kLaunExpandedW = 500;
 constexpr double kLaunBarH = 56, kLaunRadius = 28;
-constexpr double kLaunPreviewH = 400;
+constexpr double kLaunPreviewH = 420;
 constexpr double kLaunItemH = 48, kLaunItemGap = 2, kLaunListPad = 10, kLaunListMax = 600;
 constexpr int kLaunMaxResults = 15;
 constexpr const char* kLaunFieldFont = "Sans 11";
@@ -551,7 +551,7 @@ void requestClipBig(Launcher& L, const std::string& id) {
         _exit(127);
     }
 }
-// The text of a clipboard entry, up to ~6 KB (cut at a UTF-8 boundary).
+// The text of a clipboard entry, up to ~30 KB (cut at a UTF-8 boundary).
 std::string clipFullText(const std::string& line) {
     std::string out;
     const std::string id = clipId(line);
@@ -560,10 +560,10 @@ std::string clipFullText(const std::string& line) {
     if (!f) return clipText(line);
     char buf[2048];
     size_t n;
-    while (out.size() < 6000 && (n = fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
+    while (out.size() < 30000 && (n = fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
     pclose(f);
-    if (out.size() > 6000) {
-        out.resize(6000);
+    if (out.size() > 30000) {
+        out.resize(30000);
         while (!out.empty() && (static_cast<unsigned char>(out.back()) & 0xC0) == 0x80) out.pop_back();
         if (!out.empty() && (static_cast<unsigned char>(out.back()) & 0xC0) == 0xC0) out.pop_back();
     }
@@ -1032,6 +1032,8 @@ void launcherPreviewLoad(Launcher& L) {  // the selected entry's content (the te
     L.prevId = clipId(line);
     L.prevImage = clipIsImage(line);
     L.prevText.clear();
+    L.prevScroll = 0;
+    L.prevBand.reset();
     if (L.prevImage) requestClipBig(L, L.prevId);
     else L.prevText = clipFullText(line);
 }
@@ -1045,6 +1047,7 @@ void launcherPreviewOpen(App& app) {
     L.prev.outSeconds = 0.13;
     popStart(L.prev);
     L.hover = -1;
+    L.prevHover = -1;
     drawLauncher(app);
 }
 void launcherPreviewClose(App& app) {
@@ -1064,16 +1067,14 @@ void drawLauncherPreview(App& app, cairo_t* cr, PangoLayout* layout, const LaunL
     Launcher& L = app.launcher;
     const double rev = std::max(0.0, L.prev.reveal);
     if (rev <= 0.001) return;
-    const double cx = g.px + 10, cy = g.listTop + 10, cw = g.pw - 20, chFull = kLaunPreviewH - 20;
-    const double ch = std::max(0.0, std::min(chFull, g.ph - g.listTop - 20));
+    const double cx = g.px + 14, cy = g.listTop + 8, cw = g.pw - 28, chFull = kLaunPreviewH - 22;  // (14 px on the sides and below; closer to the divider above)
+    const double ch = std::max(0.0, std::min(chFull, g.ph - g.listTop - 22));
     if (ch < 40) return;
     popGroupBegin(cr);
     cairo_save(cr);
     roundedRect(cr, cx, cy, cw, ch, 20);
     cairo_clip(cr);
-    setSource(cr, app.color("surface_container_high"));
-    cairo_paint(cr);
-    constexpr double kHead = 46, kFoot = 34, kPadIn = 14;
+    constexpr double kHead = 46, kFoot = 64, kPadIn = 14;
     const Color ink = app.color("on_surface"), sub = app.color("on_surface_variant");
     int tw = 0, th = 0;
     auto font = [&](const char* name) {
@@ -1156,26 +1157,71 @@ void drawLauncherPreview(App& app, cairo_t* cr, PangoLayout* layout, const LaunL
         pango_layout_set_wrap(layout, PANGO_WRAP_WORD_CHAR);
         pango_layout_set_text(layout, L.prevText.c_str(), -1);
         pango_layout_get_pixel_size(layout, &tw, &th);
-        const int lineH = std::max(1, th / std::max(1, pango_layout_get_line_count(layout)));
-        pango_layout_set_height(layout, -std::max(1, static_cast<int>((bh - 24) / lineH)));
-        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+        L.prevMax = std::max(0.0, th - (bh - 24));
+        L.prevScroll = std::clamp(L.prevScroll, 0.0, L.prevMax);
+        cairo_save(cr);
+        roundedRect(cr, bx, by, bw, bh, 14);
+        cairo_clip(cr);
         setSource(cr, ink);
-        cairo_move_to(cr, bx + 12, by + 12);
+        cairo_move_to(cr, bx + 12, by + 12 - (L.prevScroll + L.prevBand.over));
         pango_cairo_show_layout(cr, layout);
-        pango_layout_set_height(layout, -1);
-        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_NONE);
+        if (L.prevMax > 0 && L.prevBand.thumbAlpha() > 0) {  // a thin scroll mark: shown while the wheel moves, faded out soon after (the rule everywhere)
+            const double trackH = bh - 16, thumbH = std::max(24.0, trackH * (bh - 24) / th);
+            roundedRect(cr, bx + bw - 7, by + 8 + (trackH - thumbH) * (L.prevScroll / L.prevMax), 3, thumbH, 1.5);
+            setSource(cr, app.color("outline"), 0.7 * L.prevBand.thumbAlpha());
+            cairo_fill(cr);
+        }
+        cairo_restore(cr);
         pango_layout_set_width(layout, -1);
     }
     // footer hint
-    font("Sans 9");
-    const std::string hint = std::string(i18n::tr("Space or Esc to close")) + "  ·  " + i18n::tr("Enter to copy");
-    pango_layout_set_text(layout, hint.c_str(), -1);
-    pango_layout_get_pixel_size(layout, &tw, &th);
-    setSource(cr, sub);
-    cairo_move_to(cr, cx + (cw - tw) / 2.0, cy + chFull - kFoot + (kFoot - th) / 2.0);
-    pango_cairo_show_layout(cr, layout);
+    {  // Back (outlined) and Copy (filled): 40 px pills
+        const char* labels[2] = {i18n::tr("Back"), i18n::tr("Copy")};
+        font("Sans Medium 11");
+        double bwid[2];
+        for (int i = 0; i < 2; i++) {
+            pango_layout_set_text(layout, labels[i], -1);
+            pango_layout_get_pixel_size(layout, &tw, &th);
+            bwid[i] = std::max(88.0, tw + 48.0);
+        }
+        const double by2 = cy + chFull - kPadIn - 40, total = bwid[0] + 12 + bwid[1];
+        double x = cx + cw - kPadIn - total;  // (right aligned, as Material dialogs do)
+        for (int i = 0; i < 2; i++) {
+            L.prevBtn[i][0] = x; L.prevBtn[i][1] = by2; L.prevBtn[i][2] = bwid[i]; L.prevBtn[i][3] = 40;
+            const bool filled = i == 1, hot = L.prevHover == i;
+            roundedRect(cr, x, by2, bwid[i], 40, 20);
+            if (filled) { setSource(cr, app.color("primary")); cairo_fill(cr); }
+            else { setSource(cr, app.color("outline")); cairo_set_line_width(cr, 1); cairo_save(cr); roundedRect(cr, x + 0.5, by2 + 0.5, bwid[i] - 1, 39, 19.5); cairo_stroke(cr); cairo_restore(cr); cairo_new_path(cr); }
+            const Color labelInk = app.color(filled ? "on_primary" : "primary");
+            if (hot) { roundedRect(cr, x, by2, bwid[i], 40, 20); setSource(cr, labelInk, 0.10); cairo_fill(cr); }
+            pango_layout_set_text(layout, labels[i], -1);
+            pango_layout_get_pixel_size(layout, &tw, &th);
+            setSource(cr, labelInk);
+            cairo_move_to(cr, x + (bwid[i] - tw) / 2.0, by2 + (40 - th) / 2.0);
+            pango_cairo_show_layout(cr, layout);
+            x += bwid[i] + 12;
+        }
+    }
     cairo_restore(cr);
-    popGroupEnd(cr, rev, g.px + g.pw / 2.0, g.listTop + 30, 1.0);
+    // (the pop motion, done here: the group sits inside the pill's clip, so popGroupEnd's device-space matrix would shift it)
+    const double r = std::clamp(rev, 0.0, 1.0);
+    cairo_matrix_t move;  // where the group is painted: the identity, or a small slide / zoom while it appears
+    cairo_matrix_init_identity(&move);
+    if (g_animStyle == "slide") cairo_matrix_init_translate(&move, 0, kPopSlidePx * 0.5 * (1 - r));
+    else if (g_animStyle == "zoom" || g_animStyle == "boing") {
+        const double s2 = 0.9 + 0.1 * rev, mx = cx + cw / 2, my = cy + 30;
+        cairo_matrix_init(&move, s2, 0, 0, s2, mx * (1 - s2), my * (1 - s2));
+    }
+    cairo_pop_group_to_source(cr);
+    cairo_matrix_t back, base;
+    cairo_pattern_t* group = cairo_get_source(cr);
+    cairo_pattern_get_matrix(group, &base);
+    back = move;
+    if (cairo_matrix_invert(&back) == CAIRO_STATUS_SUCCESS) {
+        cairo_matrix_multiply(&base, &back, &base);
+        cairo_pattern_set_matrix(group, &base);
+    }
+    cairo_paint_with_alpha(cr, r);
 }
 
 void drawLauncher(App& app) {
@@ -1604,13 +1650,14 @@ void tickLauncher(App& app, std::chrono::steady_clock::time_point now) {
     bool moving = false, prevMoving = false;
     if (popTick(L.anim, now, moving)) { closeLauncher(app); return; }
     if (popTick(L.prev, now, prevMoving)) { L.prev.phase = kPopOpen; L.prev.reveal = 0; prevMoving = true; }  // (the preview faded out: idle)
-    if (moving || prevMoving) drawLauncher(app);
+    if (L.prevBand.step() || moving || prevMoving) drawLauncher(app);
 }
 std::chrono::steady_clock::time_point launcherWake(const App& app) {
     if (!app.launcher.open() || !app.launcher.configured) return std::chrono::steady_clock::time_point::max();
     const auto now = std::chrono::steady_clock::now();
     auto wake = std::min(popWake(app.launcher.anim.phase, app.launcher.anim.settleAt, now), popWake(app.launcher.prev.phase, app.launcher.prev.settleAt, now));
     if (launcherWaitsForRates(app.launcher)) wake = std::min(wake, app.launcher.convPoll);
+    if (app.launcher.previewOpen && app.launcher.prevBand.busy()) wake = std::min(wake, now + std::chrono::milliseconds(16));
     return wake;
 }
 
@@ -1656,6 +1703,11 @@ bool launcherKey(App& app, uint32_t key) {
     const bool ctrl = xkb_state_mod_name_is_active(app.xkbState, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0;
     if (L.previewOpen) {  // the preview: Space closes it, the arrows move it to the next entry, Enter copies; any other key closes it and acts as usual
         if (sym == XKB_KEY_space) { launcherPreviewClose(app); return true; }
+        if (!L.prevImage && (sym == XKB_KEY_Page_Down || sym == XKB_KEY_Page_Up)) {  // (the long text scrolls)
+            elasticWheel(L.prevBand, L.prevScroll, L.prevMax, sym == XKB_KEY_Page_Down ? 220 : -220);
+            drawLauncher(app);
+            return true;
+        }
         if (sym == XKB_KEY_Down || sym == XKB_KEY_Up || sym == XKB_KEY_Page_Down || sym == XKB_KEY_Page_Up) {
             const int step = sym == XKB_KEY_Down ? 1 : sym == XKB_KEY_Up ? -1 : sym == XKB_KEY_Page_Down ? 5 : -5;
             const int before = L.selected;
@@ -1768,7 +1820,13 @@ void launcherMotion(App& app) {
         drawLauncher(app);
         return;
     }
-    if (L.previewOpen) return;
+    if (L.previewOpen) {
+        int hot = -1;
+        for (int i = 0; i < 2; i++)
+            if (Rect{L.prevBtn[i][0], L.prevBtn[i][1], L.prevBtn[i][2], L.prevBtn[i][3]}.contains(app.pointerX, launcherPy(app))) hot = i;
+        if (hot != L.prevHover) { L.prevHover = hot; drawLauncher(app); }
+        return;
+    }
     const LaunLayout g = launcherLayout(app);
     const int btn = launcherButtonAt(app, app.pointerX, launcherPy(app));
     if (btn != L.btnHover) { L.btnHover = btn; drawLauncher(app); updateCursor(app); }
@@ -1789,7 +1847,15 @@ void launcherClick(App& app) {
     const LaunLayout g = launcherLayout(app);
     if (popIsOut(L.anim)) return;
     if (!Rect{g.px, 0, g.pw, g.ph}.contains(app.pointerX, launcherPy(app))) { retractLauncher(app); return; }
-    if (L.previewOpen) { if (launcherPy(app) > g.listTop) launcherPreviewClose(app); return; }
+    if (L.previewOpen) {
+        for (int i = 0; i < 2; i++)
+            if (Rect{L.prevBtn[i][0], L.prevBtn[i][1], L.prevBtn[i][2], L.prevBtn[i][3]}.contains(app.pointerX, launcherPy(app))) {
+                if (i == 0) launcherPreviewClose(app);
+                else launcherActivate(app, L.selected);
+                return;
+            }
+        return;
+    }
     if (const int btn = launcherButtonAt(app, app.pointerX, launcherPy(app)); btn >= 0) {
         if (std::string(kLaunButtons[btn].key) == "scanQr") { retractLauncher(app); openCapture(app); if (app.cap.open()) app.cap.autoAct = 3; return; }
         L.text = std::string(1, kPfxClipboard);
@@ -1838,7 +1904,10 @@ void launcherClick(App& app) {
 
 void launcherScroll(App& app, int rows) {
     Launcher& L = app.launcher;
-    if (L.previewOpen) return;
+    if (L.previewOpen) {
+        if (!L.prevImage) { elasticWheel(L.prevBand, L.prevScroll, L.prevMax, rows * 48.0); drawLauncher(app); }
+        return;
+    }
     const LaunLayout g = launcherLayout(app);
     const int maxScroll = std::max(0, g.nMain - g.mainVisible);
     const int next = std::clamp(L.scroll + rows, 0, maxScroll);

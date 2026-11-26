@@ -591,6 +591,10 @@ struct Launcher {
     bool prevImage = false;
     cairo_surface_t* prevImg = nullptr;  // the picture decoded for the preview (cached in ~/.cache/end4pC/clip/<id>-big.png)
     std::string prevImgId;
+    Elastic prevBand;  // rubber band + the fading scroll mark, like Settings
+    double prevScroll = 0, prevMax = 0;  // the text preview scrolls (pixels, and how far it can go)
+    double prevBtn[2][4] = {};  // hit boxes of the Back and Copy buttons (x, y, w, h)
+    int prevHover = -1;
     bool open() const { return surface != nullptr; }
 };
 
