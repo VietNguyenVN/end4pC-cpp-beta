@@ -452,6 +452,8 @@ struct Config {
     std::string avatarPath;
     std::string themePrimary, themeSecondary, themeTertiary;
     std::string quickActions = "picker,record,screenshot,wallpaper";
+    std::string hiddenToolsTabs;
+    std::string toolsTabOrder;
     std::string theme;
     std::string accent;
     std::string avatarPicture;

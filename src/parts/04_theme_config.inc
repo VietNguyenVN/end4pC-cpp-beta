@@ -389,6 +389,16 @@ Config sanitized(Config c) {
                 if (n == kQuickNames[i] && seen.insert(n).second) clean += (clean.empty() ? "" : ",") + n;
         c.quickActions = clean;
     }
+    {
+        std::string hidden;
+        for (const auto& tab : tools_tabs::tabs) {
+            if (!tools_tabs::isHidden(c.hiddenToolsTabs, tab.id)) continue;
+            if (!hidden.empty()) hidden += ',';
+            hidden += tab.id;
+        }
+        c.hiddenToolsTabs = std::move(hidden);
+    }
+    if (!c.toolsTabOrder.empty()) c.toolsTabOrder = tools_tabs::formatOrder(tools_tabs::parseOrder(c.toolsTabOrder));
     for (std::string* a : {&c.themePrimary, &c.themeSecondary, &c.themeTertiary})
         a->erase(std::remove_if(a->begin(), a->end(), [](char ch) { return !(std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-'); }), a->end());
     c.theme.erase(std::remove_if(c.theme.begin(), c.theme.end(), [](char ch) { return !(std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-'); }), c.theme.end());
@@ -668,6 +678,8 @@ bool loadConfig(App& app) {
         readStringKey(t, "selectorFolders", next.selectorFolders);
         readStringKey(t, "theme", next.theme);
         readStringKey(t, "quickActions", next.quickActions);
+        readStringKey(t, "hiddenToolsTabs", next.hiddenToolsTabs);
+        readStringKey(t, "toolsTabOrder", next.toolsTabOrder);
         readIntKey(t, "cookieSides", next.cookieSides);
         readIntKey(t, "cookieTime", next.cookieTime);
         for (const auto& ch : kCookieChoices) readStringKey(t, ch.key, *cookieField(next, ch.key));
@@ -880,6 +892,8 @@ void saveConfig(const App& app) {
           << "  \"clockStyle\": \"" << app.cfg.clockStyle << "\",\n"
           << "  \"theme\": \"" << app.cfg.theme << "\",\n"
           << "  \"quickActions\": \"" << app.cfg.quickActions << "\",\n"
+          << "  \"hiddenToolsTabs\": \"" << app.cfg.hiddenToolsTabs << "\",\n"
+          << "  \"toolsTabOrder\": \"" << app.cfg.toolsTabOrder << "\",\n"
           << "  \"cookieSides\": " << app.cfg.cookieSides << ",\n"
           << "  \"cookieTime\": " << app.cfg.cookieTime << ",\n"
           << "  \"cookieDial\": \"" << app.cfg.cookieDial << "\",\n"
@@ -1129,6 +1143,10 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
             clean = value;
         }
         next.quickActions = clean;
+    } else if (key == "hiddenToolsTabs") {
+        next.hiddenToolsTabs = value;
+    } else if (key == "toolsTabOrder") {
+        next.toolsTabOrder = value == "-" ? "" : value;
     } else if (key == "recordDesktop") {
         next.recordDesktop = std::atoi(value.c_str()) ? 1 : 0;
     } else if (key == "recordFps") {
