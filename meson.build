@@ -98,6 +98,9 @@ test('tools_tabs', executable('tools_tabs-test', 'tests/tools_tabs/test_tools_ta
 # The workspaces a bar shows with several screens (src/wsmonitors.h): `meson test -C build`, or tests/wsmonitors/run.sh
 test('wsmonitors', executable('wsmonitors-test', 'tests/wsmonitors/test_wsmonitors.cpp', install: false))
 
+# The display name and the host name (src/identity.h): `meson test -C build`, or tests/identity/run.sh
+test('identity', executable('identity-test', 'tests/identity/test_identity.cpp', install: false))
+
 # Headless media integration: real shell code with a temporary fake playerctl.
 test('media', executable('media-test', 'tests/media/test_media.cpp',
   'src/notify_dbus.c', 'src/tray_dbus.c', 'src/polkit_dbus.c', generated,

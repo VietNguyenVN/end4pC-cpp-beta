@@ -15,12 +15,8 @@ std::string userHeroSource(const App& app, const UserW& X) {
 }
 
 void userRefresh(App& app, UserW& X) {
-    if (X.name.empty()) {
-        std::ifstream f(homeDir() + "/.config/illogical-impulse/config.json");
-        std::stringstream ss;
-        ss << f.rdbuf();
-        readStringKey(ss.str(), "displayName", X.name);
-        if (X.name.empty()) { const struct passwd* pw = getpwuid(getuid()); X.name = pw ? pw->pw_name : "user"; }
+    X.name = shownName(app);  // (the display name of Settings > Profile, or the user name)
+    {
         char h[128] = {};
         gethostname(h, sizeof h - 1);
         X.host = h;

@@ -453,6 +453,7 @@ struct Config {
     int fontWeightText = 450, fontWeightTitle = 550;  // wght of a variable font: normal text and bold/titles (Settings > Appearance > Font & Icons)
     int launcherFiles = 0;  // the launcher also searches files (off by default)
     std::string avatarPath;
+    std::string displayName;  // what the person is called on the bar, the control center, the desktop card, Settings and the lock screen: empty means the user name (src/identity.h)
     std::string themePrimary, themeSecondary, themeTertiary;
     std::string quickActions = "picker,record,screenshot,wallpaper";
     std::string hiddenToolsTabs;

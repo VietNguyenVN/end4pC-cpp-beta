@@ -213,6 +213,9 @@ bool startUPowerWatcher(UPowerWatch& w) {
 
 std::string volLimit(const App& app) { char b[16]; std::snprintf(b, sizeof b, "%.2f", app.cfg.volumeMax / 100.0); return b; }
 std::string volStep(const App& app, bool down) { return std::to_string(app.cfg.volumeStep) + (down ? "%-" : "%+"); }
+// The user name of the account, and the name the person is shown with (src/identity.h): the display name, or the user name when there is none.
+std::string systemUserName() { const struct passwd* pw = getpwuid(getuid()); return pw && pw->pw_name ? pw->pw_name : "user"; }
+std::string shownName(const App& app) { return identity::displayName(app.cfg.displayName, systemUserName()); }
 // The volume of the sound card can go above 100 % (a keybind with `wpctl -l 1.5`, pavucontrol, the Volume limit raised above 100):
 // the shell shows it as it is. A slider spans 0..volScale: 100, or the limit when that is higher, with a mark where 100 % is.
 int volScale(const App& app) { return std::max(100, app.cfg.volumeMax); }

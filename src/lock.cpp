@@ -1,5 +1,6 @@
 #include <cairo.h>
 #include "i18n.h"
+#include "identity.h"
 #include "oled.h"
 #include "shapes.h"
 #include "shellfont.h"
@@ -255,10 +256,10 @@ void loadProfile() {
     std::string pic, own, display;
     jsonValue(readFile(configFile()), "avatarPicture", own);
     jsonValue(ii, "avatarPicture", pic);
-    jsonValue(ii, "displayName", display);
+    jsonValue(readFile(configFile()), "displayName", display);  // (the display name of Settings > Profile)
     const passwd* pw = getpwuid(getuid());
     g_profile.user = pw ? pw->pw_name : "";
-    g_profile.name = display.empty() ? g_profile.user : display;
+    g_profile.name = identity::displayName(display, g_profile.user);
     for (const std::string& c : {own, pic, homeDir() + "/.face", homeDir() + "/.face.icon"})
         if (!c.empty() && access(c.c_str(), R_OK) == 0) { g_profile.avatar = loadCover(c, kAvatar, kAvatar); break; }
 }
@@ -1072,10 +1073,18 @@ void paintFrame(cairo_t* cr, int W, int H) {
             if (m > 0 || up.empty()) up += (up.empty() ? "" : ", ") + std::to_string(m) + "m";
             up = "Up • " + up;
         }
-        const TextSize nameS = text(cr, g_profile.name, 0, 0, 26, true, white, 1, false);
+        const double nameX = M + kAvatar + 22, maxName = std::max(120.0, std::min(W * 0.42, 560.0) - nameX);
+        std::string shownName = g_profile.name;  // (a long name ends in "…" before it runs off the card)
+        for (bool cut = false; shownName.size() > 1 && text(cr, shownName + (cut ? "…" : ""), 0, 0, 26, true, white, 1, false).w > maxName; cut = true) {
+            size_t k = shownName.size() - 1;
+            while (k > 0 && (static_cast<unsigned char>(shownName[k]) & 0xC0) == 0x80) k--;
+            shownName.resize(k);
+            if (shownName.size() <= 1 || text(cr, shownName + "…", 0, 0, 26, true, white, 1, false).w <= maxName) { shownName += "…"; break; }
+        }
+        const TextSize nameS = text(cr, shownName, 0, 0, 26, true, white, 1, false);
         const TextSize upS = text(cr, up, 0, 0, 16, false, white, 1, false);
         const double top = cy - (nameS.h + upS.h - 2) / 2.0, tx = M + kAvatar + 22;
-        text(cr, g_profile.name, tx, top, 26, true, white);
+        text(cr, shownName, tx, top, 26, true, white);
         text(cr, up, tx + 1, top + nameS.h - 2, 16, false, white, 0.75);
     }
 

@@ -1,6 +1,7 @@
 #include <cairo/cairo.h>
 #include "i18n.h"
 #include <future>
+#include "identity.h"
 #include "gpuinfo.h"
 #include "hotcorners.h"
 #include "wsmonitors.h"

@@ -590,7 +590,7 @@ void islandSyncCover(App& app) {
     if (g_icPowerMode || islandNotifShown(app) || g_icLive.active || islandShowsRec(app)) return;
     if (islandIdle(app)) {
         UserW& X = app.userW;
-        if (X.name.empty() || X.heroPath != userHeroSource(app, X)) userRefresh(app, X);
+        if (X.name.empty() || X.name != shownName(app) || X.heroPath != userHeroSource(app, X)) userRefresh(app, X);
         return;
     }
     const std::string path = mediaCoverPath(app);

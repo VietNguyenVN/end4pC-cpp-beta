@@ -9,6 +9,7 @@ Usage:
   system_session.py --audio-list sinks|sources "ID|Name" lines
   system_session.py --audio-set ID | --mic-mute 0|1
   system_session.py --power-get | --power-list | --power-set PROFILE
+  system_session.py --hostname-set NAME        the host name of the computer (hostnamectl asks polkit; the shell's own agent shows the password box)
   system_session.py --time-get | --time-list | --time-zone NAME | --time-ntp 0|1   (time zone and automatic time, through timedatectl)
   system_session.py --bundle                   everything the System page lists and reads, in one process:
                                                "@@name" lines, each followed by that command's lines
@@ -284,6 +285,10 @@ def time_ntp(on):
     run_wait("timedatectl", "set-ntp", "true" if on == "1" else "false")
 
 
+def hostname_set(name):
+    run_wait("hostnamectl", "set-hostname", name)
+
+
 def bundle():
     """One run for the whole page (nineteen separate Python starts made opening Settings visibly slower)."""
     import contextlib
@@ -349,6 +354,8 @@ def main(a):
         time_zone(a[1])
     elif a[:1] == ["--time-ntp"] and len(a) > 1 and a[1] in ("0", "1"):
         time_ntp(a[1])
+    elif a[:1] == ["--hostname-set"] and len(a) > 1 and len(a[1]) <= 64 and re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?", a[1]) and ".." not in a[1] and ".-" not in a[1] and "-." not in a[1]:
+        hostname_set(a[1])
     else:
         print(__doc__)
         return 1

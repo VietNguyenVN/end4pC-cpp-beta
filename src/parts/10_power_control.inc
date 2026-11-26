@@ -424,7 +424,7 @@ void drawControlCenter(App& app) {
     auto hot = [&](int id) { return C.hover == id && !anyDown; };
 
     {
-        const std::string name = [] { const struct passwd* pw = getpwuid(getuid()); return std::string(pw ? pw->pw_name : "user"); }();
+        const std::string name = shownName(app);
         const Rect r0 = rectOf(CcSettings);
         const double hy = kCcPad;
         if (app.avatar) {
@@ -441,7 +441,7 @@ void drawControlCenter(App& app) {
             circle(kCcPad + 22, hy + 22, 22, app.color("primary_container"));
             drawIcon(cr, "user-circle", kCcPad + 22 - 13, hy + 22 - 13, 26, app.color("on_primary_container"));  // (no picture chosen: a person, like the bar module and the lock screen)
         }
-        const int th0 = label(name, "Sans Bold 13", kCcPad + 56, hy + 3, onSurf);
+        const int th0 = label(name, "Sans Bold 13", kCcPad + 56, hy + 3, onSurf, 1, std::max(60.0, rectOf(CcRestart).x - (kCcPad + 56) - 10));  // (a long name ends in "…" before the buttons)
         label("Control center", "Sans 10", kCcPad + 56, hy + 3 + th0 + 1, variant);
         for (int id : {CcRestart, CcPower, CcSettings}) {
             const Rect r = rectOf(id);

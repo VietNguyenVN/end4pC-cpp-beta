@@ -1,5 +1,6 @@
 #include <cairo.h>
 #include "i18n.h"
+#include "identity.h"
 #include "hotcorners.h"
 #include "oled.h"
 #include "bubble.h"
@@ -655,6 +656,8 @@ std::vector<Page> makePages() {
     else p.push_back({compositorName(), "widget", {}, false, false, true});
     p.push_back({"About", "info-circle", {}, true});
     p.push_back({"Profile", "user-circle", {
+        {Text, "displayName", "Display name", "How you are called on the bar, the control center, the desktop card and the lock screen. Empty: your user name."},
+        {Text, "sys:hostname", "Hostname", "The name of this computer on the network: letters, numbers, hyphens and dots. It asks for your password."},
         {Text, "avatarPath", "Avatar folder", "A folder with your pictures. Pick one below."},
         {Gallery, "avatarPicture", "Avatar", "The picture shown in the bar, the control center and here."},
         {Action, "avatarReset", "Default avatar", "Go back to the picture of your Quickshell config, or ~/.face.", {}, 0, 100, 1, "Reset"},
@@ -831,7 +834,7 @@ void loadColors() {
     }
 }
 
-std::string g_profPic;
+std::string g_profPic, g_profName;
 void loadProfile();
 bool loadWidgetStates() {
     bool changed = false;
@@ -1034,7 +1037,7 @@ void loadConfig() {
     g.iconStyle = st;
     matsym::enabled() = g.val.count("materialIcons") && g.val["materialIcons"] == "1";
     loadColors();
-    if (g_profPic != (g.val.count("avatarPicture") ? g.val["avatarPicture"] : "")) loadProfile();
+    if (g_profPic != (g.val.count("avatarPicture") ? g.val["avatarPicture"] : "") || g_profName != (g.val.count("displayName") ? g.val["displayName"] : "")) loadProfile();
 }
 
 std::mutex g_preMx;
@@ -1546,6 +1549,10 @@ std::string shq(const std::string& v) {
     return o + "'";
 }
 void sysSend(const std::string& key, const std::string& value) {
+    if (key == "sys:hostname") {  // hostnamectl asks for the password in the shell's own box; the field shows the real name again meanwhile (refreshHostname)
+        if (identity::validHostname(value) && value != g.val[key]) spawn({"bash", "-c", sysCmd("system_session.py", "--hostname-set " + shq(value))});
+        return;
+    }
     g.val[key] = value;
     auto v = [&](const char* k, const char* def) { const auto it = g.val.find(std::string("sys:") + k); return it != g.val.end() && !it->second.empty() ? it->second : std::string(def); };
     std::string cmd;
@@ -2062,14 +2069,11 @@ cairo_surface_t* squareSurface(const std::string& path, int size) {
 void loadProfile() {
     Profile& p = g_profile;
     const std::string ii = readFile(homeDir() + "/.config/illogical-impulse/config.json");
-    std::string pic, display;
+    std::string pic;
     jsonValue(ii, "avatarPicture", pic);
-    jsonValue(ii, "displayName", display);
-    if (display.empty()) {
-        const passwd* pw = getpwuid(getuid());
-        display = pw ? pw->pw_name : "user";
-    }
-    p.name = display;
+    const passwd* pw = getpwuid(getuid());
+    g_profName = g.val.count("displayName") ? g.val["displayName"] : "";
+    p.name = identity::displayName(g_profName, pw ? pw->pw_name : "user");  // (the display name of Settings > Profile, or the user name)
     if (p.avatar) { cairo_surface_destroy(p.avatar); p.avatar = nullptr; }
     p.avatarPath.clear();
     const std::string mine = g.val.count("avatarPicture") ? g.val["avatarPicture"] : "";
@@ -2078,6 +2082,18 @@ void loadProfile() {
         if (!c.empty() && access(c.c_str(), R_OK) == 0) { p.avatarPath = c; break; }
     if (p.avatarPath.empty()) return;
     p.avatar = squareSurface(p.avatarPath, 60);
+}
+
+// The host name of the computer, as the kernel has it: it follows a change made here (after the password) or anywhere else.
+bool refreshHostname() {
+    if (g.focusRow >= 0 && g.page < static_cast<int>(g.pages.size()) && g.focusRow < static_cast<int>(g.pages[g.page].rows.size()) &&
+        g.pages[g.page].rows[g.focusRow].key == "sys:hostname") return false;  // (while the field is being typed in: leaving it compares with what it had on getting the focus)
+    char h[256] = {};
+    gethostname(h, sizeof h - 1);
+    std::string& shown = g.val["sys:hostname"];
+    if (shown == h) return false;
+    shown = h;
+    return true;
 }
 
 bool refreshUptime() {
@@ -5788,6 +5804,7 @@ int main() {
     loadConfig();
     loadProfile();
     refreshUptime();
+    refreshHostname();
     g.secSel.assign(g.pages.size(), 0);
     for (size_t i = 0; i < savedChips.size() && i < g.secSel.size(); i++) g.secSel[i] = savedChips[i];  // (chipIndex keeps it inside the page's chips)
     loadUpdates();
@@ -5889,6 +5906,7 @@ int main() {
         if (loadWidgetStates()) g.dirty = true;
         if (collagePickPoll()) g.dirty = true;
         if (refreshUptime()) g.dirty = true;
+        if (refreshHostname()) g.dirty = true;
         if (g.pages[g.page].about && g_sys.loaded && now - g_sys.stamp > std::chrono::seconds(3)) { refreshSysLive(); g.dirty = true; }
         if (mtimeOf(updatesPath()) != g.updStamp) { loadUpdates(); g.dirty = true; }
         if (g.pages[g.page].name == "Niri" && niriPoll()) g.dirty = true;
