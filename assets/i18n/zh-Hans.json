@@ -1835,7 +1835,7 @@
  "The letters of the text on the desktop. Click the text to write; right click it to resize it.": "桌面上的文字。点击文字即可输入；右键点击可调整大小。",
  "The lock screen shows the video wallpaper playing, not only its first picture. It uses some processor while the screen is locked.": "锁屏时会播放视频壁纸，而不只是显示其第一帧。屏幕锁定期间会占用一些处理器资源。",
  "The look of the Solar icons.": "Solar 图标的样式。",
- "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner.": "从 Shell 中可设置的最大音量：滑块、滚轮和热角。",
+ "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner. Above 100% the sound can distort and hurt your ears.": "从 Shell 中可设置的最大音量：滑块、滚轮和热角。超过 100% 时声音可能失真，并损害您的听力。",
  "The main accent of the theme: buttons, highlights, the focus. Pick another of its colors.": "主题的主强调色：按钮、高亮和焦点。请选择它的其他颜色。",
  "The marks round the face.": "表盘周围的刻度。",
  "The microphone that apps use by default.": "应用默认使用的麦克风。",

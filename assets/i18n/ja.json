@@ -1835,7 +1835,7 @@
  "The letters of the text on the desktop. Click the text to write; right click it to resize it.": "デスクトップ上の文字です。クリックして入力、右クリックでサイズを変更できます。",
  "The lock screen shows the video wallpaper playing, not only its first picture. It uses some processor while the screen is locked.": "ロック画面では、最初の1枚だけでなく動画の壁紙が再生されます。画面がロックされている間は、一部のプロセッサを使用します。",
  "The look of the Solar icons.": "Solarアイコンの見た目。",
- "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner.": "シェルから設定できる最大音量: スライダー、ホイール、ホットコーナー。",
+ "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner. Above 100% the sound can distort and hurt your ears.": "シェルから設定できる最大音量: スライダー、ホイール、ホットコーナー。100%を超えると音が歪み、耳を傷める可能性があります。",
  "The main accent of the theme: buttons, highlights, the focus. Pick another of its colors.": "テーマの主なアクセント。ボタン、ハイライト、フォーカス。その色のうち別のものを選べます。",
  "The marks round the face.": "文字盤の周りの目盛り。",
  "The microphone that apps use by default.": "アプリが既定で使うマイク。",

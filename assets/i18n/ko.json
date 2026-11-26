@@ -1835,7 +1835,7 @@
  "The letters of the text on the desktop. Click the text to write; right click it to resize it.": "바탕화면의 텍스트 글자입니다. 텍스트를 클릭해 입력하고, 오른쪽 클릭으로 크기를 바꿉니다.",
  "The lock screen shows the video wallpaper playing, not only its first picture. It uses some processor while the screen is locked.": "잠금 화면에서도 동영상 배경화면이 첫 장면이 아니라 재생됩니다. 화면이 잠긴 동안에는 프로세서를 일부 사용합니다.",
  "The look of the Solar icons.": "Solar 아이콘의 모양.",
- "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner.": "셸에서 설정할 수 있는 최대 볼륨: 슬라이더, 휠, 핫 코너.",
+ "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner. Above 100% the sound can distort and hurt your ears.": "셸에서 설정할 수 있는 최대 볼륨: 슬라이더, 휠, 핫 코너. 100%를 넘으면 소리가 왜곡되어 귀를 다칠 수 있습니다.",
  "The main accent of the theme: buttons, highlights, the focus. Pick another of its colors.": "테마의 주 강조 색상: 버튼, 하이라이트, 포커스. 그 색상 중 다른 것을 고르세요.",
  "The marks round the face.": "문자판 둘레의 눈금.",
  "The microphone that apps use by default.": "앱이 기본으로 사용하는 마이크.",

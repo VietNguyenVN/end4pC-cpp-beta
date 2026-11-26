@@ -200,17 +200,24 @@ void drawGameCard(App& app, cairo_t* cr, PangoLayout* L, int w, std::vector<Game
         const int pw = clkTextWidth(L, pct, 17, true);
         const double sx = mute.x + 44 + 14, sw = bx + bw - 14 - pw - 14 - sx;
         hits.push_back({{sx - 8, y + 20, sw + 16, 44}, GhVolTrack, 0});
-        const double f = std::clamp(app.volume / 100.0, 0.0, 1.0), fill = std::max(16.0, (sw - 8) * f);
+        const double f = volFrac(app, app.volume), fill = std::max(16.0, (sw - 8) * f);
+        const Color volColor = app.color(volLoud(app.volume) && !app.muted ? "tertiary" : "primary");  // above 100 % the slider changes colour
         roundedRect(cr, sx, y + 42 - 8, fill, 16, 8);  // the expressive slider: filled part, a gap with the handle, then the track
-        setSource(cr, app.color("primary"));
+        setSource(cr, volColor);
         cairo_fill(cr);
         const double hx2 = sx + fill + 4;
         roundedRect(cr, hx2 - 1, y + 42 - 16, 4, 32, 2);
-        setSource(cr, app.color("primary"));
+        setSource(cr, volColor);
         cairo_fill(cr);
         if (hx2 + 9 < sx + sw) {
             roundedRect(cr, hx2 + 7, y + 42 - 8, sx + sw - hx2 - 7, 16, 8);
             setSource(cr, app.color("secondary_container"), 0.75);
+            cairo_fill(cr);
+        }
+        if (volMark(app) > 0) {  // where 100 % is, when the slider goes higher
+            const double mx = sx + 4 + (sw - 8) * volMark(app);
+            roundedRect(cr, mx - 1, y + 42 - 12, 2, 24, 1);
+            setSource(cr, app.color("on_surface_variant"), 0.7);
             cairo_fill(cr);
         }
         clkText(cr, L, pct, 17, true, bx + bw - 14 - pw, y + 42, ink, 1);
@@ -541,14 +548,14 @@ int gameHitAt(const GameOverlay& G, double x, double y, GameHit* out = nullptr) 
 
 void gameSetVolume(App& app, double x, const GameHit& track) {
     const double f = std::clamp((x - (track.r.x + 8)) / (track.r.w - 16), 0.0, 1.0);
-    const int v = static_cast<int>(std::lround(f * 100));
+    const int v = std::min(volFromFrac(app, f), app.cfg.volumeMax);
     if (v == app.volume) return;
     app.volume = v;
     const auto now = std::chrono::steady_clock::now();
     if (now - app.game.lastVolSet < std::chrono::milliseconds(40)) return;
     app.game.lastVolSet = now;
     const std::string pct = std::to_string(v) + "%";
-    runDetached({"wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", pct.c_str()});
+    runDetached({"wpctl", "set-volume", "-l", volLimit(app).c_str(), "@DEFAULT_AUDIO_SINK@", pct.c_str()});
 }
 
 void gameMotion(App& app) {

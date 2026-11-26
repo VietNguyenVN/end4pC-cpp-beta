@@ -100,10 +100,10 @@ int amItemAt(const AudioMenu& A, double x, double y) {
     return -1;
 }
 
-int amPctAt(const Rect& track, double x) {
+int amPctAt(const Rect& track, double x, int scale) {  // scale: what the full slider means in percent (volScale)
     const double travel = std::max(1.0, track.w - 2 * kAmSliderInset);
     const double frac = (x - track.x - kAmSliderInset) / travel;
-    return static_cast<int>(std::clamp(frac, 0.0, 1.0) * 100 + 0.5);
+    return static_cast<int>(std::clamp(frac, 0.0, 1.0) * scale + 0.5);
 }
 
 bool amHasTag(const AudioDevice& d, const std::string& tag) { return ("," + d.tags + ",").find("," + tag + ",") != std::string::npos; }
@@ -182,14 +182,16 @@ void amDrawSlider(App& app, cairo_t* cr, const AudioMenu::Item& it, size_t k, Re
     bool muted = false, source = false;
     amItemState(app, it, pct, muted, source);
     const bool dragging = app.amenu.drag == static_cast<int>(k);
-    const double value = (dragging ? app.amenu.dragPct : pct) / 100.0;
+    const int shownPct = dragging ? app.amenu.dragPct : pct;
+    const double value = volFrac(app, shownPct);
+    const bool loud = volLoud(shownPct) && !muted;
     constexpr double kTrackH = 6, kHandleW = 4, kHandleH = 24;
     const double cy = r.y + r.h / 2, x0 = r.x, x1 = r.x + r.w;
     const double hx = x0 + kAmSliderInset + std::clamp(value, 0.0, 1.0) * (x1 - x0 - 2 * kAmSliderInset);
     const Color primary = app.color("primary"), inactive = app.color("secondary_container"), outline = app.color("outline");
     if (hx - kAmSliderInset - x0 > 0) {
         roundedRect(cr, x0, cy - kTrackH / 2, hx - kAmSliderInset - x0, kTrackH, kTrackH / 2);
-        setSource(cr, muted ? outline : primary, muted ? 0.5 : 1);
+        setSource(cr, muted ? outline : loud ? app.color("tertiary") : primary, muted ? 0.5 : 1);
         cairo_fill(cr);
     }
     if (x1 - (hx + kAmSliderInset) > 0) {
@@ -197,8 +199,14 @@ void amDrawSlider(App& app, cairo_t* cr, const AudioMenu::Item& it, size_t k, Re
         setSource(cr, inactive);
         cairo_fill(cr);
     }
+    if (volMark(app) > 0) {  // where 100 % is, when the slider goes higher
+        const double mx = x0 + kAmSliderInset + volMark(app) * (x1 - x0 - 2 * kAmSliderInset);
+        roundedRect(cr, mx - 1, cy - 8, 2, 16, 1);
+        setSource(cr, app.color("on_surface_variant"), 0.7);
+        cairo_fill(cr);
+    }
     roundedRect(cr, hx - kHandleW / 2, cy - kHandleH / 2, kHandleW, kHandleH, kHandleW / 2);
-    setSource(cr, muted ? outline : primary);
+    setSource(cr, muted ? outline : loud ? app.color("tertiary") : primary);
     cairo_fill(cr);
 }
 
@@ -878,7 +886,7 @@ void audioMenuMotion(App& app) {
     const double x = amCardX(app), y = amCardY(app);
     if (A.drag >= 0) {
         if (A.drag < static_cast<int>(A.items.size())) {
-            const int pct = amPctAt(A.items[static_cast<size_t>(A.drag)].r, x);
+            const int pct = amPctAt(A.items[static_cast<size_t>(A.drag)].r, x, volScale(app));
             if (pct != A.dragPct) { A.dragPct = pct; drawAudioMenu(app); }
         }
         return;
@@ -931,7 +939,7 @@ void audioMenuButton(App& app, uint32_t button, bool pressed) {
     const AudioMenu::Item it = A.items[static_cast<size_t>(k)];
     if (it.kind == AudioMenu::Item::Slider) {
         A.drag = k;
-        A.dragPct = amPctAt(it.r, x);
+        A.dragPct = amPctAt(it.r, x, volScale(app));
         drawAudioMenu(app);
         return;
     }

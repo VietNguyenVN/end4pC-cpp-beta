@@ -1835,7 +1835,7 @@
  "The letters of the text on the desktop. Click the text to write; right click it to resize it.": "Текст на стільниці. Клацніть текст, щоб писати; правою кнопкою — змінити розмір.",
  "The lock screen shows the video wallpaper playing, not only its first picture. It uses some processor while the screen is locked.": "Екран блокування відтворює відеофон, а не показує лише перший кадр. Поки екран заблокований, це використовує частину процесора.",
  "The look of the Solar icons.": "Вигляд значків Solar.",
- "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner.": "Максимальна гучність, яку можна встановити з оболонки: повзунки, колесо та гарячий кут.",
+ "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner. Above 100% the sound can distort and hurt your ears.": "Максимальна гучність, яку можна встановити з оболонки: повзунки, колесо та гарячий кут. Понад 100% звук може спотворюватися і пошкодити слух.",
  "The main accent of the theme: buttons, highlights, the focus. Pick another of its colors.": "Основний акцент теми: кнопки, виділення, фокус. Виберіть інший з її кольорів.",
  "The marks round the face.": "Позначки навколо циферблата.",
  "The microphone that apps use by default.": "Мікрофон, який програми використовують типово.",

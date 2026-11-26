@@ -1835,7 +1835,7 @@
  "The letters of the text on the desktop. Click the text to write; right click it to resize it.": "桌面上的文字。點擊文字即可輸入；右鍵點擊可調整大小。",
  "The lock screen shows the video wallpaper playing, not only its first picture. It uses some processor while the screen is locked.": "鎖定畫面會播放影片桌布，而不只是顯示第一格畫面。螢幕鎖定期間會使用一些處理器資源。",
  "The look of the Solar icons.": "Solar 圖示的外觀。",
- "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner.": "從 Shell 可設定的最大音量：滑桿、滾輪與熱角。",
+ "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner. Above 100% the sound can distort and hurt your ears.": "從 Shell 可設定的最大音量：滑桿、滾輪與熱角。超過 100% 時聲音可能失真，並傷害您的耳朵。",
  "The main accent of the theme: buttons, highlights, the focus. Pick another of its colors.": "主題的主要強調色：按鈕、醒目標示與焦點。可改選其色系中的其他顏色。",
  "The marks round the face.": "錶面周圍的刻度。",
  "The microphone that apps use by default.": "應用程式預設使用的麥克風。",

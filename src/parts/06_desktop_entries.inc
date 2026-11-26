@@ -3058,13 +3058,13 @@ void draw(Bar& bar) {
         drawIcon(cr, icon, vx + ve / 2 + (kVolIconW - 18) / 2.0, vy + (vhgt - 18) / 2.0, 18, ink, vh);
         if (vs == "level") {
             const double lx = vx + ve / 2 + 26, lw = vw - 30 - ve, ly = vy + (vhgt - 4) / 2.0;
-            const double frac = app.muted ? 0.0 : std::clamp(app.volume / 100.0, 0.0, 1.0);
+            const double frac = app.muted ? 0.0 : volFrac(app, app.volume);
             roundedRect(cr, lx, ly, lw, 4, 2);
             setSource(cr, app.color("secondary_container"));
             cairo_fill(cr);
             if (frac > 0) {
                 roundedRect(cr, lx, ly, std::max(4.0, lw * frac), 4, 2);
-                setSource(cr, app.color("primary"));
+                setSource(cr, app.color(volLoud(app.volume) ? "tertiary" : "primary"));
                 cairo_fill(cr);
             }
         } else if (vs == "percent") {

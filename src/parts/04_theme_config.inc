@@ -357,7 +357,7 @@ Config sanitized(Config c) {
         c.sideWidgetStyles = clean;
     }
     if (!validLanguage(c.language)) c.language.clear();
-    c.volumeMax = std::clamp(c.volumeMax, 30, 100);
+    c.volumeMax = std::clamp(c.volumeMax, 30, 150);
     c.volumeStep = std::clamp(c.volumeStep, 1, 10);
     c.batteryLow = std::clamp(c.batteryLow, 5, 50);
     c.batteryCritical = std::clamp(c.batteryCritical, 1, 20);

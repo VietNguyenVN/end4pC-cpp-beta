@@ -1835,7 +1835,7 @@
  "The letters of the text on the desktop. Click the text to write; right click it to resize it.": "Az asztalon lévő szöveg betűi. Kattintson a szövegre az íráshoz; jobb kattintás az átméretezéshez.",
  "The lock screen shows the video wallpaper playing, not only its first picture. It uses some processor while the screen is locked.": "A zárolási képernyőn a videós háttérkép lejátszás közben látszik, nem csak az első képkockája. Zárolt képernyő mellett kis mennyiségű processzort használ.",
  "The look of the Solar icons.": "A Solar ikonok stílusa.",
- "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner.": "A legnagyobb hangerő, amely a shellből beállítható: csúszkák, görgő és aktív sarok.",
+ "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner. Above 100% the sound can distort and hurt your ears.": "A legnagyobb hangerő, amely a shellből beállítható: csúszkák, görgő és aktív sarok. 100% felett a hang torzulhat, és károsíthatja a fülét.",
  "The main accent of the theme: buttons, highlights, the focus. Pick another of its colors.": "A téma fő kiemelője: gombok, kiemelések, a fókusz. Válassz másikat a színei közül.",
  "The marks round the face.": "A számlap körüli jelek.",
  "The microphone that apps use by default.": "Az alkalmazások alapértelmezett mikrofonja.",

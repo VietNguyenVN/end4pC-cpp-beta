@@ -1116,7 +1116,7 @@ bool islandLiveOsd(App& app, int kind) {
     if (kind == OsdBrightness) {
         islandLive(app, "brightness", "sun", "", std::to_string(std::clamp(app.brightness, 0, 100)), "on_surface", "on_surface", app.cfg.osdTimeout / 1000.0);
     } else {
-        const int v = app.muted ? 0 : std::clamp(app.volume, 0, 100);
+        const int v = app.muted ? 0 : std::max(0, app.volume);
         islandLive(app, "volume", v == 0 ? "volume-cross" : v < 40 ? "volume-small" : "volume-loud", "", std::to_string(v), "on_surface", "on_surface", app.cfg.osdTimeout / 1000.0);
     }
     return true;

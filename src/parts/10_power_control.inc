@@ -544,7 +544,8 @@ void drawControlCenter(App& app) {
     toggle(CcShot, "camera", false);
     if (C.night == "absent") { const Rect r = rectOf(CcNight); circle(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, app.color("surface_container_high"), 0.5); }
 
-    auto slider = [&](int id, double value, const char* icon, bool muted) {
+    const Color tertiary = app.color("tertiary"), onTertiary = app.color("on_tertiary");
+    auto slider = [&](int id, double value, const char* icon, bool muted, bool loud = false, double mark = -1) {
         const Rect r = rectOf(id);
         roundedRect(cr, r.x, r.y, r.w, r.h, 30);
         setSource(cr, app.color(hot(id) || C.drag == id ? "surface_container_highest" : "surface_container_high"));
@@ -553,15 +554,22 @@ void drawControlCenter(App& app) {
         roundedRect(cr, r.x, r.y, r.w, r.h, 30);
         cairo_clip(cr);
         const double fh = std::max(0.0, std::min(1.0, value)) * r.h;
-        setSource(cr, primary, muted ? 0.35 : 1);
+        setSource(cr, loud ? tertiary : primary, muted ? 0.35 : 1);
         cairo_rectangle(cr, r.x, r.y + r.h - fh, r.w, fh);
         cairo_fill(cr);
+        if (mark > 0) {  // where 100 % is, when the slider goes higher
+            const double my = r.y + r.h - r.h * mark;
+            setSource(cr, my >= r.y + r.h - fh && !muted ? (loud ? onTertiary : onPrimary) : onSurf, 0.55);
+            cairo_rectangle(cr, r.x + 14, my - 1, r.w - 28, 2);
+            cairo_fill(cr);
+        }
         cairo_restore(cr);
         const bool onFill = fh > 27;
-        drawIcon(cr, icon, r.x + (r.w - 26) / 2, r.y + r.h - 40, 26, onFill && !muted ? onPrimary : onSurf, false);
+        drawIcon(cr, icon, r.x + (r.w - 26) / 2, r.y + r.h - 40, 26, onFill && !muted ? (loud ? onTertiary : onPrimary) : onSurf, false);
     };
     slider(CcBright, app.brightness < 0 ? 0 : app.brightness / 100.0, "sun", false);
-    slider(CcVol, app.muted ? 0 : app.volume / 100.0, app.muted || app.volume == 0 ? "volume-cross" : app.volume < 50 ? "volume-small" : "volume-loud", app.muted);
+    slider(CcVol, app.muted ? 0.0 : volFrac(app, app.volume), app.muted || app.volume == 0 ? "volume-cross" : app.volume < 50 ? "volume-small" : "volume-loud", app.muted,
+           volLoud(app.volume), volMark(app));
 
     {
         const int total = app.updatesTotal;
@@ -740,7 +748,7 @@ void ccMotion(App& app) {
         if (C.drag == CcBright) {
             changeBrightness(app, 0, static_cast<int>(std::lround(f * 100)));
         } else {
-            const int v = std::min(static_cast<int>(std::lround(f * 100)), app.cfg.volumeMax);
+            const int v = std::min(volFromFrac(app, f), app.cfg.volumeMax);
             if (v != app.volume || app.muted) {
                 app.volume = v;
                 if (now - C.lastSend > std::chrono::milliseconds(90)) {
@@ -781,7 +789,7 @@ bool ccWheel(App& app, int dir) {
 void ccRelease(App& app) {
     ControlCenter& C = app.cc;
     if (C.drag == CcVol) {
-        const std::string pct = std::to_string(std::clamp(app.volume, 0, 100)) + "%";
+        const std::string pct = std::to_string(std::clamp(app.volume, 0, app.cfg.volumeMax)) + "%";
         runDetached({"wpctl", "set-volume", "-l", volLimit(app).c_str(), "@DEFAULT_AUDIO_SINK@", pct.c_str()});
     }
     C.drag = 0;

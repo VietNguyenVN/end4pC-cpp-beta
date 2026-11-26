@@ -583,7 +583,7 @@ std::vector<Page> makePages() {
         {Text, "worldClocks", "World clocks", "Time zones for the World tab of the clock popup, separated by commas: Europe/Madrid, Asia/Tokyo. Type - for none. The names are in /usr/share/zoneinfo."},
         {Split, "sys:timezone", "Time zone", "The time zone of the computer, for every app. It asks for your password. Type to search the list.", {}},
         {Toggle, "sys:ntp", "Set the time automatically", "Keeps the clock right from the internet (NTP). It asks for your password.", {}},
-        {Slider, "volumeMax", "Volume limit", "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner.", {}, 30, 100, 5, "%"},
+        {Slider, "volumeMax", "Volume limit", "The loudest the volume can be set from the shell: the sliders, the wheel and the hot corner. Above 100% the sound can distort and hurt your ears.", {}, 30, 150, 5, "%"},
         {Slider, "volumeStep", "Volume step", "How much one wheel notch changes the volume.", {}, 1, 10, 1, "%"},
         {Split, "sys:sink", "Output device", "Where the sound comes out.", {}},
         {Split, "sys:source", "Input device", "The microphone that apps use by default.", {}},

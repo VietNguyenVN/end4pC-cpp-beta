@@ -188,6 +188,13 @@ bool startUPowerWatcher(UPowerWatch& w) {
 
 std::string volLimit(const App& app) { char b[16]; std::snprintf(b, sizeof b, "%.2f", app.cfg.volumeMax / 100.0); return b; }
 std::string volStep(const App& app, bool down) { return std::to_string(app.cfg.volumeStep) + (down ? "%-" : "%+"); }
+// The volume of the sound card can go above 100 % (a keybind with `wpctl -l 1.5`, pavucontrol, the Volume limit raised above 100):
+// the shell shows it as it is. A slider spans 0..volScale: 100, or the limit when that is higher, with a mark where 100 % is.
+int volScale(const App& app) { return std::max(100, app.cfg.volumeMax); }
+double volFrac(const App& app, int pct) { return std::clamp(pct / static_cast<double>(volScale(app)), 0.0, 1.0); }
+int volFromFrac(const App& app, double f) { return std::clamp(static_cast<int>(std::lround(std::clamp(f, 0.0, 1.0) * volScale(app))), 0, volScale(app)); }
+bool volLoud(int pct) { return pct > 100; }  // above 100 % the sound can distort: the fill changes colour
+double volMark(const App& app) { return volScale(app) > 100 ? 100.0 / volScale(app) : -1; }  // where 100 % sits on a slider, or -1 when nothing is above it
 
 double clockBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double bx, double barH, bool hover);
 

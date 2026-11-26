@@ -8,7 +8,7 @@ bool osdHorizontal(const App& app) { return app.cfg.osdPosition == "top" || app.
 
 double osdLevel(const App& app, int kind) {
     if (kind == OsdBrightness) return std::clamp(app.brightness, 0, 100) / 100.0;
-    return app.muted ? 0.0 : std::clamp(app.volume, 0, 100) / 100.0;
+    return app.muted ? 0.0 : volFrac(app, app.volume);
 }
 
 void drawOsd(App& app) {
@@ -37,7 +37,9 @@ void drawOsd(App& app) {
 
     const double v = std::clamp(o.shown, 0.0, 1.0);
     const double fillH = v > 0 ? std::max(h * v, w) : 0;
-    const Color track = app.color("secondary_container"), fill = app.color("primary");
+    const bool loud = o.kind != OsdBrightness && !app.muted && volLoud(app.volume);  // above 100 % the fill changes colour
+    const Color track = app.color("secondary_container"), fill = app.color(loud ? "tertiary" : "primary");
+    const char* onFillName = loud ? "on_tertiary" : "on_primary";
     const double trackH = std::max(0.0, h - fillH - (v > 0 ? kOsdGap : 0));
     if (trackH > 0) {
         roundedRect(cr, x, y, w, trackH, std::min(w / 2, trackH / 2));
@@ -52,12 +54,18 @@ void drawOsd(App& app) {
         setSource(cr, fill);
         cairo_fill(cr);
     }
+    if (o.kind != OsdBrightness && volMark(app) > 0) {  // a thin line where 100 % is, when the slider goes higher
+        const double my = y + h - h * volMark(app);
+        setSource(cr, app.color(my >= y + h - fillH ? onFillName : "on_secondary_container"), 0.6);
+        cairo_rectangle(cr, x + 14, my - 1, w - 28, 2);
+        cairo_fill(cr);
+    }
 
     cairo_restore(cr);
     const double ox = kOsdShadowRoom, oy = kOsdShadowRoom;
 
     {
-        const int percent = o.kind == OsdBrightness ? std::clamp(app.brightness, 0, 100) : (app.muted ? 0 : std::clamp(app.volume, 0, 100));
+        const int percent = o.kind == OsdBrightness ? std::clamp(app.brightness, 0, 100) : (app.muted ? 0 : std::max(0, app.volume));
         PangoLayout* layout = pango_cairo_create_layout(cr);
         PangoFontDescription* fd = pango_font_description_from_string("Sans Bold 9");
         pango_layout_set_font_description(layout, fd);
@@ -66,7 +74,7 @@ void drawOsd(App& app) {
         int tw = 0, th = 0;
         pango_layout_get_pixel_size(layout, &tw, &th);
         const bool onTrack = trackH >= 16 + 10 + th + 8;
-        setSource(cr, app.color(onTrack ? "on_secondary_container" : "on_primary"));
+        setSource(cr, app.color(onTrack ? "on_secondary_container" : onFillName));
         if (horiz) cairo_move_to(cr, ox + h - 16 - 10 - tw, oy + (w - th) / 2.0);
         else cairo_move_to(cr, ox + (w - tw) / 2.0, oy + 16 + 10);
         pango_cairo_show_layout(cr, layout);
@@ -79,7 +87,7 @@ void drawOsd(App& app) {
     else icon = app.muted || app.volume == 0 ? "volume_off" : app.volume < 50 ? "volume_down" : "volume_up";
     const double isz = 28, ix = horiz ? ox + 17 : ox + (w - isz) / 2, iy = horiz ? oy + (w - isz) / 2 : oy + h - isz - 17;
     const bool onFill = fillH > isz + 17 + 6;
-    drawIcon(cr, icon, ix, iy, static_cast<int>(isz), app.color(onFill ? "on_primary" : "on_secondary_container"), true);
+    drawIcon(cr, icon, ix, iy, static_cast<int>(isz), app.color(onFill ? onFillName : "on_secondary_container"), true);
 
     {
         const std::string& pos = app.cfg.osdPosition;
