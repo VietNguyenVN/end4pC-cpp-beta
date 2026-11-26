@@ -79,6 +79,20 @@ MAP = {
     "text-bold": "format_bold", "text-italic": "format_italic", "text-cross": "strikethrough_s", "code": "code",
     "hashtag/heading": "title", "list-1": "format_list_numbered", "chat-line/quote": "format_quote", "link": "link",
     "code-square": "data_object", "minus-square/hr": "horizontal_rule",
+    # Tools, screenshot tool, power, drives, timers, keybinds... (names the shell uses that Material Symbols spells differently)
+    "alarm-add": "alarm_add", "align-bottom": "vertical_align_bottom", "battery-charge-minimalistic": "battery_charging_full",
+    "battery-full-minimalistic": "battery_full", "battery-half-minimalistic": "battery_3_bar", "battery-low-minimalistic": "battery_alert",
+    "bell-off": "notifications_off", "bomb-minimalistic": "dangerous", "calculator-minimalistic": "calculate", "card": "credit_card",
+    "cat": "pets", "cup": "coffee", "display": "desktop_windows", "dollar-minimalistic": "attach_money", "emoji": "emoji_emotions",
+    "eraser-square": "ink_eraser", "eye-scan": "document_scanner", "flash-drive": "usb", "full-screen": "fullscreen",
+    "gamepad-minimalistic": "sports_esports", "list-check": "checklist", "magnifer-zoom-in": "zoom_in", "maximize-square-2": "open_in_full",
+    "mouse_down": "mouse", "mouse_up": "mouse", "notebook-minimalistic": "book", "page_down": "keyboard_double_arrow_down",
+    "page_up": "keyboard_double_arrow_up", "pen-2": "edit", "pen-new-round": "edit_square", "pills": "medication",
+    "playback-speed": "speed", "qr-code": "qr_code_2", "rocket-2": "rocket_launch", "ruler": "straighten", "running": "directions_run",
+    "screencast": "cast", "sd-card": "sd_card", "server": "dns", "server-minimalistic": "dns", "server-path": "lan",
+    "shield-check": "verified_user", "smartphone-2": "smartphone", "ssd-square": "hard_drive", "stopwatch": "timer",
+    "text-field": "text_fields", "text-selection": "select_all", "undo-left-round": "undo", "undo-right-round": "redo",
+    "tuning-2": "tune", "stop_circle": "stop_circle", "weigher": "scale", "wi-fi-router-minimalistic": "router", "widget-add": "widgets",
 }
 
 
