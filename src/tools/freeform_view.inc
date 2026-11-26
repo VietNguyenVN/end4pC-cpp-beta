@@ -195,26 +195,32 @@
         text(cr, s, x + 12, bottom - ph + 6, 13, false, g.color("inverse_on_surface"));
     }
 
+    // Where the caret of the item being edited is, in board coordinates (a text, a node or the phrase on an arrow).
+    bool caretPoint(const ff::Item& e, double& x, double& y, double& h) const {
+        if (e.kind == ff::Item::Text) {
+            double cx = 0, cy = 0;
+            ffdraw::caretAt(e, caret, cx, cy, h);
+            x = e.pts[0].x + (e.boxed ? ffdraw::kPadX : ffdraw::kPlainPad) + cx;
+            y = e.pts[0].y + (e.boxed ? ffdraw::kPadY : ffdraw::kPlainPad) + cy;
+            return true;
+        }
+        ff::Box box;
+        if (!ffdraw::linkLabelBox(items, e, true, box)) return false;
+        double w = 0;
+        ffdraw::textSize(e.text.substr(0, caret), ffdraw::kLinkPx, w, h);
+        if (e.text.empty()) { double w2 = 0; ffdraw::textSize("Ag", ffdraw::kLinkPx, w2, h); }
+        x = box.x + 10 + w;
+        y = box.y + 5;
+        return true;
+    }
+
     void drawCaret(cairo_t* cr) {
         const ff::Item* e = find(editId);
         const bool caretOn = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - lastKey).count() / 530 % 2 == 0;
         lastCaret = caretOn;
         if (!e || !caretOn) return;
         double x = 0, y = 0, h = 0;
-        if (e->kind == ff::Item::Text) {
-            double cx = 0, cy = 0;
-            ffdraw::caretAt(*e, caret, cx, cy, h);
-            x = e->pts[0].x + (e->boxed ? ffdraw::kPadX : ffdraw::kPlainPad) + cx;
-            y = e->pts[0].y + (e->boxed ? ffdraw::kPadY : ffdraw::kPlainPad) + cy;
-        } else {
-            ff::Box box;
-            if (!ffdraw::linkLabelBox(items, *e, true, box)) return;
-            double w = 0;
-            ffdraw::textSize(e->text.substr(0, caret), ffdraw::kLinkPx, w, h);
-            if (e->text.empty()) { double w2 = 0; ffdraw::textSize("Ag", ffdraw::kLinkPx, w2, h); }
-            x = box.x + 10 + w;
-            y = box.y + 5;
-        }
+        if (!caretPoint(*e, x, y, h)) return;
         src(cr, g.color("primary"));
         cairo_rectangle(cr, x - 1, y, 2, h);
         cairo_fill(cr);

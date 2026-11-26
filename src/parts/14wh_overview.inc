@@ -497,7 +497,7 @@ constexpr int kOverviewEdgeCorners[4][2] = {{0, 1}, {2, 3}, {0, 2}, {1, 3}};
 
 Rect ovCornerRect(const App& app, int corner) {
     const auto& O = app.ov;
-    const double w = app.cfg.hotCornerWidth, h = app.cfg.hotCornerHeight;
+    const double w = std::min<double>(app.cfg.hotCornerWidth, O.width), h = std::min<double>(app.cfg.hotCornerHeight, O.height);  // (a thin overview strip is smaller than a corner)
     return {corner % 2 ? O.width - w : 0, corner >= 2 ? O.height - h : 0, w, h};
 }
 

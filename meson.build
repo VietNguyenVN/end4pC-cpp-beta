@@ -86,6 +86,9 @@ test('displaymap', executable('displaymap-test', 'tests/display/test_displaymap.
 # The Freeform board of the Tools window: shapes, concept links, undo and the file form (src/freeform.h): `meson test -C build`, or tests/freeform/run.sh
 test('freeform', executable('freeform-test', 'tests/freeform/test_freeform.cpp', install: false))
 
+# The per-monitor hot corner rules (src/hotcorners.h): `meson test -C build`, or tests/hotcorners/run.sh
+test('hotcorners', executable('hotcorners-test', 'tests/hotcorners/test_hotcorners.cpp', install: false))
+
 # Headless media integration: real shell code with a temporary fake playerctl.
 test('media', executable('media-test', 'tests/media/test_media.cpp',
   'src/notify_dbus.c', 'src/tray_dbus.c', 'src/polkit_dbus.c', generated,

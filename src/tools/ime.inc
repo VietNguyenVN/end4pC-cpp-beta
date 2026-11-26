@@ -60,7 +60,12 @@ void syncIme() {
     const bool textChanged = enable || next.text != old.text || next.cursor != old.cursor || next.anchor != old.anchor;
     const bool caretChanged = enable || next.caret.x != old.caret.x || next.caret.y != old.caret.y
         || next.caret.w != old.caret.w || next.caret.h != old.caret.h;
-    if (textChanged) zwp_text_input_v3_set_surrounding_text(g.ime, next.text.c_str(), next.cursor, next.anchor);
+    if (textChanged) {
+        zwp_text_input_v3_set_surrounding_text(g.ime, next.text.c_str(), next.cursor, next.anchor);
+        // a click, a key or a paste is not the input method's doing: say so, or it may keep composing over text that moved
+        zwp_text_input_v3_set_text_change_cause(g.ime, g.imeFromIme ? ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_INPUT_METHOD : ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_OTHER);
+        g.imeFromIme = false;
+    }
     if (caretChanged) zwp_text_input_v3_set_cursor_rectangle(g.ime, next.caret.x, next.caret.y, next.caret.w, next.caret.h);
     if (textChanged || caretChanged) {
         imeCommit();
@@ -89,6 +94,7 @@ const zwp_text_input_v3_listener kImeListener = {
         if (g.imeEntered && g.imePage && static_cast<int32_t>(serial - g.imeActivation) >= 0 && g.imePage->imeContext(context)
             && context.field == g.imeSent.field) {
             g.imePage->imeEdit(g.imePending);
+            g.imeFromIme = true;
             g.imePreedit = g.imePending.preedit;
             g.imeNeedsDone = serial != g.imeSerial;
             g.dirty = true;

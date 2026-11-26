@@ -191,23 +191,7 @@ bool validBarPopupPosition(const std::string& position) {
     return position == "widget" || position == "start" || position == "center" || position == "end";
 }
 
-bool validHotCornerActions(std::string_view rules) {
-    while (!rules.empty()) {
-        const auto end = rules.find(',');
-        const auto entry = rules.substr(0, end);
-        const auto slash = entry.find('/'), equal = entry.find('=');
-        if (slash == 0 || slash == entry.npos || equal == entry.npos || equal <= slash) return false;
-        const auto screen = entry.substr(0, slash);
-        const auto key = entry.substr(slash + 1, equal - slash - 1);
-        const auto action = entry.substr(equal + 1);
-        if (screen.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.:+") != screen.npos ||
-            std::find(hotcorners::keys.begin(), hotcorners::keys.end(), key) == hotcorners::keys.end() ||
-            std::find(kCornerActions.begin(), kCornerActions.end(), action) == kCornerActions.end()) return false;
-        if (end == rules.npos) break;
-        rules.remove_prefix(end + 1);
-    }
-    return true;
-}
+bool validHotCornerActions(std::string_view rules) { return hotcorners::validRules(rules, kCornerActions); }
 
 Config sanitized(Config c) {
     c.workspaces = std::clamp(c.workspaces, 1, 20);
@@ -388,7 +372,7 @@ Config sanitized(Config c) {
     c.resWarnMem = std::clamp(c.resWarnMem, 50, 100);
     c.resWarnSwap = std::clamp(c.resWarnSwap, 50, 100);
     c.resWarnCpu = std::clamp(c.resWarnCpu, 50, 100);
-    if (!validHotCornerActions(c.hotCornerActions)) c.hotCornerActions.clear();
+    c.hotCornerActions = hotcorners::keepValid(c.hotCornerActions, kCornerActions);  // (a config edited by hand keeps its good entries)
     for (std::string* a : {&c.cornerTL, &c.cornerTR, &c.cornerBL, &c.cornerBR})
         if (std::find(kCornerActions.begin(), kCornerActions.end(), *a) == kCornerActions.end()) *a = "none";
     c.cookieSides = std::clamp(c.cookieSides, 6, 20);

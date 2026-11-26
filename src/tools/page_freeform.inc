@@ -742,9 +742,9 @@ struct FreeformPage final : ToolPage {
         if (index < 0) return false;
         const auto& item = items[index];
         double x = 0, y = 0, h = 0;
-        ffdraw::caretAt(item, caret, x, y, h);
+        if (!caretPoint(item, x, y, h)) return false;
         context = imeField(item.text, caret, {canvas.x + x, canvas.y + y, 2, h});
-        return true;
+        context.field = reinterpret_cast<const void*>(static_cast<uintptr_t>(item.id));  // the item's id, not its address: a deleted item's slot may be taken by another
     }
     void imeEdit(const ImeEdit& edit) override {
         lastKey = Clock::now();

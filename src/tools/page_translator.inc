@@ -474,7 +474,7 @@ struct TranslatorPage final : ToolPage {
     bool click(double x, double y, bool press) override {
         if (!press) { const bool was = dragging; dragging = false; return was; }
         const Hover h = hitAt(x, y);
-        sourceFocused = !popup && h.id == None && ed.box.contains(x, y);
+        if (!popup && h.id == None && ed.box.contains(x, y)) sourceFocused = true;  // (the source text is the only field here: a click on a button does not take its focus away)
         if (popup && h.id != PopItem) { popup = 0; return true; }
         if (h.id != None) return act(h);
         if (ed.box.contains(x, y)) { placeCaret(x, y); return true; }

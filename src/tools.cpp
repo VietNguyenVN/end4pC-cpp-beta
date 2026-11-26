@@ -236,7 +236,7 @@ struct App {
     wl_keyboard* keyboard = nullptr;
     zwp_text_input_manager_v3* imeManager = nullptr;
     zwp_text_input_v3* ime = nullptr;
-    bool imeEntered = false, imeNeedsDone = false;
+    bool imeEntered = false, imeNeedsDone = false, imeFromIme = false;  // imeFromIme: the next surrounding-text update is the result of an IME edit
     uint32_t imeSerial = 0, imeActivation = 0;
     ToolPage* imePage = nullptr;
     ImeEdit imePending;

@@ -29,11 +29,12 @@ BarPopupAnchor barPopupAnchor(App& app, Bar* clickedBar, const std::string& pref
     const double gap = app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0;
     const bool haveBar = bar && bar->surface && bar->configured && bar->width > 0;
     const double outputLength = bar ? (vertical ? bar->wpH : bar->wpW) : 0;
-    const double length = haveBar ? bar->width + 2 * gap : outputLength > 0 ? outputLength : vertical ? 1080 : 1920;
+    const double edge = app.cfg.frame + gap;  // popup surfaces are measured from the output edge; the bar surface sits inside the frame strips
+    const double length = haveBar ? bar->width + 2 * edge : outputLength > 0 ? outputLength : vertical ? 1080 : 1920;
     double centre = -1;
     if (haveBar && preference == "widget") centre = widgetCentre(*bar, vertical);
     double position = length / 2;
-    if (centre >= 0) position = centre + gap;
+    if (centre >= 0) position = centre + edge;
     else if (preference == "start") position = 0;
     else if (preference == "end") position = length;
     return {bar, gap, length, position, centre >= 0};
