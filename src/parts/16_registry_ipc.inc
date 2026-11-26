@@ -711,6 +711,7 @@ bool readWmEvents(App& app, int fd, std::string& pending) {
         wmClassifyEvent(line, ev);
     }
     if (ev.workspace > 0 && ev.workspace != app.workspace) { app.workspace = ev.workspace; changed = true; }
+    if (ev.workspace > 0) app.monActive = wmMonitorActiveWorkspaces();
     if (app.ov.surface && changed) ovWorkspaceChanged(app);
     if (app.ov.surface && (ev.occupied || ev.window)) ovSoon(app);
     if (ev.covered && app.dv.surface) deskVizCheckCovered(app);

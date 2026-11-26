@@ -681,7 +681,7 @@ void openControlCenter(App& app, bool fromAvatar = false, int forceSide = 0) {
         if (underAvatar) {
             const double sideMargin = app.cfg.frame + (app.cfg.barStyle == "float" || app.cfg.barStyle == "island" ? kBarGap : 0);
             const double screenLen = app.hoverBar->width + 2.0 * sideMargin;
-            const double center = slotX(*app.hoverBar, "avatar") + moduleWidth(app, "avatar") / 2.0 + app.cfg.frame;
+            const double center = slotX(*app.hoverBar, "avatar") + moduleWidth(app, *app.hoverBar, "avatar") / 2.0 + app.cfg.frame;
             const double surfLeft = std::clamp(center + sideMargin - kCcSurfW / 2.0, static_cast<double>(sideM), std::max<double>(sideM, screenLen - kCcSurfW - sideM));
             zwlr_layer_surface_v1_set_margin(C.layer, atBottom ? 0 : margin, 0, atBottom ? margin : 0, static_cast<int>(surfLeft));
             C.along = center + sideMargin - surfLeft;

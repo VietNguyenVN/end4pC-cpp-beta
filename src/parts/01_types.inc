@@ -127,6 +127,9 @@ struct Bar {
     mutable std::vector<std::pair<double, double>> segs;
     int contentY = 0;
     std::string connector;
+    double wsPill = 1;
+    bool wsPillSeen = false;
+    std::chrono::steady_clock::time_point wsPillLast;
     std::string screensApplied;
     BlurSurface blur;
 };
@@ -1780,6 +1783,9 @@ struct App {
     int workspace = 1;  // fed by Hyprland socket2
     std::set<int> occupied;
     int wsCount = 0;
+    // The workspace each screen (connector) has in use. The focused one is in `workspace`; this keeps the others right when the
+    // bar of a screen that is not in focus draws its workspaces.
+    std::map<std::string, int> monActive;
     std::map<int, std::string> wsMainClass;
     std::map<std::string, cairo_surface_t*> wsIcons;
     std::string musicPlayer;  // exact MPRIS instance reported by the metadata watcher
@@ -2377,14 +2383,29 @@ double wsGap(const App& app) {
     if (numberedStyle(app) || ringStyleWs(app)) return kNumGap;
     return barStyleWs(app) ? kWsTickGap : kWsGap;
 }
-double wsWidth(const App& app, int id) {
+// The workspaces of a bar are a window on the compositor's ids: the bar of the screen whose workspace 11 is in use shows
+// 11, 12, ... (not 1, 2, ..., which is the other screen's set). The first id of a screen is taken from the workspace in use
+// there, rounded down to its group of ten: the same grouping the workspace action script and the monitor rules use.
+int wsActiveId(const Bar& bar) {
+    const App& app = *bar.app;
+    const auto it = app.monActive.find(bar.connector);
+    return it != app.monActive.end() && it->second > 0 ? it->second : app.workspace;
+}
+int wsBaseOf(const Bar& bar) {
+    const int active = wsActiveId(bar);
+    return active > 0 ? ((active - 1) / 10) * 10 + 1 : 1;
+}
+int wsIdOf(const Bar& bar, int slot) { return wsBaseOf(bar) + slot - 1; }
+int wsSlotOf(const Bar& bar, int id) { return id - wsBaseOf(bar) + 1; }
+bool wsIsActive(const Bar& bar, int slot) { return wsIdOf(bar, slot) == wsActiveId(bar); }
+double wsWidth(const App& app, int slot, bool active) {
     if (m3Ws(app)) return kM3Cell;
     if (pillStyle(app)) return kPillCell;
     if (iconStyleWs(app)) return kIcoW;
     if (ringStyleWs(app)) return kNumH;
     if (barStyleWs(app)) return kWsTickW;
-    if (numberedStyle(app)) return id == app.workspace ? kNumActiveW : kNumW;
-    return id == app.workspace ? kWsActiveW : kWsDot;
+    if (numberedStyle(app)) return active ? kNumActiveW : kNumW;
+    return active ? kWsActiveW : kWsDot;
 }
 // Space between the sides of the workspaces' box and what they draw. The pill look has its own. The looks of small bare marks (dots, bars) get,
 // the gap they have above and below a mark, so nothing touches the edge of the cell or the widget next to them.
@@ -2397,15 +2418,15 @@ double wsInset(const App& app) {
     return 0;
 }
 int wsShown(const App& app) { return app.wsCount > 0 ? std::clamp(app.wsCount, 1, 20) : app.cfg.workspaces; }
-double wsTotalW(const App& app) {
+double wsTotalW(const App& app, const Bar& bar) {
     double w = 0;
-    for (int i = 1; i <= wsShown(app); i++) w += wsWidth(app, i) + (i > 1 ? wsGap(app) : 0);
+    for (int i = 1; i <= wsShown(app); i++) w += wsWidth(app, i, wsIsActive(bar, i)) + (i > 1 ? wsGap(app) : 0);
     return w + 2 * wsInset(app);
 }
 double wsXOf(const Bar& bar, int id) {
     const App& app = *bar.app;
     auto it = bar.slot.find("workspaces");
     double x = (it == bar.slot.end() ? 0 : it->second) + wsInset(app);
-    for (int i = 1; i < id; i++) x += wsWidth(app, i) + wsGap(app);
+    for (int i = 1; i < id; i++) x += wsWidth(app, i, wsIsActive(bar, i)) + wsGap(app);
     return x;
 }

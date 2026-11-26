@@ -611,7 +611,7 @@ void onPointerButton(void* d, wl_pointer*, uint32_t, uint32_t, uint32_t button, 
         quickAction(*app, hit - kHitQuick);
         drawAll(*app);
     } else if (hit >= kHitWs) {
-        focusWorkspace(hit - kHitWs);
+        if (app->hoverBar) focusWorkspace(wsIdOf(*app->hoverBar, hit - kHitWs));
     } else if (hit == HitVolume) {
         toggleAudioMenu(*app, app->hoverBar);
     } else if (hit == HitBluetooth) {

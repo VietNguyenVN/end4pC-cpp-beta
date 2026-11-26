@@ -209,9 +209,27 @@ int wmWorkspaceCount() {
     return std::atoi(captureArgv({"bash", "-c", "niri msg --json workspaces 2>/dev/null | jq -r '(map(select(.is_focused)) | .[0].output) as $o | [.[] | select(.output == $o)] | length'"}).c_str());
 }
 
+// The workspace each screen has in use, by connector. A bar that is not on the focused screen still has to put its own
+// workspace in its row of dots, not the one of the screen in focus.
+std::map<std::string, int> wmMonitorActiveWorkspaces() {
+    std::map<std::string, int> out;
+    if (wmKind() != Wm::Hyprland) return out;
+    const std::string tsv = captureArgv({"bash", "-c",
+        "hyprctl monitors -j 2>/dev/null | jq -r '.[] | [.name, (.activeWorkspace.id|tostring)] | @tsv'"});
+    std::istringstream in(tsv);
+    for (std::string line; std::getline(in, line);) {
+        const size_t tab = line.find('\t');
+        if (tab == std::string::npos) continue;
+        const int id = std::atoi(line.c_str() + tab + 1);
+        if (id > 0) out[line.substr(0, tab)] = id;
+    }
+    return out;
+}
+
 void refreshOccupied(App& app) {
     app.occupied = wmOccupiedWorkspaces();
     app.wsCount = wmWorkspaceCount();
+    app.monActive = wmMonitorActiveWorkspaces();
 }
 
 void refreshActiveWorkspace(App& app) {
