@@ -830,6 +830,17 @@ struct TasksPage : ToolPage, TkProcessSample {
         scrollY.by(dy * 3);
         return true;
     }
+    bool imeContext(ImeContext& context) override {
+        if (askSig || search.w <= 0) return false;
+        context = imeField(filter, filter.size(), imeCaretFor(filter, filter.size(),
+            {search.x + 46, search.y, std::max(0.0, search.w - 60), search.h}, 15));
+        return true;
+    }
+    void imeEdit(const ImeEdit& edit) override {
+        size_t cursor = filter.size();
+        if (applyImeText(filter, cursor, edit, 4096)) scrollY.reset();
+    }
+
     bool key(const KeyEvent& k) override {
         if (askSig) {
             if (k.sym == XKB_KEY_Escape) askSig = 0;

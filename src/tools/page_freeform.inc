@@ -731,6 +731,31 @@ struct FreeformPage final : ToolPage {
     }
 
     // ---- keys ---------------------------------------------------------------------------------------------------------------------
+    bool imeContext(ImeContext& context) override {
+        if (shapesOpen) return false;
+        if (fontOpen) {
+            context = imeField(fontFilter, fontFilter.size(), imeCaretFor(fontFilter, fontFilter.size(),
+                {fontPop.x + 16, fontPop.y, std::max(0.0, fontPop.w - 32), kSearchH}, 15));
+            return true;
+        }
+        const int index = indexOf(editId);
+        if (index < 0) return false;
+        const auto& item = items[index];
+        double x = 0, y = 0, h = 0;
+        ffdraw::caretAt(item, caret, x, y, h);
+        context = imeField(item.text, caret, {canvas.x + x, canvas.y + y, 2, h});
+        return true;
+    }
+    void imeEdit(const ImeEdit& edit) override {
+        lastKey = Clock::now();
+        if (fontOpen) {
+            size_t cursor = fontFilter.size();
+            if (applyImeText(fontFilter, cursor, edit, 60)) filterFonts();
+        } else if (auto* item = find(editId)) {
+            if (applyImeText(item->text, caret, edit, kMaxEditBytes, item->kind == ff::Item::Link)) ffdraw::fit(*item);
+        }
+    }
+
     bool key(const KeyEvent& k) override {
         if (shapesOpen) { if (k.sym == XKB_KEY_Escape) shapesOpen = false; return true; }
         if (fontOpen) return fontKey(k);

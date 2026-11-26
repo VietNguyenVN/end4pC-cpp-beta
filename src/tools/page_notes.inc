@@ -544,6 +544,34 @@ struct NotesPage final : ToolPage {
 
     static xkb_keysym_t lowerSym(xkb_keysym_t s) { return s >= XKB_KEY_A && s <= XKB_KEY_Z ? s + 32 : s; }
 
+    bool imeContext(ImeContext& context) override {
+        if (view != View::Edit) {
+            context = imeField(query, query.size(), imeCaretFor(query, query.size(), {56, 0, std::max(0.0, W - 116), kSearchH}, 18));
+            return true;
+        }
+        if (mode != Mode::Edit) return false;
+        const Rect field = textRect();
+        double x = 0, y = 0, h = 0;
+        ed.caret(ed.cur, x, y, h);
+        context = {ed.s, size_t(ed.cur), size_t(ed.anc),
+            {field.x + x, std::clamp(field.y - edScroll - edEl.over + y, field.y, field.y + field.h), 2, h}, &ed.s};
+        return true;
+    }
+    void imeEdit(const ImeEdit& edit) override {
+        if (view != View::Edit) {
+            size_t cursor = query.size();
+            if (applyImeText(query, cursor, edit, 5000)) { scrollTarget = 0; rebuild(); }
+        } else if (mode == Mode::Edit) {
+            const auto replacement = imeReplacement(ed.s, ed.cur, ed.anc, edit);
+            if (replacement.first != replacement.last || !replacement.text.empty()) {
+                ed.replace(replacement.first, replacement.last, replacement.text, false);
+                markEdited();
+                follow = true;
+            }
+        }
+        blinkBase = Clock::now();
+    }
+
     bool key(const KeyEvent& k) override { return view == View::Edit ? editKey(k) : listKey(k); }
 
     bool listKey(const KeyEvent& k) {

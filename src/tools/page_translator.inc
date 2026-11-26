@@ -45,6 +45,7 @@ struct TranslatorPage final : ToolPage {
     std::vector<Hit> hits;
     Hover hover;
     Rect srcCard, tgtCard, histCard, histList, tgtText;
+    bool sourceFocused = true;
     bool dragging = false;
     Clock::time_point lastClick;
     size_t lastClickIdx = 0;
@@ -245,8 +246,8 @@ struct TranslatorPage final : ToolPage {
         ed.box = {c.x + 22, c.y + 74, c.w - 44, c.h - 74 - 72};
         const bool caretOn = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - lastKey).count() / 530 % 2 == 0;
         lastCaret = caretOn;
-        if (ed.s.empty()) text(cr, "Type or paste text", ed.box.x, ed.box.y, kEdPx, false, g.color("on_surface_variant"), ed.box.w, 0.7);
-        ed.draw(cr, ed.box, fg, g.color("primary"), caretOn && popup == 0);
+        if (ed.s.empty() && ed.preedit.empty()) text(cr, "Type or paste text", ed.box.x, ed.box.y, kEdPx, false, g.color("on_surface_variant"), ed.box.w, 0.7);
+        ed.draw(cr, ed.box, fg, g.color("primary"), sourceFocused && (caretOn || !ed.preedit.empty()) && popup == 0);
         drawSourceFooter(cr, c);
     }
     void drawDetected(cairo_t* cr, const Rect& c, const Rect& chip) {
@@ -473,6 +474,7 @@ struct TranslatorPage final : ToolPage {
     bool click(double x, double y, bool press) override {
         if (!press) { const bool was = dragging; dragging = false; return was; }
         const Hover h = hitAt(x, y);
+        sourceFocused = !popup && h.id == None && ed.box.contains(x, y);
         if (popup && h.id != PopItem) { popup = 0; return true; }
         if (h.id != None) return act(h);
         if (ed.box.contains(x, y)) { placeCaret(x, y); return true; }
@@ -519,8 +521,29 @@ struct TranslatorPage final : ToolPage {
         if (popup && k.sym == XKB_KEY_Escape) { popup = 0; return true; }
         lastKey = Clock::now();
         popup = 0;
+        if (!k.ctrl && !k.alt && !k.text.empty()) sourceFocused = true;
         const bool used = k.ctrl ? ctrlKey(k) : editKey(k);
         return used;
+    }
+
+    bool imeContext(ImeContext& context) override {
+        if (!sourceFocused || popup || ed.box.w <= 0) return false;
+        context = {ed.s, ed.cur, ed.anc, ed.imeCaret, &ed.s};
+        return true;
+    }
+
+    bool imeInlinePreedit() const override { return true; }
+
+    void imeCancel() override { ed.preedit.clear(); }
+
+    void imeEdit(const ImeEdit& edit) override {
+        bool changed = ed.deleteSurrounding(edit.before, edit.after);
+        if (!edit.commit.empty()) changed |= ed.insert(edit.commit);
+        if (changed) edited();
+        ed.preedit = edit.preedit;
+        ed.preeditCursor = edit.preeditCursor;
+        ed.reveal = true;
+        lastKey = Clock::now();
     }
 
     bool tick() override {

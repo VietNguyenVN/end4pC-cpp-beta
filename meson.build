@@ -50,7 +50,14 @@ executable('end4pC-settings', 'src/settings.cpp', generated,
   dependencies: [wayland_client, pangocairo, pangoft2, fontconfig, gdkpixbuf, rsvg, xkb],
   install: false)
 
-executable('end4pC-tools', 'src/tools.cpp', generated,
+text_input_xml = '/usr/share/wayland-protocols/unstable/text-input/text-input-unstable-v3.xml'
+text_input = [
+  custom_target('text-input-v3-header', input: text_input_xml, output: 'text-input-unstable-v3-client-protocol.h',
+    command: [scanner, 'client-header', '@INPUT@', '@OUTPUT@']),
+  custom_target('text-input-v3-code', input: text_input_xml, output: 'text-input-unstable-v3-protocol.c',
+    command: [scanner, 'private-code', '@INPUT@', '@OUTPUT@']),
+]
+executable('end4pC-tools', 'src/tools.cpp', generated, text_input,
   dependencies: [wayland_client, pangocairo, pangoft2, fontconfig, gdkpixbuf, rsvg, xkb, threads],
   install: false)
 

@@ -510,6 +510,16 @@ struct UnitsPage final : ToolPage {
         return true;
     }
 
+    bool imeContext(ImeContext& context) override {
+        if (!popup || searchBox.w <= 0) return false;
+        context = imeField(filter, curFilter, imeCaretFor(filter, curFilter,
+            {searchBox.x + 8, searchBox.y, searchBox.w - 16, searchBox.h}, 15));
+        return true;
+    }
+    void imeEdit(const ImeEdit& edit) override {
+        if (applyImeText(filter, curFilter, edit, 256)) { popScroll = 0; lastKey = Clock::now(); }
+    }
+
     bool key(const KeyEvent& k) override {
         lastKey = Clock::now();
         if (popup) {

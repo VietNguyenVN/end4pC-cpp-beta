@@ -841,6 +841,20 @@ struct TimersPage final : ToolPage {
         return !hp ? Cursor::Default : hp->act == kField ? Cursor::Text : Cursor::Pointer;
     }
 
+    bool imeContext(ImeContext& context) override {
+        if (!fieldFocus || dlg) return false;
+        for (const auto& hit : hits) if (hit.act == kField) {
+            const Rect r{hit.r.x + 16, hit.r.y, hit.r.w - 32, hit.r.h};
+            context = imeField(label, label.size(), imeCaretFor(label, label.size(), r, 16));
+            return true;
+        }
+        return false;
+    }
+    void imeEdit(const ImeEdit& edit) override {
+        size_t cursor = label.size();
+        if (applyImeText(label, cursor, edit, 240)) blink = Clock::now();
+    }
+
     bool key(const KeyEvent& k) override {
         if (dlg) {
             if (k.sym == XKB_KEY_Escape) { dlg = 0; return true; }
