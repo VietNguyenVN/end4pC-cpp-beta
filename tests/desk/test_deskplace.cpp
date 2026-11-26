@@ -120,6 +120,53 @@ int main() {
     }
     // 6. A tiny screen: the widgets that fit nowhere go over the others, offset, but stay on the screen.
     run("800x600, all eight (overlap allowed)", 800, 600, all8(), false);
+    // 7. Snapping while a widget is dragged.
+    {
+        const std::vector<Rect> others = {{1000, 24, 358, 212}, {1000, 248, 358, 300}};
+        // A widget dropped 5 px from the gap below the first one is pulled to exactly one gap, and to its left edge.
+        Snap s = snapMove(1440, 848, kGap, {{1000, 24, 358, 212}}, {1003, 236 + kGap + 5, 358, 300});
+        CHECK(s.t == 236 + kGap && s.l == 1000, "snap to the gap below: got (%d,%d)", s.l, s.t);
+        // Far from everything it stays where it is.
+        s = snapMove(1440, 848, kGap, others, {400, 400, 300, 200});
+        CHECK(s.l == 400 && s.t == 400, "free widget moved to (%d,%d)", s.l, s.t);
+        // Beside a widget that shares no rows it is not pulled to its side.
+        s = snapMove(1440, 848, kGap, {{1000, 24, 358, 100}}, {1000 - 300 - kGap - 4, 500, 300, 100});
+        CHECK(s.l == 1000 - 300 - kGap - 4, "pulled to a widget in other rows: %d", s.l);
+        // The screen margin pulls and the gaps are reported with their size.
+        s = snapMove(1440, 848, kGap, others, {1000, 248 + 300 + kGap + 3, 358, 100});
+        CHECK(s.t == 248 + 300 + kGap, "snap under the second: %d", s.t);
+        bool found = false;
+        for (const Spacing& sp : s.spaces) if (!sp.horizontal && sp.to - sp.from == kGap) found = true;
+        CHECK(found, "the gap above is not reported");
+        s = snapMove(1440, 848, kGap, {}, {kGap + 6, kGap - 7, 100, 100});
+        CHECK(s.l == kGap && s.t == kGap, "margin snap: (%d,%d)", s.l, s.t);
+        // Never leaves the screen.
+        s = snapMove(1440, 848, kGap, others, {1440 - 100, 848 - 100, 100, 100});
+        CHECK(s.l + 100 <= 1440 - kGap && s.t + 100 <= 848 - kGap, "left the screen: (%d,%d)", s.l, s.t);
+    }
+    // 8. Resizing snaps, the grid, and tidying a column.
+    {
+        std::vector<Rect> others = {{100, 24, 300, 200}};
+        double left = 100, right = 400, top = 24 + 200 + kGap + 6, bottom = 500;
+        snapResize(kGap, others, left, right, top, bottom, false, false, true, false);
+        CHECK(static_cast<int>(top) == 24 + 200 + kGap, "resize top: %d", static_cast<int>(top));
+        left = 100; right = 400; top = 300; bottom = 24 + 200 + 50;
+        snapResize(kGap, {{100, 24, 300, 200}}, left, right, top, bottom, false, false, false, true);
+        CHECK(static_cast<int>(bottom) == 274, "far bottom should stay: %d", static_cast<int>(bottom));
+        // Grid: with nothing near, positions land on multiples.
+        Snap s = snapMove(1440, 848, kGap, {}, {203, 317, 100, 100}, 12, 160, 32);
+        CHECK(s.l % 32 == 0 && s.t % 32 == 0, "grid: (%d,%d)", s.l, s.t);
+        // Tidy: three in a column with gaps of 3, 40 and 0 become exactly kGap apart, right aligned.
+        std::vector<Rect> col = {{1000, 24, 358, 200}, {1010, 227, 340, 300}, {1000, 567, 358, 100}, {100, 100, 200, 200}};
+        std::vector<Rect> out = tidyColumn(1440, 848, kGap, col, 0);
+        CHECK(out[1].t == out[0].t + out[0].h + kGap && out[2].t == out[1].t + out[1].h + kGap, "tidy gaps: %d %d", out[1].t, out[2].t);
+        CHECK(out[1].l + out[1].w == out[0].l + out[0].w, "tidy right edges: %d", out[1].l + out[1].w);
+        CHECK(out[3].l == 100 && out[3].t == 100, "a widget in another column moved");
+        // A column too tall for the screen is shifted up, never below it.
+        std::vector<Rect> tall = {{10, 300, 200, 300}, {10, 700, 200, 100}};
+        out = tidyColumn(1440, 848, kGap, tall, 0);
+        CHECK(out[1].t + out[1].h <= 848 - kGap, "tidy left the screen: %d", out[1].t + out[1].h);
+    }
     std::printf("\n%s (%d failures)\n", failures ? "FAILED" : "OK", failures);
     return failures ? 1 : 0;
 }

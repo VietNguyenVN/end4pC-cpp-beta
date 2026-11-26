@@ -3,7 +3,7 @@ constexpr int kDeskAlts = 4;
 constexpr int kDeskRoom = 22;
 constexpr int kDeskEditExtra = 48;
 constexpr int kDeskEdges[8] = {1 | 4, 4, 2 | 4, 2, 2 | 8, 8, 1 | 8, 1};
-constexpr int kDeskMove = 5003, kDeskTap = 5004, kDeskHandle = 5010, kDeskDone = 5020;
+constexpr int kDeskMove = 5003, kDeskTap = 5004, kDeskHandle = 5010, kDeskDone = 5020, kDeskTidy = 5021;
 
 std::array<DeskWidget*, 9> deskList(App& app) { return {&app.todo, &app.weather, &app.mediaW, &app.resW, &app.calW, &app.deskClock, &app.userW, &app.imageW, deskTextWidget()}; }
 
@@ -113,6 +113,50 @@ void onDeskFrame(void* data, wl_callback* cb, uint32_t) {
 }
 const wl_callback_listener kDeskFrameListener = {onDeskFrame};
 
+// The lines and gaps shown while a widget is dragged: a thin line where edges line up, and the size in pixels of each free space beside the
+// widget (accent colour when it is exactly the gap set in Settings).
+void deskDrawGuides(App& app, const DeskWidget& d, cairo_t* cr, int gap) {
+    const Color accent = app.color("primary"), onAccent = app.color("on_primary");
+    setSource(cr, accent, 0.8);
+    cairo_set_line_width(cr, 1);
+    for (const deskplace::Guide& g : d.snap.guides) {
+        if (g.vertical) { cairo_move_to(cr, g.pos + 0.5, g.from); cairo_line_to(cr, g.pos + 0.5, g.to); }
+        else { cairo_move_to(cr, g.from, g.pos + 0.5); cairo_line_to(cr, g.to, g.pos + 0.5); }
+        cairo_stroke(cr);
+    }
+    if (const int grid = app.cfg.widgetGrid; grid >= 8) {  // (the grid, as dots, so it is clear what the widget snaps to)
+        setSource(cr, accent, 0.3);
+        for (int y = 0; y < d.fullH; y += grid)
+            for (int x = 0; x < d.fullW; x += grid) { cairo_new_sub_path(cr); cairo_arc(cr, x, y, 1.3, 0, 2 * M_PI); }
+        cairo_fill(cr);
+    }
+    PangoLayout* lay = pango_cairo_create_layout(cr);
+    PangoFontDescription* fd = pango_font_description_from_string("Sans Bold 9");
+    pango_layout_set_font_description(lay, fd);
+    pango_font_description_free(fd);
+    for (const deskplace::Spacing& sp : d.snap.spaces) {
+        const int value = sp.to - sp.from;
+        const bool exact = value == gap;
+        setSource(cr, accent, exact ? 1.0 : 0.55);
+        cairo_set_line_width(cr, 2);
+        if (sp.horizontal) { cairo_move_to(cr, sp.from, sp.cross + 0.5); cairo_line_to(cr, sp.to, sp.cross + 0.5); }
+        else { cairo_move_to(cr, sp.cross + 0.5, sp.from); cairo_line_to(cr, sp.cross + 0.5, sp.to); }
+        cairo_stroke(cr);
+        const std::string text = std::to_string(value);
+        pango_layout_set_text(lay, text.c_str(), -1);
+        int tw = 0, th = 0;
+        pango_layout_get_pixel_size(lay, &tw, &th);
+        const double cx = sp.horizontal ? (sp.from + sp.to) / 2.0 : sp.cross, cy = sp.horizontal ? sp.cross : (sp.from + sp.to) / 2.0;
+        roundedRect(cr, cx - tw / 2.0 - 6, cy - th / 2.0 - 2, tw + 12, th + 4, (th + 4) / 2.0);
+        setSource(cr, accent, exact ? 1.0 : 0.7);
+        cairo_fill(cr);
+        setSource(cr, onAccent);
+        cairo_move_to(cr, cx - tw / 2.0, cy - th / 2.0);
+        pango_cairo_show_layout(cr, lay);
+    }
+    g_object_unref(lay);
+}
+
 void deskDraw(App& app, DeskWidget& d, bool force) {
     if (!d.open() || !d.configured || d.w <= 0 || d.h <= 0) return;
     if (d.full && !d.fullReady) return;
@@ -124,6 +168,7 @@ void deskDraw(App& app, DeskWidget& d, bool force) {
     int cardSW = 0, cardSH = 0;
     deskSurfSize(app, d, cardSW, cardSH);
     const int W = d.w, H = d.h, SW = big ? d.fullW : cardSW, SH = big ? d.fullH : cardSH;
+    const int gapNow = deskGap(app);
     const double ox = big ? d.ml : kDeskRoom, oy = big ? d.mt : kDeskRoom;
     hidpi::Frame hf;
     if (!hidpi::begin(hf, SW, SH, d.scale.factor(), "end4pC-widget")) return;
@@ -143,6 +188,7 @@ void deskDraw(App& app, DeskWidget& d, bool force) {
         setSource(cr, app.color("shadow"), 0.5);
         cairo_mask_surface(cr, d.shadow, ox - kLaunShadow, oy - kLaunShadow + 3);
     }
+    if (big && d.drag) deskDrawGuides(app, d, cr, gapNow);
     cairo_translate(cr, ox, oy);
 
     const bool unlocked = !app.cfg.widgetsLocked;
@@ -164,40 +210,51 @@ void deskDraw(App& app, DeskWidget& d, bool force) {
         const double r = std::min<double>(d.radius, std::min(W, H) / 2.0), o = r * (1 - std::cos(M_PI / 4));
         const Color accent = app.color("primary"), ring = app.color("on_primary");
         roundedRect(cr, 1, 1, W - 2, H - 2, std::max(0.0, r - 1));
-        setSource(cr, accent);
-        cairo_set_line_width(cr, 2);
+        setSource(cr, accent, 0.35);
+        cairo_set_line_width(cr, 1);
         cairo_stroke(cr);
+        // Grips like the control centre's tiles: a short arc hugging each rounded corner and a short bar in the middle of each side.
         const double px[8] = {o, W / 2.0, W - o, W - 1.0, W - o, W / 2.0, o, 1.0}, py[8] = {o, 1.0, o, H / 2.0, H - o, H - 1.0, H - o, H / 2.0};
+        const double cxs[4] = {r, W - r, W - r, r}, cys[4] = {r, r, H - r, H - r}, mid[4] = {M_PI * 1.25, M_PI * 1.75, M_PI * 0.25, M_PI * 0.75};
+        const double inset = 2.5, arcSpan = std::min(0.9, 26.0 / std::max(r, 1.0)), bar = 14;
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
         for (int i = 0; i < 8; i++) {
             const bool hot = d.hover == kDeskHandle + i || (d.drag && !d.moveMode && d.edge == kDeskEdges[i]);
-            cairo_new_sub_path(cr);
-            cairo_arc(cr, px[i], py[i], hot ? 9 : 7.5, 0, 2 * M_PI);
-            setSource(cr, ring);
-            cairo_fill_preserve(cr);
-            setSource(cr, accent);
-            cairo_set_line_width(cr, 3);
-            cairo_stroke_preserve(cr);
-            setSource(cr, accent);
-            cairo_fill(cr);
-            d.hits.push_back({kDeskHandle + i, Rect{px[i] - 11, py[i] - 11, 22, 22}});
+            setSource(cr, accent, hot ? 1.0 : 0.8);
+            cairo_set_line_width(cr, hot ? 6 : 4.5);
+            if (i % 2 == 0) {
+                const int c = i / 2;
+                cairo_new_sub_path(cr);
+                cairo_arc(cr, cxs[c], cys[c], std::max(1.0, r - inset), mid[c] - arcSpan, mid[c] + arcSpan);
+            } else {
+                cairo_new_sub_path(cr);
+                if (i == 1 || i == 5) { const double y = i == 1 ? inset : H - inset; cairo_move_to(cr, W / 2.0 - bar, y); cairo_line_to(cr, W / 2.0 + bar, y); }
+                else { const double x = i == 3 ? W - inset : inset; cairo_move_to(cr, x, H / 2.0 - bar); cairo_line_to(cr, x, H / 2.0 + bar); }
+            }
+            cairo_stroke(cr);
+            d.hits.push_back({kDeskHandle + i, Rect{px[i] - 14, py[i] - 14, 28, 28}});
         }
-        const Rect done{W / 2.0 - 44, H + 12.0, 88, 34};
-        const bool dh = d.hover == kDeskDone;
-        roundedRect(cr, done.x, done.y, done.w, done.h, done.h / 2);
-        setSource(cr, accent, dh ? 1.0 : 0.92);
-        cairo_fill(cr);
-        PangoLayout* dl = pango_cairo_create_layout(cr);
-        PangoFontDescription* dfd = pango_font_description_from_string("Sans Bold 11");
-        pango_layout_set_font_description(dl, dfd);
-        pango_font_description_free(dfd);
-        pango_layout_set_text(dl, i18n::tr("Done"), -1);
-        int tw = 0, th = 0;
-        pango_layout_get_pixel_size(dl, &tw, &th);
-        setSource(cr, ring);
-        cairo_move_to(cr, done.x + (done.w - tw) / 2, done.y + (done.h - th) / 2);
-        pango_cairo_show_layout(cr, dl);
-        g_object_unref(dl);
-        d.hits.push_back({kDeskDone, done});
+        auto button = [&](const Rect& box, const char* label, int id, bool filled) {
+            const bool hot = d.hover == id;
+            roundedRect(cr, box.x, box.y, box.w, box.h, box.h / 2);
+            if (filled) setSource(cr, accent, hot ? 1.0 : 0.92);
+            else { setSource(cr, app.color("surface_container_highest"), hot ? 1.0 : 0.92); }
+            cairo_fill(cr);
+            PangoLayout* dl = pango_cairo_create_layout(cr);
+            PangoFontDescription* dfd = pango_font_description_from_string("Sans Bold 11");
+            pango_layout_set_font_description(dl, dfd);
+            pango_font_description_free(dfd);
+            pango_layout_set_text(dl, i18n::tr(label), -1);
+            int tw = 0, th = 0;
+            pango_layout_get_pixel_size(dl, &tw, &th);
+            setSource(cr, filled ? ring : app.color("on_surface"));
+            cairo_move_to(cr, box.x + (box.w - tw) / 2, box.y + (box.h - th) / 2);
+            pango_cairo_show_layout(cr, dl);
+            g_object_unref(dl);
+            d.hits.push_back({id, box});
+        };
+        button({W / 2.0 - 92, H + 12.0, 88, 34}, "Tidy", kDeskTidy, false);
+        button({W / 2.0 + 4, H + 12.0, 88, 34}, "Done", kDeskDone, true);
     }
 
     cairo_destroy(cr);
@@ -444,7 +501,7 @@ int deskCursorShape(const App& app) {
         for (int i = 0; i < 8; i++) if (kDeskEdges[i] == d->edge) return kShapes[i];
     }
     if (handle >= 0 && handle < 8) return kShapes[handle];
-    if (d->hover == kDeskDone) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
+    if (d->hover == kDeskDone || d->hover == kDeskTidy) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
     if (d->cursor && d->hover >= 0) {
         const int s = d->cursor(*d, d->hover);
         if (s >= 0) return s;
@@ -504,8 +561,8 @@ constexpr double kDeskGlideSeconds = 0.55;
 
 // Moves an open widget to another place and size with a glide. The widget takes the whole-screen surface that a drag uses, so no
 // surface is resized on the way; the last frame gives the small surface back.
-bool deskGlideTo(App& app, DeskWidget& d, int w, int h, int l, int t) {
-    if (!d.open() || !d.configured || d.ml < 0 || d.drag || d.editing || d.glide.on) return false;
+bool deskGlideTo(App& app, DeskWidget& d, int w, int h, int l, int t, bool whileEditing = false) {
+    if (!d.open() || !d.configured || d.ml < 0 || d.drag || (d.editing && !whileEditing) || d.glide.on) return false;
     w = d.resizable ? std::clamp(w, d.minW, d.maxW) : d.w;
     h = d.resizable ? std::clamp(h, d.minH, d.maxH) : d.h;
     if (w == d.w && h == d.h && l == d.ml && t == d.mt) return true;
@@ -513,6 +570,22 @@ bool deskGlideTo(App& app, DeskWidget& d, int w, int h, int l, int t) {
     d.pinned = true;
     if (!d.full) deskRaiseFull(app, d);
     return true;
+}
+
+// Stacks the widgets of this widget's column with exactly the screen margin between them (they glide to their places).
+void deskTidy(App& app, DeskWidget& d) {
+    std::vector<DeskWidget*> list;
+    std::vector<deskplace::Rect> rects;
+    size_t pivot = 0;
+    for (DeskWidget* o : deskList(app)) {
+        if (!o->open() || o->ml < 0) continue;
+        if (o == &d) pivot = list.size();
+        list.push_back(o);
+        rects.push_back({o->ml, o->mt, o->w, o->h});
+    }
+    const std::vector<deskplace::Rect> out = deskplace::tidyColumn(deskUsableW(app, 0, 1), deskUsableH(app), deskGap(app), rects, pivot);
+    for (size_t i = 0; i < list.size(); i++)
+        if (out[i].l != rects[i].l || out[i].t != rects[i].t) deskGlideTo(app, *list[i], list[i]->w, list[i]->h, out[i].l, out[i].t, true);
 }
 
 void deskGlideStep(App& app, DeskWidget& d, std::chrono::steady_clock::time_point now) {
@@ -572,9 +645,9 @@ void deskMotion(App& app, DeskWidget& d) {
         d.lastGy = py;
         const int gap = deskGap(app);
         if (d.moveMode) {
-            const int nl = std::clamp(static_cast<int>(px - d.gx), gap, std::max(gap, deskUsableW(app, 0, d.minW) - d.w - gap));
-            const int nt = std::clamp(static_cast<int>(py - d.gy), gap, std::max(gap, deskUsableH(app) - d.h - gap));
-            const int fl = nl, ft = nt;
+            const int rawL = static_cast<int>(px - d.gx), rawT = static_cast<int>(py - d.gy);
+            d.snap = deskplace::snapMove(deskUsableW(app, 0, d.minW), deskUsableH(app), gap, deskObstacles(app, d), {rawL, rawT, d.w, d.h}, 12, 160, app.cfg.widgetGrid);
+            const int fl = d.snap.l, ft = d.snap.t;
             if (fl == d.ml && ft == d.mt) return;
             d.moved = true;
             d.ml = fl;
@@ -585,6 +658,7 @@ void deskMotion(App& app, DeskWidget& d) {
             const double left0 = d.rsl, right0 = d.rsl + d.rsw, top0 = d.rst, bottom0 = d.rst + d.rsh;
             const bool L = d.edge & 1, R = d.edge & 2, T = d.edge & 4, B = d.edge & 8;
             double left = L ? left0 + dx : left0, right = R ? right0 + dx : right0, top = T ? top0 + dy : top0, bottom = B ? bottom0 + dy : bottom0;
+            if (d.keepAspect <= 0) deskplace::snapResize(gap, deskObstacles(app, d), left, right, top, bottom, L, R, T, B, 12, app.cfg.widgetGrid);
             left = std::max<double>(left, gap); right = std::min<double>(right, usableW - gap);
             top = std::max<double>(top, gap); bottom = std::min<double>(bottom, usableH - gap);
             double w = right - left, h = bottom - top;
@@ -616,6 +690,8 @@ void deskMotion(App& app, DeskWidget& d) {
             d.ml = nl;
             d.mt = nt;
             if (d.onResize) d.onResize(app, d, ow, oh);
+            d.snap = {};
+            deskplace::describe(d.snap, {d.ml, d.mt, d.w, d.h}, deskObstacles(app, d));
         }
         if (d.busy && std::chrono::steady_clock::now() - d.busySince < std::chrono::milliseconds(100)) { d.dirty = true; return; }
         d.busy = true;
@@ -636,6 +712,7 @@ void deskMotion(App& app, DeskWidget& d) {
 void deskClick(App& app, DeskWidget& d) {
     const int id = deskIdAt(d, app.pointerX - kDeskRoom, app.pointerY - kDeskRoom);
     if (id == kDeskTap) { if (d.tap) d.tap(app, d); return; }
+    if (id == kDeskTidy) { deskTidy(app, d); return; }
     if (id == kDeskDone) { d.editing = false; deskRequestSize(app, d, d.w, d.h); updateCursor(app); return; }
     if (id == kDeskMove || (id >= kDeskHandle && id < kDeskHandle + 8)) {
         d.moved = false;
@@ -681,7 +758,7 @@ void deskRelease(App& app) {
         }
         if (!d->drag) continue;
         const bool tapped = d->moveMode && !d->moved && d->tap;
-        d->drag = d->moveMode = false;
+        d->drag = d->moveMode = false; d->snap = {};
         d->busy = d->dirty = false;
         if (d->moved) d->pinned = true;
         deskSave(*d);
@@ -730,7 +807,7 @@ void deskSync(App& app) {
             d->pressed = false;
             if (d->editing) { d->editing = false; if (!d->full) deskRequestSize(app, *d, d->w, d->h); }
         }
-        if (app.cfg.widgetsLocked && d->drag) { d->drag = d->moveMode = false; deskSave(*d); deskLeaveFull(app, *d); }
+        if (app.cfg.widgetsLocked && d->drag) { d->drag = d->moveMode = false; d->snap = {}; deskSave(*d); deskLeaveFull(app, *d); }
         if (gapChanged && deskFit(app, *d)) {
             zwlr_layer_surface_v1_set_margin(d->layer, d->mt - kDeskRoom, 0, 0, d->ml - kDeskRoom);
             deskSave(*d);

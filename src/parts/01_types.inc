@@ -485,6 +485,7 @@ struct Config {
     std::string clockStyle = "cookie";
     int calendarMonday = 1;
     int widgetGap = 12;
+    int widgetGrid = 0;  // desktop widgets land on multiples of this many pixels (0: no grid)
     // the desktop visualizer (14z_desk_viz.inc)
     std::string deskVizStyle = "bars", deskVizPos = "bottom", deskVizColor = "gradient";
     int deskVizSize = 220, deskVizBars = 48;
@@ -1272,6 +1273,7 @@ struct DeskWidget {
     bool pressed = false;
     double pressX = 0, pressY = 0;
     bool moved = false;
+    deskplace::Snap snap;  // (while the widget is dragged: the lines and gaps shown around it)
     struct Glide { bool on = false; std::chrono::steady_clock::time_point t0{}; int fl = 0, ft = 0, fw = 0, fh = 0, tl = 0, tt = 0, tw = 0, th = 0; } glide;  // (a preset moves the open widget to its other place and size, live)
     bool open() const { return surface != nullptr; }
 };

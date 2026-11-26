@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace deskplace {
@@ -134,5 +135,119 @@ inline bool layoutFits(int W, int H, const std::vector<Item>& items) {
         }
     }
     return true;
+}
+
+// Magnetic moving: while a widget is dragged its edges are pulled to the gap beside another widget, to the screen margin and to the
+// other widgets' edges and centres, and the gaps left around it are reported so they can be drawn with their size in pixels.
+struct Guide { bool vertical = false; int pos = 0, from = 0, to = 0; };  // a line of aligned edges (vertical: x = pos, from..to is y)
+struct Spacing { bool horizontal = true; int from = 0, to = 0, cross = 0; };  // the free space between two widgets (value = to - from)
+struct Snap { int l = 0, t = 0; std::vector<Guide> guides; std::vector<Spacing> spaces; };
+
+inline int snapAxis(int pos, int size, int lo, int hi, int g, const std::vector<std::pair<int, int>>& near, const std::vector<std::pair<int, int>>& across, int threshold, int grid = 0) {
+    // near: [start, size] of the widgets that share rows (or columns) with the dragged one, so they can sit beside it;
+    // across: every widget, for the edge and centre alignments.
+    std::vector<int> candidates = {lo, hi - size};
+    for (const auto& n : near) { candidates.push_back(n.first + n.second + g); candidates.push_back(n.first - g - size); }
+    for (const auto& n : across) {
+        candidates.push_back(n.first);
+        candidates.push_back(n.first + n.second - size);
+        candidates.push_back(n.first + (n.second - size) / 2);
+    }
+    int best = std::clamp(pos, lo, std::max(lo, hi - size)), bestDist = threshold + 1;
+    bool found = false;
+    for (int c : candidates) {
+        if (c < lo || c > hi - size) continue;
+        const int d = std::abs(c - pos);
+        if (d < bestDist) { bestDist = d; best = c; found = true; }
+    }
+    if (!found && grid > 0) best = std::clamp((best + grid / 2) / grid * grid, lo, std::max(lo, hi - size));  // (nothing to stick to: the grid)
+    return best;
+}
+
+// The free space beside a rectangle and the lines where its edges match another widget's (what is drawn while it moves).
+inline void describe(Snap& s, const Rect& r, const std::vector<Rect>& obstacles, int reach = 160) {
+    for (const Rect& o : obstacles) {
+        const int yFrom = std::max(r.t, o.t), yTo = std::min(r.t + r.h, o.t + o.h), xFrom = std::max(r.l, o.l), xTo = std::min(r.l + r.w, o.l + o.w);
+        if (yTo > yFrom) {
+            const int cross = (yFrom + yTo) / 2;
+            if (o.l + o.w <= r.l && r.l - (o.l + o.w) <= reach) s.spaces.push_back({true, o.l + o.w, r.l, cross});
+            if (r.l + r.w <= o.l && o.l - (r.l + r.w) <= reach) s.spaces.push_back({true, r.l + r.w, o.l, cross});
+        }
+        if (xTo > xFrom) {
+            const int cross = (xFrom + xTo) / 2;
+            if (o.t + o.h <= r.t && r.t - (o.t + o.h) <= reach) s.spaces.push_back({false, o.t + o.h, r.t, cross});
+            if (r.t + r.h <= o.t && o.t - (r.t + r.h) <= reach) s.spaces.push_back({false, r.t + r.h, o.t, cross});
+        }
+        const int tops[2][2] = {{r.l, o.l}, {r.l + r.w, o.l + o.w}};
+        for (const auto& e : tops) if (e[0] == e[1]) s.guides.push_back({true, e[0], std::min(r.t, o.t), std::max(r.t + r.h, o.t + o.h)});
+        const int rows[2][2] = {{r.t, o.t}, {r.t + r.h, o.t + o.h}};
+        for (const auto& e : rows) if (e[0] == e[1]) s.guides.push_back({false, e[0], std::min(r.l, o.l), std::max(r.l + r.w, o.l + o.w)});
+    }
+}
+
+inline Snap snapMove(int W, int H, int g, const std::vector<Rect>& obstacles, Rect r, int threshold = 10, int reach = 160, int grid = 0) {
+    auto overlap = [](int a, int as, int b, int bs) { return a < b + bs && b < a + as; };
+    std::vector<std::pair<int, int>> nearX, acrossX, nearY, acrossY;
+    for (const Rect& o : obstacles) {
+        acrossX.push_back({o.l, o.w});
+        if (overlap(r.t, r.h, o.t, o.h)) nearX.push_back({o.l, o.w});
+    }
+    Snap s;
+    r.l = snapAxis(r.l, r.w, g, W - g, g, nearX, acrossX, threshold, grid);
+    for (const Rect& o : obstacles) {
+        acrossY.push_back({o.t, o.h});
+        if (overlap(r.l, r.w, o.l, o.w)) nearY.push_back({o.t, o.h});
+    }
+    r.t = snapAxis(r.t, r.h, g, H - g, g, nearY, acrossY, threshold, grid);
+    s.l = r.l;
+    s.t = r.t;
+    describe(s, r, obstacles, reach);
+    return s;
+}
+
+// Resizing: the edges that move are pulled to the gap beside a neighbour (or to its edge) when they come within `threshold`.
+// L/R/T/B tell which edges move; the others stay.
+inline void snapResize(int g, const std::vector<Rect>& obstacles, double& left, double& right, double& top, double& bottom, bool L, bool R, bool T, bool B, int threshold = 12, int grid = 0) {
+    auto pull = [&](double& v, const std::vector<int>& candidates) {
+        int best = -1, bestDist = threshold + 1;
+        for (int c : candidates) { const int d = std::abs(c - static_cast<int>(v)); if (d < bestDist) { bestDist = d; best = c; } }
+        if (best >= 0) v = best;
+        return best >= 0;
+    };
+    auto overlap = [](double a, double b, int c, int cs) { return a < c + cs && c < b; };
+    std::vector<int> ls, rs, ts, bs;
+    for (const Rect& o : obstacles) {
+        if (overlap(top, bottom, o.t, o.h)) { ls.push_back(o.l + o.w + g); rs.push_back(o.l - g); }
+        ls.push_back(o.l); rs.push_back(o.l + o.w);
+        if (overlap(left, right, o.l, o.w)) { ts.push_back(o.t + o.h + g); bs.push_back(o.t - g); }
+        ts.push_back(o.t); bs.push_back(o.t + o.h);
+    }
+    if (L && !pull(left, ls) && grid > 0) left = (static_cast<int>(left) + grid / 2) / grid * grid;
+    if (R) pull(right, rs);
+    if (T && !pull(top, ts) && grid > 0) top = (static_cast<int>(top) + grid / 2) / grid * grid;
+    if (B) pull(bottom, bs);
+}
+
+// "Tidy": the widgets that share a column with rects[pivot] are stacked from the top with exactly `g` between them, all on the pivot's
+// side (right edges together when the pivot is on the right half of the screen, left edges otherwise). The result keeps the order.
+inline std::vector<Rect> tidyColumn(int W, int H, int g, std::vector<Rect> rects, size_t pivot) {
+    if (pivot >= rects.size()) return rects;
+    const Rect p = rects[pivot];
+    std::vector<size_t> column;
+    for (size_t i = 0; i < rects.size(); i++)
+        if (i == pivot || (rects[i].l < p.l + p.w && p.l < rects[i].l + rects[i].w)) column.push_back(i);
+    std::stable_sort(column.begin(), column.end(), [&](size_t a, size_t b) { return rects[a].t < rects[b].t; });
+    const bool right = p.l + p.w / 2 > W / 2;
+    int total = 0;
+    for (size_t i : column) total += rects[i].h;
+    total += g * static_cast<int>(column.size() - 1);
+    int y = std::clamp(rects[column.front()].t, g, std::max(g, H - g - total));
+    for (size_t i : column) {
+        Rect& r = rects[i];
+        r.t = y;
+        r.l = std::clamp(right ? p.l + p.w - r.w : p.l, g, std::max(g, W - g - r.w));
+        y += r.h + g;
+    }
+    return rects;
 }
 }
