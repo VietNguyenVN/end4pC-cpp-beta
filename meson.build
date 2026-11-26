@@ -92,6 +92,9 @@ test('hotcorners', executable('hotcorners-test', 'tests/hotcorners/test_hotcorne
 # What the graphics card is doing, from sysfs and nvidia-smi (src/gpuinfo.h): `meson test -C build`, or tests/gpu/run.sh
 test('gpuinfo', executable('gpuinfo-test', 'tests/gpu/test_gpuinfo.cpp', install: false))
 
+# The order and visibility of the Tools tabs (src/tools_tabs.h): `meson test -C build`, or tests/tools_tabs/run.sh
+test('tools_tabs', executable('tools_tabs-test', 'tests/tools_tabs/test_tools_tabs.cpp', install: false))
+
 # Headless media integration: real shell code with a temporary fake playerctl.
 test('media', executable('media-test', 'tests/media/test_media.cpp',
   'src/notify_dbus.c', 'src/tray_dbus.c', 'src/polkit_dbus.c', generated,

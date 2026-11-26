@@ -281,6 +281,8 @@ struct App {
     bool hoverClose = false, pageHot = false;
     bool tabMenu = false, hoverGear = false, tabMenuError = false, tabMenuClick = false;
     int tabMenuChoice = -1, tabMenuHover = -1;
+    double menuT = 0;               // how far the tab menu is open, for its animation: 0 gone, 1 shown
+    Clock::time_point menuStamp{};  // when it was last stepped; empty while it rests
     int tabDragFrom = -1;
 
     xkb_context* xkbCtx = nullptr;
@@ -791,6 +793,22 @@ void drawTabGear(cairo_t* cr) {
          g.color(g.tabMenu ? "on_secondary_container" : "on_surface_variant"));
 }
 
+// The menu grows out of the gear: it scales up from the gear's corner with a little overshoot while it fades in, and shrinks and fades when it closes.
+double easeOutBack(double t) {
+    constexpr double c1 = 1.6, c3 = c1 + 1;
+    const double u = t - 1;
+    return 1 + c3 * u * u * u + c1 * u * u;
+}
+void stepMenuAnimation(Clock::time_point now) {
+    if (g.menuStamp == Clock::time_point{}) return;
+    const double dt = std::min(0.05, std::chrono::duration<double>(now - g.menuStamp).count());
+    g.menuStamp = now;
+    const double target = g.tabMenu ? 1 : 0, speed = g.tabMenu ? 1 / 0.26 : 1 / 0.15;
+    g.menuT = target > g.menuT ? std::min(target, g.menuT + dt * speed) : std::max(target, g.menuT - dt * speed);
+    g.dirty = true;
+    if (g.menuT == target) g.menuStamp = Clock::time_point{};
+}
+
 void drawTabMenu(cairo_t* cr) {
     const Rect r = tabMenuRect();
     const auto foreground = g.color("on_surface");
@@ -978,7 +996,21 @@ void render() {
             text(cr, g.imePreedit, x + 8, y + 4, 15, false, g.color("on_surface"), w - 16);
         }
     }
-    if (g.tabMenu) drawTabMenu(cr);
+    if (g.tabMenu || g.menuT > 0.001) {
+        const Rect menu = tabMenuRect();
+        const double ax = menu.x + menu.w - 24, ay = menu.y, t = std::clamp(g.menuT, 0.0, 1.0);  // (anchored under the gear)
+        const double grow = g.tabMenu ? easeOutBack(t) : t;
+        const double scale = 0.84 + 0.16 * grow, alpha = std::clamp(t * 2.4, 0.0, 1.0);
+        cairo_save(cr);
+        cairo_translate(cr, ax, ay);
+        cairo_scale(cr, scale, scale);
+        cairo_translate(cr, -ax, -ay);
+        cairo_push_group(cr);
+        drawTabMenu(cr);
+        cairo_pop_group_to_source(cr);
+        cairo_paint_with_alpha(cr, alpha);
+        cairo_restore(cr);
+    }
     cairo_destroy(cr);
     cairo_surface_flush(slot->frame.surface);
     if (g.switchT < 1) {
@@ -1112,6 +1144,7 @@ void motion() {
 
 void showTabMenu(bool open) {
     if (open) disableIme();
+    if (open != g.tabMenu) g.menuStamp = Clock::now();  // (the animation runs from wherever it is: a quick second click turns it round)
     g.tabMenu = open;
     g.tabMenuChoice = -1;
     g.tabDragFrom = -1;
@@ -1180,6 +1213,7 @@ bool handleKey(uint32_t key) {
     k.logo = active(XKB_MOD_NAME_LOGO);
     k.code = key;
     if (g.tabMenu) {
+        if (k.ctrl && (k.sym == XKB_KEY_w || k.sym == XKB_KEY_q)) { g.running = false; return false; }  // (the window shortcuts that close it still work with the menu open)
         if (k.sym == XKB_KEY_Escape && g.tabDragFrom >= 0) {
             g.tabDragFrom = -1;
             g.dirty = true;
@@ -1370,7 +1404,7 @@ bool connectWayland() {
 
 int pollTimeoutMs() {
     int timeout = 500;
-    if (!g.switchFrame && (g.switchT < 1 || cur().animating())) timeout = 16;
+    if (!g.switchFrame && (g.switchT < 1 || cur().animating() || g.menuStamp != Clock::time_point{})) timeout = 16;
     if (g.repeatKey) {
         const long left = std::chrono::duration_cast<std::chrono::milliseconds>(g.repeatAt - Clock::now()).count();
         timeout = static_cast<int>(std::min<long>(timeout, std::max<long>(1, left)));
@@ -1380,6 +1414,7 @@ int pollTimeoutMs() {
 
 void tickAll() {
     const auto now = Clock::now();
+    stepMenuAnimation(now);
     if (g.switchT < 1 && !g.switchFrame && g.switchStart != Clock::time_point{}) {
         g.switchT = std::min(1.0, std::chrono::duration<double>(now - g.switchStart).count() / 0.26);
         g.dirty = true;
