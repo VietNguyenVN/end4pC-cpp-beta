@@ -43,7 +43,7 @@ void clipImeText(ImeContext& state) {
 void syncIme() {
     if (!g.imeEntered || g.pages.empty()) return;
     ImeContext next;
-    ToolPage* page = g.switchT >= 1 && cur().imeContext(next) ? &cur() : nullptr;
+    ToolPage* page = !g.tabMenu && g.switchT >= 1 && cur().imeContext(next) ? &cur() : nullptr;
     if (page != g.imePage || (page && next.field != g.imeSent.field)) disableIme();
     if (!page || g.imeNeedsDone) return;
     const bool enable = !g.imePage;

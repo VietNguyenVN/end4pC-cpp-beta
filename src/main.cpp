@@ -11,6 +11,7 @@
 #include "clipboard.h"
 #include "mediaplayer.h"
 #include "mediacommand.h"
+#include "tools_tabs.h"
 #include <pango/pangocairo.h>
 #include "shellfont.h"
 #include <poll.h>

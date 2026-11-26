@@ -17,7 +17,7 @@ struct TpState {
 
 long long tpNow() { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); }
 
-std::string tpShell(const std::string& cmd) {
+std::string sendToolsCommand(const std::string& cmd) {
     const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) return "";
     sockaddr_un a{};
@@ -28,7 +28,7 @@ std::string tpShell(const std::string& cmd) {
     if (connect(fd, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0) {
         timeval tv{1, 0};
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-        (void)!write(fd, cmd.data(), cmd.size());
+        (void)!send(fd, cmd.data(), cmd.size(), MSG_NOSIGNAL);
         shutdown(fd, SHUT_WR);
         char buf[512];
         ssize_t n;
@@ -732,7 +732,7 @@ struct TimersPage final : ToolPage {
         if (remDate) { char b[16]; std::snprintf(b, sizeof b, " %04d-%02d-%02d ", remDate / 10000, remDate / 100 % 100, remDate % 100); return b; }
         return remRepeat == 1 ? " daily " : remRepeat == 2 ? " weekdays " : " once ";
     }
-    void send(const std::string& cmd) { tpShell(cmd); stamp = 0; reload(true); }
+    void send(const std::string& cmd) { sendToolsCommand(cmd); stamp = 0; reload(true); }
 
     bool dialogClick(double x, double y, bool press) {
         if (!press) {

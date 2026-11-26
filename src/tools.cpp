@@ -1,7 +1,9 @@
 #include <random>
+#include <utility>
 #include <cairo.h>
 #include "bubble.h"
 #include "freeform.h"
+#include "tools_tabs.h"
 #include "elastic.h"
 #include "i18n.h"
 #include "oled.h"
@@ -260,7 +262,11 @@ struct App {
     std::map<std::string, Color> colors;
     time_t colorsStamp = 0;
     std::string iconStyle = "broken";
-    std::vector<std::unique_ptr<ToolPage>> pages;
+    std::string hiddenToolsTabs;
+    tools_tabs::Order toolsTabOrder = tools_tabs::parseOrder("");
+    std::vector<std::unique_ptr<ToolPage>> ownedPages;
+    std::vector<ToolPage*> pages;
+    unsigned tabRevision = 0;
     int page = 0, prevPage = 0;
     double switchT = 1;
     Clock::time_point switchStart{};
@@ -273,6 +279,9 @@ struct App {
     bool inside = false;
     int hoverTab = -1;
     bool hoverClose = false, pageHot = false;
+    bool tabMenu = false, hoverGear = false, tabMenuError = false, tabMenuClick = false;
+    int tabMenuChoice = -1, tabMenuHover = -1;
+    int tabDragFrom = -1;
 
     xkb_context* xkbCtx = nullptr;
     xkb_keymap* xkbMap = nullptr;
@@ -321,6 +330,11 @@ void loadColors() {
 
 void loadConfig() {
     const std::string t = readFile(configPath());
+    g.hiddenToolsTabs.clear();
+    jsonValue(t, "hiddenToolsTabs", g.hiddenToolsTabs);
+    std::string order;
+    jsonValue(t, "toolsTabOrder", order);
+    g.toolsTabOrder = tools_tabs::parseOrder(order);
     std::string style, lang;
     g.iconStyle = jsonValue(t, "iconStyle", style) && !style.empty() ? style : "broken";
     std::string mat;
@@ -564,25 +578,62 @@ void drawSampleLoading(cairo_t* cr, Rect r) {
 #include "tools/autostart_store.inc"
 #include "tools/page_autostart.inc"
 
-void buildPages() {
-    if (g.solo) {
-        g.pages.push_back(std::make_unique<TasksPage>());
-        g.pages.push_back(std::make_unique<PerfPage>());
-        startPowerSample(false);
-        return;
+struct EmptyToolsPage : ToolPage {
+    const char* name() const override { return ""; }
+    const char* icon() const override { return ""; }
+    void draw(cairo_t* cr, Rect r) override {
+        const std::string message = "Use the gear to show tabs.";
+        double width = 0, height = 0;
+        measure(message, 16, false, 0, width, height);
+        text(cr, message, r.x + (r.w - width) / 2, r.y + (r.h - height) / 2, 16, false, g.color("on_surface_variant"));
     }
-    g.pages.push_back(std::make_unique<TranslatorPage>());
-    g.pages.push_back(std::make_unique<NotesPage>());
-    g.pages.push_back(std::make_unique<FreeformPage>());
-    g.pages.push_back(std::make_unique<ConverterPage>());
-    g.pages.push_back(std::make_unique<VideoPage>());
-    g.pages.push_back(std::make_unique<UnitsPage>());
-    g.pages.push_back(std::make_unique<TimersPage>(0));
-    g.pages.push_back(std::make_unique<TimersPage>(1));
-    g.pages.push_back(std::make_unique<TimersPage>(2));
-    g.pages.push_back(std::make_unique<KeybindsPage>());
-    g.pages.push_back(std::make_unique<AutostartPage>());
-    g.pages.push_back(std::make_unique<PhonePage>());
+};
+
+void addPage(std::unique_ptr<ToolPage> page) {
+    g.pages.push_back(page.get());
+    g.ownedPages.push_back(std::move(page));
+}
+
+void filterToolsPages() {
+    static EmptyToolsPage emptyPage;
+    g.pages.clear();
+    for (int tab : g.toolsTabOrder)
+        if (!tools_tabs::isHidden(g.hiddenToolsTabs, tools_tabs::tabs[tab].id))
+            g.pages.push_back(g.ownedPages[tab].get());
+    if (g.pages.empty()) g.pages.push_back(&emptyPage);
+    ++g.tabRevision;
+}
+
+int visiblePage(const ToolPage* page) {
+    const auto found = std::find(g.pages.begin(), g.pages.end(), page);
+    return found == g.pages.end() ? -1 : static_cast<int>(found - g.pages.begin());
+}
+
+int buildPages() {
+    if (g.solo) {
+        addPage(std::make_unique<TasksPage>());
+        addPage(std::make_unique<PerfPage>());
+        startPowerSample(false);
+        return -1;
+    }
+    using namespace tools_tabs;
+    const char* env = std::getenv("TOOLS_PAGE");
+    const int requested = env ? std::clamp(std::atoi(env), 0, Count - 1) : -1;
+    g.ownedPages.resize(Count);
+    g.ownedPages[Translator] = std::make_unique<TranslatorPage>();
+    g.ownedPages[Notes] = std::make_unique<NotesPage>();
+    g.ownedPages[Freeform] = std::make_unique<FreeformPage>();
+    g.ownedPages[Converter] = std::make_unique<ConverterPage>();
+    g.ownedPages[Video] = std::make_unique<VideoPage>();
+    g.ownedPages[Units] = std::make_unique<UnitsPage>();
+    g.ownedPages[Timers] = std::make_unique<TimersPage>(0);
+    g.ownedPages[Stopwatch] = std::make_unique<TimersPage>(1);
+    g.ownedPages[Reminders] = std::make_unique<TimersPage>(2);
+    g.ownedPages[Keybinds] = std::make_unique<KeybindsPage>();
+    g.ownedPages[Autostart] = std::make_unique<AutostartPage>();
+    g.ownedPages[Phone] = std::make_unique<PhonePage>();
+    filterToolsPages();
+    return requested < 0 ? -1 : visiblePage(g.ownedPages[requested].get());
 }
 
 ToolPage& cur() { return *g.pages[g.page]; }
@@ -590,6 +641,11 @@ int pageCount() { return static_cast<int>(g.pages.size()); }
 
 Rect contentRect() { return {kPad, kBarH, g.width - 2.0 * kPad, g.height - kBarH - kPad}; }
 Rect closeRect() { return {g.width - kPad - kCloseSize, (kBarH - kCloseSize) / 2, kCloseSize, kCloseSize}; }
+Rect gearRect() {
+    Rect r = closeRect();
+    r.x -= r.w + 8;
+    return r;
+}
 
 constexpr double kSegPad = 4, kBtnPadX = 18, kBtnGap = 8, kBtnIcon = 20, kLabelPx = 15;
 struct TabLayout {
@@ -597,13 +653,16 @@ struct TabLayout {
     std::vector<double> labelWidths, labelHeights;
     Rect segment{};
     int width = 0, page = -1;
-    bool compact = false;
+    unsigned revision = 0;
+    double buttonPad = kBtnPadX;
+    bool compact = false, activeLabel = true;
 };
 
 const TabLayout& tabLayout() {
     static TabLayout layout;
     const size_t count = g.pages.size();
-    if (layout.labelWidths.size() != count) {
+    if (layout.labelWidths.size() != count || layout.revision != g.tabRevision) {
+        layout.revision = g.tabRevision;
         layout.labelWidths.resize(count);
         layout.labelHeights.resize(count);
         for (size_t i = 0; i < count; ++i)
@@ -614,17 +673,26 @@ const TabLayout& tabLayout() {
 
     layout.width = g.width;
     layout.page = g.page;
-    constexpr double tabBase = 2 * kBtnPadX + kBtnIcon;
+    const double available = g.width - 2 * 158.0;
+    const double activeLabelWidth = kBtnGap + layout.labelWidths[g.page];
+    layout.buttonPad = kBtnPadX;
+    layout.activeLabel = true;
+    if (!g.solo) {
+        layout.activeLabel = 2 * kSegPad + count * (kBtnIcon + 10) + activeLabelWidth <= available;
+        const double labels = layout.activeLabel ? activeLabelWidth : 0;
+        layout.buttonPad = std::clamp(((available - 2 * kSegPad - labels) / count - kBtnIcon) / 2, 5.0, kBtnPadX);
+    }
+    const double tabBase = 2 * layout.buttonPad + kBtnIcon;
     double fullWidth = 2 * kSegPad;
     for (double width : layout.labelWidths) fullWidth += tabBase + kBtnGap + width;
     layout.compact = fullWidth > g.width - 2 * 240.0;
-    const double total = layout.compact ? 2 * kSegPad + count * tabBase + kBtnGap + layout.labelWidths[g.page] : fullWidth;
+    const double total = layout.compact ? 2 * kSegPad + count * tabBase + (layout.activeLabel ? activeLabelWidth : 0) : fullWidth;
     const double left = (g.width - total) / 2, top = (kBarH - kSegH) / 2;
     layout.segment = {left, top, total, kSegH};
     layout.rects.resize(count);
     double x = left + kSegPad;
     for (size_t i = 0; i < count; ++i) {
-        const bool label = !layout.compact || static_cast<int>(i) == g.page;
+        const bool label = !layout.compact || (layout.activeLabel && static_cast<int>(i) == g.page);
         const double w = tabBase + (label ? kBtnGap + layout.labelWidths[i] : 0);
         layout.rects[i] = {x, top + kSegPad, w, kSegH - 2 * kSegPad};
         x += w;
@@ -633,6 +701,7 @@ const TabLayout& tabLayout() {
 }
 
 int tabAt(double x, double y) {
+    if (!*cur().name()) return -1;
     const auto& t = tabLayout().rects;
     for (size_t i = 0; i < t.size(); i++) if (t[i].contains(x, y)) return static_cast<int>(i);
     return -1;
@@ -651,6 +720,7 @@ void drawTitle(cairo_t* cr) {
 }
 
 void drawTabs(cairo_t* cr) {
+    if (!*cur().name()) return;
     const auto& layout = tabLayout();
     const Rect s = layout.segment;
     rrect(cr, s.x, s.y, s.w, s.h, s.h / 2);
@@ -673,9 +743,9 @@ void drawTabs(cairo_t* cr) {
         const double over = std::clamp(1 - std::abs(t[i].x + t[i].w / 2 - (hx + hw / 2)) / (t[i].w / 2), 0.0, 1.0);
         const Color c = mix(g.color("on_primary"), g.color(hot ? "on_surface" : "on_surface_variant"), over);
         const char* name = g.pages[i]->name();
-        icon(cr, g.pages[i]->icon(), t[i].x + kBtnPadX, t[i].y + (t[i].h - kBtnIcon) / 2, static_cast<int>(kBtnIcon), c, on);
-        if (!layout.compact || on)
-            text(cr, name, t[i].x + kBtnPadX + kBtnIcon + kBtnGap, t[i].y + (t[i].h - layout.labelHeights[i]) / 2, kLabelPx, true, c);
+        icon(cr, g.pages[i]->icon(), t[i].x + layout.buttonPad, t[i].y + (t[i].h - kBtnIcon) / 2, static_cast<int>(kBtnIcon), c, on);
+        if (!layout.compact || (layout.activeLabel && on))
+            text(cr, name, t[i].x + layout.buttonPad + kBtnIcon + kBtnGap, t[i].y + (t[i].h - layout.labelHeights[i]) / 2, kLabelPx, true, c);
     }
 }
 
@@ -686,6 +756,96 @@ void drawClose(cairo_t* cr) {
     src(cr, g.hoverClose ? mix(g.color("error"), g.color("surface_container_highest"), 0.3) : g.color("surface_container_highest"));
     cairo_fill(cr);
     icon(cr, "close-circle", c.x + (c.w - 22) / 2, c.y + (c.h - 22) / 2, 22, g.hoverClose ? g.color("error") : g.color("on_surface_variant"));
+}
+
+constexpr double kTabMenuHeader = 40, kTabMenuRow = 28, kTabMenuPad = 8, kTabMenuFooter = 20, kTabGripWidth = 26;
+
+Rect tabMenuRect() {
+    constexpr double width = 286;
+    const Rect gear = gearRect();
+    return {gear.x + gear.w - width, gear.y + gear.h + 6, width,
+            kTabMenuHeader + tools_tabs::tabs.size() * kTabMenuRow + kTabMenuFooter + kTabMenuPad};
+}
+
+Rect tabMenuRow(int index) {
+    const Rect r = tabMenuRect();
+    return {r.x + kTabMenuPad, r.y + kTabMenuHeader + index * kTabMenuRow, r.w - 2 * kTabMenuPad, kTabMenuRow};
+}
+
+int tabMenuAt(double x, double y) {
+    for (int i = 0; i < tools_tabs::Count; ++i)
+        if (tabMenuRow(i).contains(x, y)) return i;
+    return -1;
+}
+
+bool overTabGrip(int index, double x) {
+    return index >= 0 && x < tabMenuRow(index).x + kTabGripWidth;
+}
+
+void drawTabGear(cairo_t* cr) {
+    const Rect gear = gearRect();
+    rrect(cr, gear.x, gear.y, gear.w, gear.h, gear.h / 2);
+    src(cr, g.color(g.tabMenu ? "secondary_container" : g.hoverGear ? "surface_container_highest" : "surface_container_high"));
+    cairo_fill(cr);
+    icon(cr, "settings", gear.x + (gear.w - 22) / 2, gear.y + (gear.h - 22) / 2, 22,
+         g.color(g.tabMenu ? "on_secondary_container" : "on_surface_variant"));
+}
+
+void drawTabMenu(cairo_t* cr) {
+    const Rect r = tabMenuRect();
+    const auto foreground = g.color("on_surface");
+    rrect(cr, r.x, r.y, r.w, r.h, 20);
+    src(cr, g.color("surface_container_high"));
+    cairo_fill_preserve(cr);
+    src(cr, g.color("outline_variant"));
+    cairo_set_line_width(cr, 1);
+    cairo_stroke(cr);
+    text(cr, g.tabMenuError ? "Could not save tab preferences" : "Visible tabs",
+         r.x + 18, r.y + 12, 15, true, g.tabMenuError ? g.color("error") : foreground);
+    for (int i = 0; i < tools_tabs::Count; ++i) {
+        const Rect row = tabMenuRow(i);
+        const int tabIndex = g.toolsTabOrder[i];
+        const auto& tab = tools_tabs::tabs[tabIndex];
+        const bool shown = !tools_tabs::isHidden(g.hiddenToolsTabs, tab.id);
+        if (i == g.tabDragFrom || i == g.tabMenuChoice || (g.tabDragFrom < 0 && i == g.tabMenuHover)) {
+            rrect(cr, row.x, row.y, row.w, row.h, 10);
+            src(cr, g.color(i == g.tabDragFrom ? "secondary_container" : "surface_container_highest"));
+            cairo_fill(cr);
+        }
+        src(cr, g.color("on_surface_variant"));
+        for (int column = 0; column < 2; ++column)
+            for (int dot = 0; dot < 3; ++dot) {
+                cairo_new_sub_path(cr);
+                cairo_arc(cr, row.x + 10 + column * 4, row.y + 10 + dot * 4, 1, 0, 2 * M_PI);
+            }
+        cairo_fill(cr);
+        icon(cr, g.ownedPages[tabIndex]->icon(), row.x + 31, row.y + 5, 18, g.color("on_surface_variant"));
+        text(cr, tab.label, row.x + 57, row.y + 5, 13, false, foreground);
+        const Rect track{row.x + row.w - 44, row.y + (row.h - 18) / 2, 34, 18};
+        rrect(cr, track.x, track.y, track.w, track.h, track.h / 2);
+        src(cr, g.color(shown ? "primary" : "surface_container_highest"));
+        cairo_fill(cr);
+        if (!shown) {
+            rrect(cr, track.x + 0.5, track.y + 0.5, track.w - 1, track.h - 1, track.h / 2 - 0.5);
+            src(cr, g.color("outline"));
+            cairo_set_line_width(cr, 1);
+            cairo_stroke(cr);
+        }
+        const double thumbX = shown ? track.x + track.w - 9 : track.x + 9;
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, thumbX, track.y + track.h / 2, shown ? 6 : 5, 0, 2 * M_PI);
+        src(cr, g.color(shown ? "on_primary" : "outline"));
+        cairo_fill(cr);
+    }
+    if (g.tabDragFrom >= 0 && g.tabMenuHover >= 0 && g.tabMenuHover != g.tabDragFrom) {
+        const Rect target = tabMenuRow(g.tabMenuHover);
+        const double y = g.tabMenuHover < g.tabDragFrom ? target.y : target.y + target.h;
+        rrect(cr, target.x + 5, y - 1, target.w - 10, 2, 1);
+        src(cr, g.color("primary"));
+        cairo_fill(cr);
+    }
+    text(cr, "Move with Alt+↑ or Alt+↓", r.x + 18, r.y + r.h - kTabMenuFooter,
+         11, false, g.color("on_surface_variant"));
 }
 
 void clearSwitchImages() {
@@ -800,6 +960,7 @@ void render() {
     cairo_fill(cr);
     drawTitle(cr);
     drawTabs(cr);
+    if (!g.solo) drawTabGear(cr);
     drawClose(cr);
     drawContent(cr);
     if (g.switchT >= 1 && !g.imePreedit.empty() && g.imePage == &cur() && !cur().imeInlinePreedit()) {
@@ -817,6 +978,7 @@ void render() {
             text(cr, g.imePreedit, x + 8, y + 4, 15, false, g.color("on_surface"), w - 16);
         }
     }
+    if (g.tabMenu) drawTabMenu(cr);
     cairo_destroy(cr);
     cairo_surface_flush(slot->frame.surface);
     if (g.switchT < 1) {
@@ -834,7 +996,9 @@ void updateCursor() {
     if (!g.cursorMgr || !g.pointer) return;
     if (!g.cursorDev) g.cursorDev = wp_cursor_shape_manager_v1_get_pointer(g.cursorMgr, g.pointer);
     int shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
-    if (g.hoverTab >= 0 || g.hoverClose) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
+    if (g.tabDragFrom >= 0) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_GRABBING;
+    else if (overTabGrip(g.tabMenuHover, g.px)) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_GRAB;
+    else if (g.hoverTab >= 0 || g.hoverClose || g.hoverGear || g.tabMenuHover >= 0) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
     else if (g.pageHot) {
         const Rect r = contentRect();
         const Cursor c = cur().cursor(g.px - r.x, g.py - r.y);
@@ -879,23 +1043,109 @@ void switchTo(int index) {
     g.dirty = true;
 }
 
+void refreshToolsPages() {
+    ToolPage* previous = g.pages[g.page];
+    filterToolsPages();
+    const int current = visiblePage(previous);
+    g.page = g.prevPage = std::max(0, current);
+    if (current < 0) {
+        previous->leave();
+        previous->blur();
+    }
+    cur().ensureInitialized();
+    if (*cur().name()) rememberPage();
+    clearSwitchImages();
+    g.switchT = 1;
+    g.switchStart = {};
+    g.dirty = true;
+}
+
+void toggleToolTab(int index) {
+    std::string hidden;
+    for (int i = 0; i < tools_tabs::Count; ++i) {
+        const auto& tab = tools_tabs::tabs[i];
+        bool hide = tools_tabs::isHidden(g.hiddenToolsTabs, tab.id);
+        if (i == index) hide = !hide;
+        if (!hide) continue;
+        if (!hidden.empty()) hidden += ',';
+        hidden += tab.id;
+    }
+    const std::string reply = sendToolsCommand("set hiddenToolsTabs " + (hidden.empty() ? "-" : hidden));
+    g.tabMenuError = reply != "ok\n";
+    if (!g.tabMenuError) {
+        g.hiddenToolsTabs = std::move(hidden);
+        refreshToolsPages();
+    }
+    g.dirty = true;
+}
+
+void reorderToolTab(int from, int to) {
+    if (from < 0 || to < 0 || to >= tools_tabs::Count || from == to) return;
+    auto order = g.toolsTabOrder;
+    tools_tabs::moveTab(order, from, to);
+    g.tabMenuError = sendToolsCommand("set toolsTabOrder " + tools_tabs::formatOrder(order)) != "ok\n";
+    if (!g.tabMenuError) {
+        g.toolsTabOrder = order;
+        g.tabMenuChoice = to;
+        refreshToolsPages();
+    }
+    g.dirty = true;
+}
+
 void motion() {
-    const int tab = tabAt(g.px, g.py);
+    const int tab = g.tabMenu ? -1 : tabAt(g.px, g.py);
     const bool close = closeRect().contains(g.px, g.py);
+    const bool gear = !g.solo && gearRect().contains(g.px, g.py);
+    const int menuRow = g.tabMenu ? tabMenuAt(g.px, g.py) : -1;
     const Rect r = contentRect();
-    const bool hot = r.contains(g.px, g.py) && g.switchT >= 1;
-    if (tab != g.hoverTab || close != g.hoverClose) g.dirty = true;
+    const bool hot = !g.tabMenu && r.contains(g.px, g.py) && g.switchT >= 1;
+    if (tab != g.hoverTab || close != g.hoverClose || gear != g.hoverGear || menuRow != g.tabMenuHover) g.dirty = true;
     g.hoverTab = tab;
     g.hoverClose = close;
+    g.hoverGear = gear;
+    g.tabMenuHover = menuRow;
     if (hot) { if (cur().motion(g.px - r.x, g.py - r.y)) g.dirty = true; }
     else if (g.pageHot && cur().leave()) g.dirty = true;
     g.pageHot = hot;
     updateCursor();
 }
 
+void showTabMenu(bool open) {
+    if (open) disableIme();
+    g.tabMenu = open;
+    g.tabMenuChoice = -1;
+    g.tabDragFrom = -1;
+    g.tabMenuError = false;
+    g.dirty = true;
+    motion();
+}
+
 void click(bool press) {
     const Rect r = contentRect();
+    if (!press && g.tabMenuClick) {
+        g.tabMenuClick = false;
+        if (g.tabDragFrom >= 0) {
+            const int from = std::exchange(g.tabDragFrom, -1);
+            reorderToolTab(from, tabMenuAt(g.px, g.py));
+            g.dirty = true;
+            motion();
+        }
+        return;
+    }
     if (press && g.hoverClose) { g.running = false; return; }
+    if (press && (g.hoverGear || g.tabMenu)) {
+        g.tabMenuClick = true;
+        if (g.hoverGear) showTabMenu(!g.tabMenu);
+        else if (g.tabMenuHover >= 0) {
+            g.tabMenuChoice = g.tabMenuHover;
+            if (overTabGrip(g.tabMenuHover, g.px)) {
+                g.tabDragFrom = g.tabMenuHover;
+                g.dirty = true;
+                updateCursor();
+            } else toggleToolTab(g.toolsTabOrder[g.tabMenuHover]);
+        } else if (!tabMenuRect().contains(g.px, g.py)) showTabMenu(false);
+        return;
+    }
     if (press && g.hoverTab >= 0) { switchTo(g.hoverTab); return; }
     if (g.switchT >= 1 && (r.contains(g.px, g.py) || !press) && cur().click(g.px - r.x, g.py - r.y, press)) g.dirty = true;
 }
@@ -903,6 +1153,7 @@ void click(bool press) {
 bool windowShortcut(const KeyEvent& k) {
     if (!k.ctrl) return false;
     if (k.sym == XKB_KEY_w || k.sym == XKB_KEY_q) g.running = false;
+    else if (!g.solo && k.sym == XKB_KEY_comma) showTabMenu(true);
     else if (k.sym == XKB_KEY_Tab || k.sym == XKB_KEY_ISO_Left_Tab) switchTo(g.page + (k.shift ? -1 : 1));
     else if (k.sym == XKB_KEY_Right) switchTo(g.page + 1);
     else if (k.sym == XKB_KEY_Left) switchTo(g.page - 1);
@@ -928,6 +1179,27 @@ bool handleKey(uint32_t key) {
     k.alt = active(XKB_MOD_NAME_ALT);
     k.logo = active(XKB_MOD_NAME_LOGO);
     k.code = key;
+    if (g.tabMenu) {
+        if (k.sym == XKB_KEY_Escape && g.tabDragFrom >= 0) {
+            g.tabDragFrom = -1;
+            g.dirty = true;
+            updateCursor();
+        } else if (k.sym == XKB_KEY_Escape || (k.ctrl && k.sym == XKB_KEY_comma)) showTabMenu(false);
+        else if (g.tabDragFrom >= 0) return false;
+        else if (k.sym == XKB_KEY_Up || k.sym == XKB_KEY_Down) {
+            const int step = k.sym == XKB_KEY_Up ? -1 : 1;
+            const int count = tools_tabs::Count;
+            if (k.alt) reorderToolTab(g.tabMenuChoice, g.tabMenuChoice + step);
+            else {
+                const int from = g.tabMenuChoice < 0 ? (step < 0 ? 0 : count - 1) : g.tabMenuChoice;
+                g.tabMenuChoice = (from + step + count) % count;
+                g.dirty = true;
+            }
+        } else if ((k.sym == XKB_KEY_Return || k.sym == XKB_KEY_space) && g.tabMenuChoice >= 0) {
+            toggleToolTab(g.toolsTabOrder[g.tabMenuChoice]);
+        }
+        return false;
+    }
     if (g.xkbMap) {
         const xkb_keysym_t* syms = nullptr;
         if (xkb_keymap_key_get_syms_by_level(g.xkbMap, key + 8, xkb_state_key_get_layout(g.xkbState, key + 8), 0, &syms) > 0) {
@@ -973,6 +1245,8 @@ void onPLeave(void*, wl_pointer*, uint32_t, wl_surface*) {
     g.inside = false;
     g.hoverTab = -1;
     g.hoverClose = false;
+    g.hoverGear = false;
+    g.tabMenuHover = -1;
     if (g.pageHot) cur().leave();
     g.pageHot = false;
     g.dirty = true;
@@ -983,11 +1257,11 @@ void onPMotion(void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
     motion();
 }
 void onPButton(void*, wl_pointer*, uint32_t, uint32_t, uint32_t button, uint32_t state) {
-    if (state == WL_POINTER_BUTTON_STATE_PRESSED && g.switchT >= 1 && cur().grabsKeys() && cur().mouseButton(button)) { g.dirty = true; return; }
+    if (!g.tabMenu && !g.hoverGear && state == WL_POINTER_BUTTON_STATE_PRESSED && g.switchT >= 1 && cur().grabsKeys() && cur().mouseButton(button)) { g.dirty = true; return; }
     if (button == 0x110) click(state == WL_POINTER_BUTTON_STATE_PRESSED);
 }
 void onPAxis(void*, wl_pointer*, uint32_t, uint32_t axis, wl_fixed_t value) {
-    if (axis != WL_POINTER_AXIS_VERTICAL_SCROLL || g.switchT < 1) return;
+    if (g.tabMenu || axis != WL_POINTER_AXIS_VERTICAL_SCROLL || g.switchT < 1) return;
     const Rect r = contentRect();
     if (r.contains(g.px, g.py) && cur().scroll(g.px - r.x, g.py - r.y, wl_fixed_to_double(value))) g.dirty = true;
 }
@@ -1119,8 +1393,8 @@ void tickAll() {
     if (g.solo && finishPowerSample()) {
         if (powerDiscoveryPending) {
             powerDiscoveryPending = false;
-            if (PowerPage::available(true)) g.pages.push_back(std::make_unique<PowerPage>(true));
-            if (PowerPage::available(false)) g.pages.push_back(std::make_unique<PowerPage>(false));
+            if (PowerPage::available(true)) addPage(std::make_unique<PowerPage>(true));
+            if (PowerPage::available(false)) addPage(std::make_unique<PowerPage>(false));
         }
         g.dirty = true;
     }
@@ -1144,7 +1418,8 @@ void teardown() {
     for (auto& slot : toolsBuffers) slot.clear();
     if (g.display) { wl_display_roundtrip(g.display); wl_display_disconnect(g.display); }
     if (g.sampleEvent >= 0) close(g.sampleEvent);
-    g.pages.clear();  // last: the roundtrip above can still deliver a pointer event, which asks for the current page
+    g.pages.clear();
+    g.ownedPages.clear();  // last: the roundtrip above can still deliver a pointer event, which asks for the current page
 }
 }
 
@@ -1165,9 +1440,8 @@ int main(int argc, char** argv) {
     g_measure = pango_cairo_create_layout(dcr);
     loadConfig();
     if (g.solo) g.sampleEvent = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    buildPages();
-    g.page = g.prevPage = rememberedPage();
-    if (const char* p = g.solo ? nullptr : std::getenv("TOOLS_PAGE")) g.page = g.prevPage = std::clamp(std::atoi(p), 0, pageCount() - 1);
+    const int requested = buildPages();
+    g.page = g.prevPage = requested < 0 ? rememberedPage() : requested;
 
     cur().ensureInitialized();
 
