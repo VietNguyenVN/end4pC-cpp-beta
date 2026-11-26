@@ -585,6 +585,12 @@ struct Launcher {
     int shadowW = 0, shadowH = 0;
     std::set<std::string> clipThumbAsked;
     std::map<std::string, cairo_surface_t*> icons;
+    bool previewOpen = false;   // Space on a clipboard entry: its content shown big in the pill
+    PopAnim prev;
+    std::string prevId, prevText;
+    bool prevImage = false;
+    cairo_surface_t* prevImg = nullptr;  // the picture decoded for the preview (cached in ~/.cache/end4pC/clip/<id>-big.png)
+    std::string prevImgId;
     bool open() const { return surface != nullptr; }
 };
 

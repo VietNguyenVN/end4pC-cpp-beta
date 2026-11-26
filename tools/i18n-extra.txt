@@ -327,3 +327,5 @@ app added
 apps added
 more
 Tidy
+characters
+lines

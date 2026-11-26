@@ -4,6 +4,7 @@ constexpr int kLaunPadTop = 16;
 constexpr int kLaunW = 500 + 2 * 20, kLaunH = 700;
 constexpr double kLaunCollapsedW = 370, kLaunExpandedW = 500;
 constexpr double kLaunBarH = 56, kLaunRadius = 28;
+constexpr double kLaunPreviewH = 400;
 constexpr double kLaunItemH = 48, kLaunItemGap = 2, kLaunListPad = 10, kLaunListMax = 600;
 constexpr int kLaunMaxResults = 15;
 constexpr const char* kLaunFieldFont = "Sans 11";
@@ -531,6 +532,44 @@ void requestClipThumb(Launcher& L, const std::string& id) {
     }
 }
 
+std::string clipBigPath(const std::string& id) {
+    const std::string t = clipThumbPath(id);
+    return t.substr(0, t.size() - 4) + "-big.png";
+}
+void requestClipBig(Launcher& L, const std::string& id) {
+    const std::string out = clipBigPath(id);
+    if (!L.clipThumbAsked.insert("big:" + id).second || g_clipWrite < 0 || access(out.c_str(), R_OK) == 0) return;
+    if (fork() == 0) {
+        childSignalReset();
+        dup2(g_clipWrite, STDOUT_FILENO);
+        int nul = open("/dev/null", O_RDWR);
+        dup2(nul, STDERR_FILENO);
+        execlp("sh", "sh", "-c",
+               "mkdir -p \"$(dirname \"$2\")\" && cliphist decode \"$1\" | magick - -resize '900x700>' \"$2.tmp.png\""
+               " && mv \"$2.tmp.png\" \"$2\"; echo done",
+               "sh", id.c_str(), out.c_str(), nullptr);
+        _exit(127);
+    }
+}
+// The text of a clipboard entry, up to ~6 KB (cut at a UTF-8 boundary).
+std::string clipFullText(const std::string& line) {
+    std::string out;
+    const std::string id = clipId(line);
+    if (id.empty() || id.find_first_not_of("0123456789") != std::string::npos) return clipText(line);
+    FILE* f = popen(("cliphist decode " + id + " 2>/dev/null").c_str(), "r");
+    if (!f) return clipText(line);
+    char buf[2048];
+    size_t n;
+    while (out.size() < 6000 && (n = fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
+    pclose(f);
+    if (out.size() > 6000) {
+        out.resize(6000);
+        while (!out.empty() && (static_cast<unsigned char>(out.back()) & 0xC0) == 0x80) out.pop_back();
+        if (!out.empty() && (static_cast<unsigned char>(out.back()) & 0xC0) == 0xC0) out.pop_back();
+    }
+    return out.empty() ? clipText(line) : out;
+}
+
 const std::vector<std::string>& emojiLines() {
     static const auto lines = [] {
         std::vector<std::string> out;
@@ -914,6 +953,11 @@ LaunLayout launcherLayoutTarget(const App& app) {
         g.ph = kLaunBarH + 1 + g.listH;
         return g;
     }
+    if (L.previewOpen) {
+        g.listH = kLaunPreviewH;
+        g.ph = kLaunBarH + 1 + g.listH;
+        return g;
+    }
     for (const auto& r : L.results) (r.footer ? g.nFooter : g.nMain)++;
     const double step = kLaunItemH + kLaunItemGap;
     const double fixedExtra = 2 * kLaunListPad - kLaunItemGap + (g.nFooter > 0 && g.nMain > 0 ? kLaunFooterGap : 0);
@@ -977,6 +1021,162 @@ double caretX(PangoLayout* layout, const std::string& text, size_t byteIndex) {
 }
 
 size_t launcherIndexAtX(const std::string& text, double x) { return textsel::indexAtXInFont(text, kLaunFieldFont, x); }
+
+// ---- Space on a clipboard entry: a big preview inside the pill (the picture, or the whole text) ----
+bool launcherPreviewable(const Launcher& L) {
+    return L.selected >= 0 && L.selected < static_cast<int>(L.results.size()) && L.results[L.selected].kind == ResClip;
+}
+void launcherPreviewLoad(Launcher& L) {  // the selected entry's content (the text now; the picture is decoded in the background)
+    if (!launcherPreviewable(L)) return;
+    const std::string& line = L.results[L.selected].payload;
+    L.prevId = clipId(line);
+    L.prevImage = clipIsImage(line);
+    L.prevText.clear();
+    if (L.prevImage) requestClipBig(L, L.prevId);
+    else L.prevText = clipFullText(line);
+}
+void launcherPreviewOpen(App& app) {
+    Launcher& L = app.launcher;
+    if (!launcherPreviewable(L)) return;
+    launcherPreviewLoad(L);
+    L.previewOpen = true;
+    L.prev.overshoot = 1.05;  // (the same motion as the launcher opening)
+    L.prev.inSeconds = 0.26;
+    L.prev.outSeconds = 0.13;
+    popStart(L.prev);
+    L.hover = -1;
+    drawLauncher(app);
+}
+void launcherPreviewClose(App& app) {
+    Launcher& L = app.launcher;
+    if (!L.previewOpen) return;
+    L.previewOpen = false;
+    popRetract(L.prev, std::chrono::steady_clock::now());
+    const LaunLayout lg = launcherLayoutTarget(app);  // (the arrows moved the selection while the list was hidden: bring it into view)
+    if (L.selected < lg.nMain) {
+        if (L.selected < L.scroll) L.scroll = L.selected;
+        else if (L.selected >= L.scroll + lg.mainVisible) L.scroll = L.selected - lg.mainVisible + 1;
+    }
+    drawLauncher(app);
+}
+
+void drawLauncherPreview(App& app, cairo_t* cr, PangoLayout* layout, const LaunLayout& g) {
+    Launcher& L = app.launcher;
+    const double rev = std::max(0.0, L.prev.reveal);
+    if (rev <= 0.001) return;
+    const double cx = g.px + 10, cy = g.listTop + 10, cw = g.pw - 20, chFull = kLaunPreviewH - 20;
+    const double ch = std::max(0.0, std::min(chFull, g.ph - g.listTop - 20));
+    if (ch < 40) return;
+    popGroupBegin(cr);
+    cairo_save(cr);
+    roundedRect(cr, cx, cy, cw, ch, 20);
+    cairo_clip(cr);
+    setSource(cr, app.color("surface_container_high"));
+    cairo_paint(cr);
+    constexpr double kHead = 46, kFoot = 34, kPadIn = 14;
+    const Color ink = app.color("on_surface"), sub = app.color("on_surface_variant");
+    int tw = 0, th = 0;
+    auto font = [&](const char* name) {
+        PangoFontDescription* fd = pango_font_description_from_string(name);
+        pango_layout_set_font_description(layout, fd);
+        pango_font_description_free(fd);
+    };
+    pango_layout_set_width(layout, -1);
+    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_NONE);
+    pango_layout_set_height(layout, -1);
+    // header: kind chip
+    std::string label;
+    if (L.prevImage) label = L.selected < static_cast<int>(L.results.size()) ? clipLabel(L.results[L.selected].payload) : "Image";
+    else {
+        int lines = 1;
+        for (char c : L.prevText) if (c == '\n') lines++;
+        size_t chars = 0;
+        for (unsigned char c : L.prevText) if ((c & 0xC0) != 0x80) chars++;
+        label = std::to_string(chars) + " " + i18n::tr("characters") + "  ·  " + std::to_string(lines) + " " + i18n::tr("lines");
+    }
+    font("Sans Medium 10");
+    pango_layout_set_text(layout, label.c_str(), -1);
+    pango_layout_set_width(layout, static_cast<int>((cw - 2 * kPadIn - 44) * PANGO_SCALE));
+    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+    pango_layout_get_pixel_size(layout, &tw, &th);
+    const double chipW = tw + 14 + 18 + 8 + 14;
+    roundedRect(cr, cx + kPadIn, cy + 10, chipW, 28, 14);
+    setSource(cr, app.color("secondary_container"));
+    cairo_fill(cr);
+    drawIcon(cr, L.prevImage ? "image" : "content_paste", cx + kPadIn + 12, cy + 10 + 5, 18, app.color("on_secondary_container"));
+    setSource(cr, app.color("on_secondary_container"));
+    cairo_move_to(cr, cx + kPadIn + 12 + 18 + 8, cy + 10 + (28 - th) / 2.0);
+    pango_cairo_show_layout(cr, layout);
+    pango_layout_set_width(layout, -1);
+    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_NONE);
+    // body
+    const double bx = cx + kPadIn, by = cy + kHead + 4, bw = cw - 2 * kPadIn, bh = chFull - kHead - kFoot - 4;
+    if (L.prevImage) {
+        if (!L.prevImg || L.prevImgId != L.prevId) {
+            const std::string path = clipBigPath(L.prevId);
+            if (access(path.c_str(), R_OK) == 0) {
+                cairo_surface_t* img = cairo_image_surface_create_from_png(path.c_str());
+                if (cairo_surface_status(img) == CAIRO_STATUS_SUCCESS) {
+                    if (L.prevImg) cairo_surface_destroy(L.prevImg);
+                    L.prevImg = img;
+                    L.prevImgId = L.prevId;
+                } else cairo_surface_destroy(img);
+            }
+        }
+        if (L.prevImg && L.prevImgId == L.prevId) {
+            const double iw = cairo_image_surface_get_width(L.prevImg), ih = cairo_image_surface_get_height(L.prevImg);
+            const double k = std::min(bw / iw, bh / ih);
+            const double dw = iw * k, dh = ih * k, dx = bx + (bw - dw) / 2, dy = by + (bh - dh) / 2;
+            roundedRect(cr, dx, dy, dw, dh, 12);
+            setSource(cr, app.color("surface_container_highest"));
+            cairo_fill(cr);
+            cairo_save(cr);
+            roundedRect(cr, dx, dy, dw, dh, 12);
+            cairo_clip(cr);
+            cairo_translate(cr, dx, dy);
+            cairo_scale(cr, k, k);
+            cairo_set_source_surface(cr, L.prevImg, 0, 0);
+            cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+            cairo_paint(cr);
+            cairo_restore(cr);
+        } else {
+            font("Sans 11");
+            pango_layout_set_text(layout, i18n::tr("Loading…"), -1);
+            pango_layout_get_pixel_size(layout, &tw, &th);
+            setSource(cr, sub);
+            cairo_move_to(cr, bx + (bw - tw) / 2.0, by + (bh - th) / 2.0);
+            pango_cairo_show_layout(cr, layout);
+        }
+    } else {
+        roundedRect(cr, bx, by, bw, bh, 14);
+        setSource(cr, app.color("surface_container_highest"));
+        cairo_fill(cr);
+        font("Sans 11");
+        pango_layout_set_width(layout, static_cast<int>((bw - 24) * PANGO_SCALE));
+        pango_layout_set_wrap(layout, PANGO_WRAP_WORD_CHAR);
+        pango_layout_set_text(layout, L.prevText.c_str(), -1);
+        pango_layout_get_pixel_size(layout, &tw, &th);
+        const int lineH = std::max(1, th / std::max(1, pango_layout_get_line_count(layout)));
+        pango_layout_set_height(layout, -std::max(1, static_cast<int>((bh - 24) / lineH)));
+        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+        setSource(cr, ink);
+        cairo_move_to(cr, bx + 12, by + 12);
+        pango_cairo_show_layout(cr, layout);
+        pango_layout_set_height(layout, -1);
+        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_NONE);
+        pango_layout_set_width(layout, -1);
+    }
+    // footer hint
+    font("Sans 9");
+    const std::string hint = std::string(i18n::tr("Space or Esc to close")) + "  ·  " + i18n::tr("Enter to copy");
+    pango_layout_set_text(layout, hint.c_str(), -1);
+    pango_layout_get_pixel_size(layout, &tw, &th);
+    setSource(cr, sub);
+    cairo_move_to(cr, cx + (cw - tw) / 2.0, cy + chFull - kFoot + (kFoot - th) / 2.0);
+    pango_cairo_show_layout(cr, layout);
+    cairo_restore(cr);
+    popGroupEnd(cr, rev, g.px + g.pw / 2.0, g.listTop + 30, 1.0);
+}
 
 void drawLauncher(App& app) {
     Launcher& L = app.launcher;
@@ -1283,6 +1483,7 @@ void drawLauncher(App& app) {
             pango_layout_set_width(layout, -1);
             pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_NONE);
         }
+        drawLauncherPreview(app, cr, layout, g);
         cairo_pop_group_to_source(cr);
         cairo_paint_with_alpha(cr, slide);
         cairo_restore(cr);
@@ -1322,6 +1523,7 @@ void closeLauncher(App& app) {
     for (auto& [name, surf] : L.icons)
         if (surf) cairo_surface_destroy(surf);
     if (L.shadow) cairo_surface_destroy(L.shadow);
+    if (L.prevImg) cairo_surface_destroy(L.prevImg);
     L = Launcher{};
     app.onLauncher = false;
     app.repeatKey = 0;
@@ -1399,17 +1601,21 @@ void tickLauncher(App& app, std::chrono::steady_clock::time_point now) {
         updateLauncherResults(app);
         drawLauncher(app);
     }
-    bool moving = false;
+    bool moving = false, prevMoving = false;
     if (popTick(L.anim, now, moving)) { closeLauncher(app); return; }
-    if (moving) drawLauncher(app);
+    if (popTick(L.prev, now, prevMoving)) { L.prev.phase = kPopOpen; L.prev.reveal = 0; prevMoving = true; }  // (the preview faded out: idle)
+    if (moving || prevMoving) drawLauncher(app);
 }
 std::chrono::steady_clock::time_point launcherWake(const App& app) {
     if (!app.launcher.open() || !app.launcher.configured) return std::chrono::steady_clock::time_point::max();
-    if (launcherWaitsForRates(app.launcher)) return std::min(app.launcher.convPoll, popWake(app.launcher.anim.phase, app.launcher.anim.settleAt, std::chrono::steady_clock::now()));
-    return popWake(app.launcher.anim.phase, app.launcher.anim.settleAt, std::chrono::steady_clock::now());
+    const auto now = std::chrono::steady_clock::now();
+    auto wake = std::min(popWake(app.launcher.anim.phase, app.launcher.anim.settleAt, now), popWake(app.launcher.prev.phase, app.launcher.prev.settleAt, now));
+    if (launcherWaitsForRates(app.launcher)) wake = std::min(wake, app.launcher.convPoll);
+    return wake;
 }
 
 void launcherTextChanged(App& app) {
+    if (app.launcher.previewOpen) launcherPreviewClose(app);
     app.launcher.anchor = app.launcher.cursor;
     updateLauncherResults(app);
     drawLauncher(app);
@@ -1448,6 +1654,25 @@ bool launcherKey(App& app, uint32_t key) {
     const xkb_keycode_t code = key + 8;  // evdev -> xkb
     const xkb_keysym_t sym = xkb_state_key_get_one_sym(app.xkbState, code);
     const bool ctrl = xkb_state_mod_name_is_active(app.xkbState, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0;
+    if (L.previewOpen) {  // the preview: Space closes it, the arrows move it to the next entry, Enter copies; any other key closes it and acts as usual
+        if (sym == XKB_KEY_space) { launcherPreviewClose(app); return true; }
+        if (sym == XKB_KEY_Down || sym == XKB_KEY_Up || sym == XKB_KEY_Page_Down || sym == XKB_KEY_Page_Up) {
+            const int step = sym == XKB_KEY_Down ? 1 : sym == XKB_KEY_Up ? -1 : sym == XKB_KEY_Page_Down ? 5 : -5;
+            const int before = L.selected;
+            L.selected = std::clamp(L.selected + step, 0, static_cast<int>(L.results.size()) - 1);
+            if (L.selected != before) {
+                launcherPreviewLoad(L);
+            }
+            drawLauncher(app);
+            return true;
+        }
+        if (sym != XKB_KEY_Return && sym != XKB_KEY_KP_Enter && !(ctrl && (sym == XKB_KEY_c || sym == XKB_KEY_a))) launcherPreviewClose(app);
+        else if (sym != XKB_KEY_Return && sym != XKB_KEY_KP_Enter) { drawLauncher(app); }
+    } else if (sym == XKB_KEY_space && !L.text.empty() && L.text[0] == kPfxClipboard && launcherPreviewable(L) &&
+               (ctrl || (trimmed(cleanPrefix(L.text, kPfxClipboard)).empty() && L.cursor == L.text.size()))) {
+        launcherPreviewOpen(app);  // (with something typed, Space is a space: Ctrl+Space previews)
+        return true;
+    }
     {
         textsel::Key k = textsel::Key::None;
         const xkb_keysym_t low = xkb_keysym_to_lower(sym);
@@ -1543,6 +1768,7 @@ void launcherMotion(App& app) {
         drawLauncher(app);
         return;
     }
+    if (L.previewOpen) return;
     const LaunLayout g = launcherLayout(app);
     const int btn = launcherButtonAt(app, app.pointerX, launcherPy(app));
     if (btn != L.btnHover) { L.btnHover = btn; drawLauncher(app); updateCursor(app); }
@@ -1563,6 +1789,7 @@ void launcherClick(App& app) {
     const LaunLayout g = launcherLayout(app);
     if (popIsOut(L.anim)) return;
     if (!Rect{g.px, 0, g.pw, g.ph}.contains(app.pointerX, launcherPy(app))) { retractLauncher(app); return; }
+    if (L.previewOpen) { if (launcherPy(app) > g.listTop) launcherPreviewClose(app); return; }
     if (const int btn = launcherButtonAt(app, app.pointerX, launcherPy(app)); btn >= 0) {
         if (std::string(kLaunButtons[btn].key) == "scanQr") { retractLauncher(app); openCapture(app); if (app.cap.open()) app.cap.autoAct = 3; return; }
         L.text = std::string(1, kPfxClipboard);
@@ -1611,6 +1838,7 @@ void launcherClick(App& app) {
 
 void launcherScroll(App& app, int rows) {
     Launcher& L = app.launcher;
+    if (L.previewOpen) return;
     const LaunLayout g = launcherLayout(app);
     const int maxScroll = std::max(0, g.nMain - g.mainVisible);
     const int next = std::clamp(L.scroll + rows, 0, maxScroll);

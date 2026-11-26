@@ -791,6 +791,7 @@ void onKbKey(void* d, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t s
         return;
     }
     if (key == kKeyEsc && app->game.surface) { retractGame(*app); return; }
+    if (key == kKeyEsc && app->launcher.open() && app->launcher.previewOpen && !popIsOut(app->launcher.anim)) { launcherPreviewClose(*app); return; }
     if (key == kKeyEsc) { retractControlCenter(*app); retractPowerMenu(*app); retractSelector(*app); retractLauncher(*app); retractNotifPanel(*app); retractMediaPanel(*app); retractClockPanel(*app); closeTrayMenu(*app); retractAudioMenu(*app); retractBtMenu(*app); retractDesktopMenu(*app); return; }
     if (app->power.open()) { powerKey(*app, key); return; }
     if (app->launcher.open()) {
