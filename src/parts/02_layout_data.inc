@@ -259,9 +259,9 @@ std::vector<std::string> centerModules(const App& app) {
     if (islandActive(app)) return {"island"};
     return app.cfg.layoutCenter;
 }
-double moduleWidth(const App& app, const std::string& m) {
+double moduleWidth(const App& app, const Bar& bar, const std::string& m) {
     if (m == "island") return islandActive(app) ? islandW(app) : 0;
-    if (m == "workspaces") return wsTotalW(app);
+    if (m == "workspaces") return wsTotalW(app, bar);
     if (m == "media") return !mediaBarVisible(app) ? 0 : mediaHorizontalCompact(app) ? kMediaCompactWidth : musicW(app);
     if (m == "quickactions") return quickW(app);
     if (m == "network") return netVisible(app) ? netExtent(app, false) : 0;
@@ -340,7 +340,7 @@ void groupCells(const App& app, Bar& bar, const std::vector<std::string>& mods, 
         open = false;
     };
     for (size_t i = 0; i < mods.size(); i++) {
-        const double w = moduleWidth(app, mods[i]) + cellInsetL(app, mods[i]) + cellInsetR(app, mods[i]);
+        const double w = moduleWidth(app, bar, mods[i]) + cellInsetL(app, mods[i]) + cellInsetR(app, mods[i]);
         if (hasGroupCell(app.cfg, mods[i])) {
             if (!open) { runStart = bar.groups.size(); open = true; }
             bar.groups.push_back({std::max(0.0, x - kGroupPad), std::min<double>(bar.width, x + w + kGroupPad), full, full});
@@ -368,7 +368,7 @@ void layoutBar(Bar& bar) {
     auto live = [&](const std::vector<std::string>& v) {
         std::vector<std::string> out;
         for (const auto& m : v)
-            if (moduleWidth(app, m) > 0) out.push_back(m);
+            if (moduleWidth(app, bar, m) > 0) out.push_back(m);
         return out;
     };
     std::map<std::string, int> copies;
@@ -379,14 +379,14 @@ void layoutBar(Bar& bar) {
         for (size_t i = 0; i < mods.size(); i++) {
             if (mods[i] == "visualizer") bar.vizMirror.push_back(vizHere++ % 2 == 1);
             bar.slot[repeatable(mods[i]) ? mods[i] + "#" + std::to_string(copies[mods[i]]++) : mods[i]] = x + cellInsetL(app, mods[i]);
-            x += moduleWidth(app, mods[i]) + cellInsetL(app, mods[i]) + cellInsetR(app, mods[i]) + (i + 1 < mods.size() ? moduleGap(app, mods[i], mods[i + 1]) : 0);
+            x += moduleWidth(app, bar, mods[i]) + cellInsetL(app, mods[i]) + cellInsetR(app, mods[i]) + (i + 1 < mods.size() ? moduleGap(app, mods[i], mods[i + 1]) : 0);
         }
         groupCells(app, bar, mods, x0);
     };
     auto span = [&](const std::vector<std::string>& mods) {
         double w = 0;
         for (size_t i = 0; i < mods.size(); i++)
-            w += moduleWidth(app, mods[i]) + cellInsetL(app, mods[i]) + cellInsetR(app, mods[i]) + (i + 1 < mods.size() ? moduleGap(app, mods[i], mods[i + 1]) : 0);
+            w += moduleWidth(app, bar, mods[i]) + cellInsetL(app, mods[i]) + cellInsetR(app, mods[i]) + (i + 1 < mods.size() ? moduleGap(app, mods[i], mods[i + 1]) : 0);
         return w;
     };
 
@@ -525,17 +525,17 @@ Hit hitTest(const Bar& bar, double x, double y) {
     for (int k = 0;; k++) {
         const std::string key = "visualizer#" + std::to_string(k);
         if (!hasSlot(bar, key.c_str())) break;
-        if (x >= slotX(bar, key.c_str()) && x < slotX(bar, key.c_str()) + moduleWidth(app, "visualizer")) return kHitViz + (k % 2);
+        if (x >= slotX(bar, key.c_str()) && x < slotX(bar, key.c_str()) + moduleWidth(app, bar, "visualizer")) return kHitViz + (k % 2);
     }
     if (hasSlot(bar, "workspaces"))
         for (int id = 1; id <= wsShown(app); id++) {
             const double wx = wsXOf(bar, id);
-            if (x >= wx - wsGap(app) / 2 && x < wx + wsWidth(app, id) + wsGap(app) / 2) return kHitWs + id;
+            if (x >= wx - wsGap(app) / 2 && x < wx + wsWidth(app, id, wsIsActive(bar, id)) + wsGap(app) / 2) return kHitWs + id;
         }
     for (int k = 0; k < 32; k++) {  // (last: a divider is thin, and what is next to it wins)
         const std::string dv = "divider#" + std::to_string(k);
         if (!hasSlot(bar, dv.c_str())) break;
-        const double dx = slotX(bar, dv.c_str()), dw = moduleWidth(app, dv);
+        const double dx = slotX(bar, dv.c_str()), dw = moduleWidth(app, bar, dv);
         if (x >= dx - 4 && x < dx + dw + 4) return kHitDiv + k;
     }
     return HitNone;

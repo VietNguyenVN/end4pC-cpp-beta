@@ -362,27 +362,34 @@ void drawWsAppIcon(cairo_t* cr, cairo_surface_t* icon, double cx, double cy, dou
     cairo_restore(cr);
 }
 
-double wsTickLen(const App& app, int id) { return id == app.workspace ? kWsTickActive : app.occupied.count(id) ? kWsTickBusy : kWsTickEmpty; }
-Color wsTickColor(const App& app, int id) {
-    if (id == app.workspace) return app.color("primary");
-    if (app.occupied.count(id)) return app.color("on_surface");
+double wsTickLen(const Bar& bar, int slot) {
+    const App& app = *bar.app;
+    const int id = wsIdOf(bar, slot);
+    return wsIsActive(bar, slot) ? kWsTickActive : app.occupied.count(id) ? kWsTickBusy : kWsTickEmpty;
+}
+Color wsTickColor(const Bar& bar, int slot) {
+    const App& app = *bar.app;
+    if (wsIsActive(bar, slot)) return app.color("primary");
+    if (app.occupied.count(wsIdOf(bar, slot))) return app.color("on_surface");
     const Color a = app.color("on_surface_variant"), b = app.color("surface_container_low");
     return Color{a.r * 0.45 + b.r * 0.55, a.g * 0.45 + b.g * 0.55, a.b * 0.45 + b.b * 0.55};
 }
-SideWsShape sideWsShape(const App& app, int id) {
+SideWsShape sideWsShape(const Bar& bar, int slot) {
+    const App& app = *bar.app;
     if (pillStyle(app)) return {kPillCell, kPillH + 4, 0};
     if (m3Ws(app)) return {kM3Cell, kM3Cell, 0};
     if (iconStyleWs(app)) return {40, 40, 4};
     if (ringStyleWs(app)) return {kNumH, kNumH, kNumGap};
-    if (barStyleWs(app)) return {kWsTickW, wsTickLen(app, id), kWsTickGap};
-    if (numberedStyle(app)) return {id == app.workspace ? kNumActiveW : kNumW, kNumH, kNumGap};
-    return {id == app.workspace ? kWsActiveW : kWsDot, kWsDot, kWsGap};
+    if (barStyleWs(app)) return {kWsTickW, wsTickLen(bar, slot), kWsTickGap};
+    if (numberedStyle(app)) return {wsIsActive(bar, slot) ? kNumActiveW : kNumW, kNumH, kNumGap};
+    return {wsIsActive(bar, slot) ? kWsActiveW : kWsDot, kWsDot, kWsGap};
 }
-double sideWsPad(const App& app) { return iconStyleWs(app) ? 0 : sideWsShape(app, 0).gap / 2; }
-double sideWsTotal(const App& app) {
+double sideWsPad(const Bar& bar) { return iconStyleWs(*bar.app) ? 0 : sideWsShape(bar, 0).gap / 2; }
+double sideWsTotal(const Bar& bar) {
+    const int n = wsShown(*bar.app);
     double t = 0;
-    for (int i = 1; i <= wsShown(app); i++) t += sideWsShape(app, i).h + (i > 1 ? sideWsShape(app, i).gap : 0);
-    return t + (pillStyle(app) ? 2 * kPillPad : 0);
+    for (int i = 1; i <= n; i++) t += sideWsShape(bar, i).h + (i > 1 ? sideWsShape(bar, i).gap : 0);
+    return t + (pillStyle(*bar.app) ? 2 * kPillPad : 0);
 }
 constexpr double kSideClockM3H = 78;
 double sideBatteryH(const App& app) { return app.cfg.batteryPercent ? 58 : 40; }
@@ -391,8 +398,9 @@ std::vector<std::pair<int, Rect>> dtpSideRects(const App& app, double x, double 
 void dtpDrawItem(cairo_t* cr, App& app, const DockItem& it, double bx, double by, bool hot, double alpha);
 void dtpBarPaint(cairo_t* cr, App& app, const Bar& bar, Hit hot);
 std::vector<DockItem>& dtpItems(const App& app);
-double sideModuleH(const App& app, const std::string& m) {
-    if (m == "workspaces") return sideWsTotal(app);
+double sideModuleH(const Bar& bar, const std::string& m) {
+    const App& app = *bar.app;
+    if (m == "workspaces") return sideWsTotal(bar);
     if (m == "media") return mediaBarVisible(app) ? 40 : 0;
     if (m == "docktopanel") return dtpSideHeight(app);
     if (m == "quickactions") { const size_t n = quickShown(app).size(); return n ? n * 44 - 4.0 : 0; }
@@ -437,8 +445,8 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
         int groups = 0;
         for (int k = 0; k < 3; k++) {
             std::vector<std::string> mods;
-            for (const auto& m : *lists[k]) if (sideModuleH(app, m) > 0.001) mods.push_back(m);
-            for (size_t i = 0; i < mods.size(); i++) nSpan[k] += sideModuleH(app, mods[i]) + (i + 1 < mods.size() ? sideModuleGap(app, mods[i], mods[i + 1]) : 0);
+            for (const auto& m : *lists[k]) if (sideModuleH(bar, m) > 0.001) mods.push_back(m);
+            for (size_t i = 0; i < mods.size(); i++) nSpan[k] += sideModuleH(bar, mods[i]) + (i + 1 < mods.size() ? sideModuleGap(app, mods[i], mods[i + 1]) : 0);
             groups += nSpan[k] > 0;
         }
         nNatural = nSpan[0] + nSpan[1] + nSpan[2] + std::max(0, groups - 1) * 14.0 + 2 * kNotchPad;
@@ -457,11 +465,11 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
     auto place = [&](const std::vector<std::string>& list, int where) {
         std::vector<std::string> mods;
         for (const auto& m : list)
-            if (sideModuleH(app, m) > 0.001) mods.push_back(m);
+            if (sideModuleH(bar, m) > 0.001) mods.push_back(m);
         if (mods.empty()) return;
         int vizSeen = 0;
         double span = 0;
-        for (size_t i = 0; i < mods.size(); i++) span += sideModuleH(app, mods[i]) + (i + 1 < mods.size() ? sideModuleGap(app, mods[i], mods[i + 1]) : 0);
+        for (size_t i = 0; i < mods.size(); i++) span += sideModuleH(bar, mods[i]) + (i + 1 < mods.size() ? sideModuleGap(app, mods[i], mods[i + 1]) : 0);
         double y = where == 0 ? edge : where == 1 ? (L - span) / 2.0 : L - edge - span;
         if (split) y = where == 0 ? edge : where == 2 ? L - edge - span : (L - span) / 2.0;
         else if (notch) {
@@ -473,9 +481,9 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
             const std::string& m = mods[i];
             if (m == "workspaces") {
                 double wy = y + (pillStyle(app) ? kPillPad : 0);
-                const double pad = sideWsPad(app);
+                const double pad = sideWsPad(bar);
                 for (int id = 1; id <= wsShown(app); id++) {
-                    const SideWsShape sh = sideWsShape(app, id);
+                    const SideWsShape sh = sideWsShape(bar, id);
                     v.push_back({kHitWs + id, {x, wy - pad, 40, sh.h + 2 * pad}});
                     wy += sh.h + sh.gap;
                 }
@@ -505,8 +513,8 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
             else if (m == "keyboard") v.push_back({HitKeyboard, {x, y, 40, 40}});
             else if (m == "activewindow") v.push_back({HitActiveWindow, {x, y, 40, 40}});
             else if (m == "aiusage") { const auto s = aiShown(app); for (size_t k = 0; k < s.size(); k++) v.push_back({kHitAi + s[k], {x, y + k * 44.0, 40, 40}}); }
-            else if (m == "visualizer") v.push_back({kHitViz + (vizSeen++ % 2), {x, y, 40, sideModuleH(app, m)}});
-            else if (isDivider(m)) v.push_back({kHitDiv + std::max(0, dividerIndex(m)), {x, y, 40, sideModuleH(app, m)}});
+            else if (m == "visualizer") v.push_back({kHitViz + (vizSeen++ % 2), {x, y, 40, sideModuleH(bar, m)}});
+            else if (isDivider(m)) v.push_back({kHitDiv + std::max(0, dividerIndex(m)), {x, y, 40, sideModuleH(bar, m)}});
             else if (m == "battery") v.push_back({kHitStatus + 3, {x, y, 40, sideBatteryH(app)}});
             else if (m == "systray") {
                 std::vector<int> pin, oth;
@@ -526,7 +534,7 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
                     }
                 }
             }
-            y += sideModuleH(app, m) + (i + 1 < mods.size() ? sideModuleGap(app, m, mods[i + 1]) : 0);
+            y += sideModuleH(bar, m) + (i + 1 < mods.size() ? sideModuleGap(app, m, mods[i + 1]) : 0);
         }
     };
     place(numLeft, 0);
@@ -670,18 +678,18 @@ std::vector<Rect> islandRects(const Bar& bar) {
     const std::vector<std::string>* regions[3] = {&numLeft, &numCenter, &numRight};
     for (int r : {0, 2, 1})
         for (const auto& m : *regions[r]) {
-            if (moduleWidth(app, m) <= 0) continue;
+            if (moduleWidth(app, bar, m) <= 0) continue;
             keys[r].push_back(repeatable(m) ? m + "#" + std::to_string(copies[m]++) : m);
         }
     for (int r = 0; r < 3; r++) {
         double x0 = 1e9, x1 = -1e9;
         size_t k = 0;
         for (const auto& m : *regions[r]) {
-            if (moduleWidth(app, m) <= 0) continue;
+            if (moduleWidth(app, bar, m) <= 0) continue;
             const std::string& key = keys[r][k++];
             if (!hasSlot(bar, key.c_str())) continue;
             x0 = std::min(x0, slotX(bar, key.c_str()) - cellInsetL(app, m));
-            x1 = std::max(x1, slotX(bar, key.c_str()) + moduleWidth(app, m) + cellInsetR(app, m));
+            x1 = std::max(x1, slotX(bar, key.c_str()) + moduleWidth(app, bar, m) + cellInsetR(app, m));
         }
         if (x0 < x1) { const double ip = groupHasCells(app.cfg) ? bodyPad(app) : kIslandPad; out.push_back({x0 - ip, 0, x1 - x0 + 2 * ip, double(bar.height)}); }
     }
@@ -1679,11 +1687,12 @@ void measureBarModules(App& app) {
     cairo_surface_destroy(surf);
 }
 
-void sideM3WsPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, double top, double w, Hit hit) {
+void sideM3WsPaint(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layout, double x, double top, double w, Hit hit) {
     const int n = wsShown(app);
     const double W = kM3Cell, cx = x + w / 2.0;
-    auto cellY = [&](int id) { return top + (id - 1) * W; };
-    auto occupied = [&](int id) { return id >= 1 && id <= n && app.occupied.count(id) > 0; };
+    auto cellY = [&](int slot) { return top + (slot - 1) * W; };
+    auto occupied = [&](int slot) { return slot >= 1 && slot <= n && app.occupied.count(wsIdOf(bar, slot)) > 0; };
+    const int activeSlot = wsSlotOf(bar, wsActiveId(bar));
     const Color container = app.color("secondary_container"), focus = app.color("primary"), onFocus = app.color("on_primary");
     const Color onContainer = app.color("on_secondary_container"), onSurfVar = app.color("on_surface_variant");
     const Color layer1 = app.color("surface_container_low");
@@ -1705,19 +1714,19 @@ void sideM3WsPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, d
         setSource(cr, focus, 0.227);
         cairo_fill(cr);
     }
-    const double focusY = pillY0 + (app.wsPill - 1) * W;
-    if (app.workspace >= 1 && app.workspace <= n) {
+    const double focusY = pillY0 + (bar.wsPill - 1) * W;
+    if (activeSlot >= 1 && activeSlot <= n) {
         roundedRect(cr, pillX, focusY, kM3WsPill, kM3WsPill, kM3WsPill / 2);
         setSource(cr, focus);
         cairo_fill(cr);
     }
     PangoFontDescription* nf = pango_font_description_from_string("Sans Bold 11");
     for (int id = 1; id <= n; id++) {
-        if (cairo_surface_t* icon = wsAppIcon(app, id)) {
+        if (cairo_surface_t* icon = wsAppIcon(app, wsIdOf(bar, id))) {
             drawWsAppIcon(cr, icon, cx, cellY(id) + W / 2.0, 18);
             continue;
         }
-        const std::string num = wsNumberText(app, id);
+        const std::string num = wsNumberText(app, wsIdOf(bar, id));
         setWsNumber(layout, nf, num);
         int tw = 0, th = 0;
         pango_layout_get_pixel_size(layout, &tw, &th);
@@ -1725,7 +1734,7 @@ void sideM3WsPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, d
         setSource(cr, occupied(id) ? onContainer : inactive);
         cairo_move_to(cr, nx, ny);
         pango_cairo_show_layout(cr, layout);
-        if (id == app.workspace) {
+        if (wsIsActive(bar, id)) {
             cairo_save(cr);
             roundedRect(cr, pillX, focusY, kM3WsPill, kM3WsPill, kM3WsPill / 2);
             cairo_clip(cr);
@@ -1876,28 +1885,30 @@ void drawSide(Bar& bar) {
             pango_cairo_show_layout(cr, layout);
             pango_font_description_free(f);
         } else if (it.id >= kHitWs && it.id < kHitQuick) {
-            const int id = it.id - kHitWs;
-            const bool active = id == app.workspace;
+            const int slot = it.id - kHitWs;
+            const int id = wsIdOf(bar, slot);
+            const bool active = wsIsActive(bar, slot);
+            const int activeSlot = wsSlotOf(bar, wsActiveId(bar));
             if (m3Ws(app)) {
-                if (id == 1) sideM3WsPaint(cr, app, layout, r.x, r.y, r.w, hit);
+                if (slot == 1) sideM3WsPaint(cr, app, bar, layout, r.x, r.y, r.w, hit);
                 continue;
             }
             if (pillStyle(app)) {
                 const bool occ = app.occupied.count(id) > 0;
                 const int n = wsShown(app);
-                if (id == 1) {
+                if (slot == 1) {
                     const double cx = r.x + r.w / 2, top = r.y - kPillPad, len = n * kPillCell + 2 * kPillPad;
                     roundedRect(cr, cx - (kPillH + 4) / 2, top, kPillH + 4, len, (kPillH + 4) / 2);
                     setSource(cr, app.color("surface_container_high"));
                     cairo_fill(cr);
-                    if (app.workspace >= 1 && app.workspace <= n) {
-                        roundedRect(cr, cx - kPillInner / 2 - 2, top + kPillPad + (app.wsPill - 1) * kPillCell + (kPillCell - kPillInner) / 2, kPillInner + 4, kPillInner, kPillInner / 2);
+                    if (activeSlot >= 1 && activeSlot <= n) {
+                        roundedRect(cr, cx - kPillInner / 2 - 2, top + kPillPad + (bar.wsPill - 1) * kPillCell + (kPillCell - kPillInner) / 2, kPillInner + 4, kPillInner, kPillInner / 2);
                         setSource(cr, app.color("primary"));
                         cairo_fill(cr);
                     }
                 }
                 if (hot && !active) { roundedRect(cr, r.x + (r.w - kPillInner - 4) / 2, r.y + (kPillCell - kPillInner) / 2, kPillInner + 4, kPillInner, kPillInner / 2); setSource(cr, app.color("on_surface"), 0.1); cairo_fill(cr); }
-                const double near = std::max(0.0, 1.0 - std::abs(app.wsPill - id));
+                const double near = std::max(0.0, 1.0 - std::abs(bar.wsPill - slot));
                 if (cairo_surface_t* icon = wsAppIcon(app, id)) {
                     drawWsAppIcon(cr, icon, r.x + r.w / 2.0, r.y + kPillCell / 2.0, 18);
                     continue;
@@ -1915,8 +1926,8 @@ void drawSide(Bar& bar) {
                 continue;
             }
             if (!iconStyleWs(app)) {
-                const SideWsShape sh = sideWsShape(app, id);
-                const double vx = r.x + (r.w - sh.vw) / 2.0, vy = r.y + sideWsPad(app);
+                const SideWsShape sh = sideWsShape(bar, slot);
+                const double vx = r.x + (r.w - sh.vw) / 2.0, vy = r.y + sideWsPad(bar);
                 const bool occ = app.occupied.count(id) > 0;
                 if (numberedStyle(app) || ringStyleWs(app)) {
                     roundedRect(cr, vx, vy, sh.vw, sh.h, ringStyleWs(app) ? sh.vw / 2 : active ? 10 : 8);
@@ -1946,7 +1957,7 @@ void drawSide(Bar& bar) {
                 } else if (barStyleWs(app)) {
                     const double len = sh.vw + (hot ? kWsTickHover : 0);
                     roundedRect(cr, r.x + (r.w - len) / 2.0, vy, len, sh.h, sh.h / 2);
-                    setSource(cr, wsTickColor(app, id));
+                    setSource(cr, wsTickColor(bar, slot));
                     cairo_fill(cr);
                 } else {
                     roundedRect(cr, vx, vy, sh.vw, sh.h, sh.vw / 2);
@@ -2609,8 +2620,9 @@ Color quickM3Frame(cairo_t* cr, const App& app, const std::string& style, double
 void m3WsPaint(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layout, Hit hit, const PangoFontDescription* font) {
     const int n = wsShown(app);
     const double x0 = slotX(bar, "workspaces"), cy = bar.height / 2.0, W = kM3Cell;
-    auto cellX = [&](int id) { return x0 + (id - 1) * W; };
-    auto occupied = [&](int id) { return id >= 1 && id <= n && app.occupied.count(id) > 0; };
+    auto cellX = [&](int slot) { return x0 + (slot - 1) * W; };
+    auto occupied = [&](int slot) { return slot >= 1 && slot <= n && app.occupied.count(wsIdOf(bar, slot)) > 0; };
+    const int activeSlot = wsSlotOf(bar, wsActiveId(bar));
     const Color container = app.color("secondary_container"), focus = app.color("primary"), onFocus = app.color("on_primary");
     const Color onContainer = app.color("on_secondary_container"), onSurfVar = app.color("on_surface_variant");
     const Color layer1 = app.color("surface_container_low");
@@ -2626,25 +2638,25 @@ void m3WsPaint(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layout,
     }
     cairo_pop_group_to_source(cr);
     cairo_paint_with_alpha(cr, 0.6);
-    const double pillX = cellX(1) + (app.wsPill - 1) * W + (W - kM3WsPill) / 2, pillY = cy - kM3WsPill / 2;
+    const double pillX = cellX(1) + (bar.wsPill - 1) * W + (W - kM3WsPill) / 2, pillY = cy - kM3WsPill / 2;
     for (int id = 1; id <= n; id++) {
         if (hit != kHitWs + id) continue;
         roundedRect(cr, cellX(id) + (W - kM3WsPill) / 2, pillY, kM3WsPill, kM3WsPill, kM3WsPill / 2);
         setSource(cr, focus, 0.227);
         cairo_fill(cr);
     }
-    if (app.workspace >= 1 && app.workspace <= n) {
+    if (activeSlot >= 1 && activeSlot <= n) {
         roundedRect(cr, pillX, pillY, kM3WsPill, kM3WsPill, kM3WsPill / 2);
         setSource(cr, focus);
         cairo_fill(cr);
     }
     PangoFontDescription* nf = pango_font_description_from_string("Sans Bold 11");
     for (int id = 1; id <= n; id++) {
-        if (cairo_surface_t* icon = wsAppIcon(app, id)) {
+        if (cairo_surface_t* icon = wsAppIcon(app, wsIdOf(bar, id))) {
             drawWsAppIcon(cr, icon, cellX(id) + W / 2.0, cy, 18);
             continue;
         }
-        const std::string num = wsNumberText(app, id);
+        const std::string num = wsNumberText(app, wsIdOf(bar, id));
         setWsNumber(layout, nf, num);
         int tw = 0, th = 0;
         pango_layout_get_pixel_size(layout, &tw, &th);
@@ -2652,7 +2664,7 @@ void m3WsPaint(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layout,
         setSource(cr, occupied(id) ? onContainer : inactive);
         cairo_move_to(cr, nx, ny);
         pango_cairo_show_layout(cr, layout);
-        if (id == app.workspace) {
+        if (wsIsActive(bar, id)) {
             cairo_save(cr);
             roundedRect(cr, pillX, pillY, kM3WsPill, kM3WsPill, kM3WsPill / 2);
             cairo_clip(cr);
@@ -2700,30 +2712,32 @@ void draw(Bar& bar) {
         const int wsCount = wsShown(app);
         if (pillStyle(app)) {
             const double bx = slotX(bar, "workspaces"), by = (bar.height - kPillH) / 2.0;
-            roundedRect(cr, bx, by, wsTotalW(app), kPillH, kPillH / 2);
+            roundedRect(cr, bx, by, wsTotalW(app, bar), kPillH, kPillH / 2);
             setSource(cr, app.color("surface_container_high"));
             cairo_fill(cr);
-            if (app.workspace >= 1 && app.workspace <= wsCount) {
-                roundedRect(cr, bx + kPillPad + (app.wsPill - 1) * kPillCell, (bar.height - kPillInner) / 2.0, kPillCell, kPillInner, kPillInner / 2);
+            const int activeSlot = wsSlotOf(bar, wsActiveId(bar));
+            if (activeSlot >= 1 && activeSlot <= wsCount) {
+                roundedRect(cr, bx + kPillPad + (bar.wsPill - 1) * kPillCell, (bar.height - kPillInner) / 2.0, kPillCell, kPillInner, kPillInner / 2);
                 setSource(cr, app.color("primary"));
                 cairo_fill(cr);
             }
         }
         if (m3Ws(app)) m3WsPaint(cr, app, bar, layout, hit, font);
         else for (int id = 1; id <= wsShown(app); id++) {
-            const double wx = wsXOf(bar, id), ww = wsWidth(app, id);
-            const bool active = id == app.workspace;
+            const double wx = wsXOf(bar, id), ww = wsWidth(app, id, wsIsActive(bar, id));
+            const bool active = wsIsActive(bar, id);
+            const int wid = wsIdOf(bar, id);
             if (pillStyle(app)) {
-                const bool hot = hit == kHitWs + id, occ = app.occupied.count(id) > 0;
+                const bool hot = hit == kHitWs + id, occ = app.occupied.count(wid) > 0;
                 if (hot && !active) { roundedRect(cr, wx, (bar.height - kPillInner) / 2.0, ww, kPillInner, kPillInner / 2); setSource(cr, app.color("on_surface"), 0.1); cairo_fill(cr); }
-                if (cairo_surface_t* icon = wsAppIcon(app, id)) {
+                if (cairo_surface_t* icon = wsAppIcon(app, wid)) {
                     drawWsAppIcon(cr, icon, wx + ww / 2.0, bar.height / 2.0, 18);
                     continue;
                 }
-                const double near = std::max(0.0, 1.0 - std::abs(app.wsPill - id));
+                const double near = std::max(0.0, 1.0 - std::abs(bar.wsPill - id));
                 const Color a = app.color(hot ? "on_surface" : occ ? "on_surface_variant" : "outline"), b = app.color("on_primary");
                 setSource(cr, Color{a.r + (b.r - a.r) * near, a.g + (b.g - a.g) * near, a.b + (b.b - a.b) * near});
-                const std::string num = wsNumberText(app, id);
+                const std::string num = wsNumberText(app, wid);
                 setWsNumber(layout, numFont, num);
                 pango_layout_get_pixel_size(layout, &tw, &th);
                 cairo_move_to(cr, wx + (ww - tw) / 2.0, (bar.height - th) / 2.0);
@@ -2737,13 +2751,13 @@ void draw(Bar& bar) {
                     setSource(cr, app.color(active ? "surface_container_highest" : "surface_container_high"));
                     cairo_fill(cr);
                 }
-                const Color c = app.color(active || hot ? "on_surface" : app.occupied.count(id) ? "on_surface_variant" : "outline");
-                if (cairo_surface_t* icon = wsAppIcon(app, id)) {
+                const Color c = app.color(active || hot ? "on_surface" : app.occupied.count(wid) ? "on_surface_variant" : "outline");
+                if (cairo_surface_t* icon = wsAppIcon(app, wid)) {
                     drawWsAppIcon(cr, icon, wx + ww / 2.0, wy + kIcoH / 2.0, 20);
-                } else if (id >= 1 && id <= 10) {
-                    drawIcon(cr, kSideWsIcons[id - 1], wx + (ww - kIcoSize) / 2.0, wy + (kIcoH - kIcoSize) / 2.0, kIcoSize, c, active);
+                } else if (wid >= 1 && wid <= 10) {
+                    drawIcon(cr, kSideWsIcons[wid - 1], wx + (ww - kIcoSize) / 2.0, wy + (kIcoH - kIcoSize) / 2.0, kIcoSize, c, active);
                 } else {
-                    const std::string num = wsNumberText(app, id);
+                    const std::string num = wsNumberText(app, wid);
                     setWsNumber(layout, numFont, num);
                     pango_layout_get_pixel_size(layout, &tw, &th);
                     setSource(cr, c);
@@ -2760,24 +2774,24 @@ void draw(Bar& bar) {
                     setSource(cr, app.color("primary"));
                     cairo_fill(cr);
                 } else if (!ringStyleWs(app)) {
-                    if (hot || app.occupied.count(id)) { setSource(cr, app.color(hot ? "secondary_container" : "surface_container_high")); cairo_fill(cr); }
+                    if (hot || app.occupied.count(wid)) { setSource(cr, app.color(hot ? "secondary_container" : "surface_container_high")); cairo_fill(cr); }
                     cairo_new_path(cr);
                 } else {
                     if (hot) {
                         setSource(cr, app.color("surface_container_high"));
                         cairo_fill_preserve(cr);
                     }
-                    setSource(cr, app.color(hot ? "on_surface" : app.occupied.count(id) ? "on_surface_variant" : "outline_variant"));
+                    setSource(cr, app.color(hot ? "on_surface" : app.occupied.count(wid) ? "on_surface_variant" : "outline_variant"));
                     cairo_set_line_width(cr, 1.6);
                     cairo_stroke(cr);
                 }
-                if (cairo_surface_t* icon = wsAppIcon(app, id)) {
+                if (cairo_surface_t* icon = wsAppIcon(app, wid)) {
                     drawWsAppIcon(cr, icon, wx + ww / 2.0, wy + wh / 2.0, ringStyleWs(app) ? 17 : 18);
                     continue;
                 }
-                setSource(cr, app.color(active ? "on_primary" : hot ? (ringStyleWs(app) ? "on_surface" : "on_secondary_container") : app.occupied.count(id) ? "on_surface_variant" : "outline_variant"));
+                setSource(cr, app.color(active ? "on_primary" : hot ? (ringStyleWs(app) ? "on_surface" : "on_secondary_container") : app.occupied.count(wid) ? "on_surface_variant" : "outline_variant"));
                 {
-                    const std::string num = wsNumberText(app, id);
+                    const std::string num = wsNumberText(app, wid);
                     setWsNumber(layout, numFont, num);
                     pango_layout_get_pixel_size(layout, &tw, &th);
                     cairo_move_to(cr, wx + (ww - tw) / 2.0, wy + (wh - th) / 2.0);
@@ -2785,16 +2799,16 @@ void draw(Bar& bar) {
                     pango_layout_set_font_description(layout, font);
                 }
             } else if (barStyleWs(app)) {
-                const double len = wsTickLen(app, id) + (hit == kHitWs + id ? kWsTickHover : 0), wy = (bar.height - len) / 2.0;
+                const double len = wsTickLen(bar, id) + (hit == kHitWs + id ? kWsTickHover : 0), wy = (bar.height - len) / 2.0;
                 roundedRect(cr, wx, wy, ww, len, ww / 2);
-                setSource(cr, wsTickColor(app, id));
+                setSource(cr, wsTickColor(bar, id));
                 cairo_fill(cr);
             } else {
                 const double hh = kWsDot, wy = (bar.height - hh) / 2.0;
                 roundedRect(cr, wx, wy, ww, hh, hh / 2);
                 if (active) setSource(cr, app.color("primary"));
                 else if (hit == kHitWs + id) setSource(cr, app.color("on_surface"));
-                else if (app.occupied.count(id)) setSource(cr, app.color("on_surface_variant"));
+                else if (app.occupied.count(wid)) setSource(cr, app.color("on_surface_variant"));
                 else setSource(cr, app.color("outline_variant"));
                 cairo_fill(cr);
             }
@@ -3117,12 +3131,12 @@ void draw(Bar& bar) {
     for (int k = 0;; k++) {
         const std::string dv = "divider#" + std::to_string(k);
         if (!hasSlot(bar, dv.c_str())) break;
-        dividerPaint(cr, app, slotX(bar, dv.c_str()) + moduleWidth(app, dv) / 2.0, bar.height / 2.0, true, k);
+        dividerPaint(cr, app, slotX(bar, dv.c_str()) + moduleWidth(app, bar, dv) / 2.0, bar.height / 2.0, true, k);
     }
     for (int k = 0;; k++) {
         const std::string vz = "visualizer#" + std::to_string(k);
         if (!hasSlot(bar, vz.c_str())) break;
-        vizPaint(cr, app, slotX(bar, vz.c_str()) + moduleWidth(app, "visualizer") / 2.0, bar.height / 2.0, false, k < static_cast<int>(bar.vizMirror.size()) && bar.vizMirror[k]);
+        vizPaint(cr, app, slotX(bar, vz.c_str()) + moduleWidth(app, bar, "visualizer") / 2.0, bar.height / 2.0, false, k < static_cast<int>(bar.vizMirror.size()) && bar.vizMirror[k]);
     }
 
     if (hasSlot(bar, "island")) {

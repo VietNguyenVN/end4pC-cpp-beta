@@ -632,15 +632,19 @@ int main(int argc, char** argv) {
             if (moving) { timeoutMs = 16; drawAll(app); }
         }
         {
-            const double target = std::clamp(app.workspace, 1, std::max(1, wsShown(app)));
-            if (!(pillStyle(app) || m3Ws(app)) || !app.wsPillSeen || !inBarLayout(app, "workspaces")) { app.wsPill = target; app.wsPillSeen = true; app.wsPillLast = {}; }
-            else if (std::abs(app.wsPill - target) > 0.01) {
-                const double dt = app.wsPillLast == std::chrono::steady_clock::time_point{} ? 0.016 : std::min(0.1, std::chrono::duration<double>(before - app.wsPillLast).count());
-                app.wsPill += (target - app.wsPill) * (1 - std::exp(-dt * 16));
-                app.wsPillLast = before;
-                timeoutMs = 16;
-                drawAll(app);
-            } else { app.wsPill = target; app.wsPillLast = {}; }
+            bool moving = false;
+            for (auto& bp : app.bars) {
+                Bar& b = *bp;
+                const double target = std::clamp<double>(wsSlotOf(b, wsActiveId(b)), 1, std::max(1, wsShown(app)));
+                if (!(pillStyle(app) || m3Ws(app)) || !b.wsPillSeen || !inBarLayout(app, "workspaces")) { b.wsPill = target; b.wsPillSeen = true; b.wsPillLast = {}; }
+                else if (std::abs(b.wsPill - target) > 0.01) {
+                    const double dt = b.wsPillLast == std::chrono::steady_clock::time_point{} ? 0.016 : std::min(0.1, std::chrono::duration<double>(before - b.wsPillLast).count());
+                    b.wsPill += (target - b.wsPill) * (1 - std::exp(-dt * 16));
+                    b.wsPillLast = before;
+                    moving = true;
+                } else { b.wsPill = target; b.wsPillLast = {}; }
+            }
+            if (moving) { timeoutMs = 16; drawAll(app); }
         }
         if (app.trayDirty) timeoutMs = timeoutMs < 0 ? 300 : std::min(timeoutMs, 300);
         if (app.cc.open()) {

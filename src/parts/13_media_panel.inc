@@ -371,7 +371,7 @@ double mediaWidgetCentre(const Bar& bar, bool vertical) {
         for (const auto& item : sideItems(bar))
             if (item.id == HitMedia) return item.r.y + item.r.h / 2;
     } else if (hasSlot(bar, "media") && mediaBarVisible(app)) {
-        return musicX(bar) + moduleWidth(app, "media") / 2;
+        return musicX(bar) + moduleWidth(app, bar, "media") / 2;
     }
     return -1;
 }
