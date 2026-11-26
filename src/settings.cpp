@@ -1688,6 +1688,7 @@ void measure(const std::string& s, double px, bool bold, double wrap, double& w,
     w = iw;
     h = ih;
 }
+void textFit(cairo_t* cr, const std::string& s, double x, double y, double w, double px, bool bold, const Color& c, double alpha);
 double text(cairo_t* cr, const std::string& s, double x, double y, double px, bool bold, const Color& c, double wrap = 0, double alpha = 1) {
     PangoLayout* l = pango_cairo_create_layout(cr);
     setFont(l, px, bold);
@@ -4166,7 +4167,7 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
             (void)ar;
             double sw = 0, sh = 0;
             measure(shown, 14, false, 0, sw, sh);
-            text(cr, shown, b.x + 20, b.y + (b.h - sh) / 2, 14, true, onTonal);
+            textFit(cr, shown, b.x + 20, b.y + (b.h - sh) / 2, mw - 20 - 12, 14, true, onTonal, 1);  // a long name (a device) ends in an ellipsis instead of running under the arrow
             icon(cr, open ? "alt-arrow-up" : "alt-arrow-down", b.x + mw + gap + (tw2 - 20) / 2, b.y + (b.h - 20) / 2, 20, open ? onPrimary : onTonal);
         } else if (r.kind == Slider) {
             const Rect tr = sliderTrack(rl);
