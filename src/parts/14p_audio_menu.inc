@@ -778,6 +778,7 @@ void amParse(App& app, const std::string& text) {
     A.apps = apps;
 }
 
+void gameAudioLoaded(App& app);  // (the game overlay shows the apps too)
 void audioJobDone(App& app) {
     AudioMenu& A = app.amenu;
     close(A.job.fd);
@@ -785,9 +786,10 @@ void audioJobDone(App& app) {
     A.job.pid = 0;
     const bool again = A.job.dirty;
     A.job.dirty = false;
-    if (!A.job.buf.empty() && A.drag < 0) amParse(app, A.job.buf);
+    if (!A.job.buf.empty() && A.drag < 0 && app.game.mixDrag == -1) amParse(app, A.job.buf);  // (not while a slider is being dragged here or on the game overlay: the list would change under the pointer)
     A.job.buf.clear();
     A.loaded = true;
+    gameAudioLoaded(app);
     if (A.open()) amRefresh(app);
     if (again && A.open()) startAudioDevicesJob(app);
 }

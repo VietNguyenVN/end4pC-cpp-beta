@@ -1577,7 +1577,7 @@ struct QrState {  // the card that shows a QR code made from a link or a text
     cairo_surface_t* image = nullptr;
     int modules = 0;
 };
-enum GameWidget { GwResources, GwVolume, GwRecorder, GwNotes, GwCrosshair, kGwCount };
+enum GameWidget { GwResources, GwVolume, GwRecorder, GwNotes, GwFps, GwCrosshair, kGwCount };
 struct GameHit;
 // The visualizer of the desktop: one background-layer surface under the widgets, with no input, fed by the same cava stream as the bar's.
 struct DeskViz {
@@ -1610,6 +1610,12 @@ struct GameOverlay {  // the game overlay (SUPER + G)
     hidpi::SurfaceScale scale;
     zwlr_layer_surface_v1* layer = nullptr;
     bool configured = false, closing = false, animating = false, placed = false, volDrag = false;
+    bool gpuRow = false;  // the resources card has a row for the graphics card (it makes the card taller)
+    // the volume card is a small mixer: the output or the input tab, the list of devices (opened on demand) and the volume of each app
+    int mixTab = 0, mixDrag = -1, mixDevHover = -1;  // mixTab: 0 output, 1 input; mixDrag: the app slider being dragged (-2: the microphone)
+    bool mixDevOpen = false;
+    double volH = 180;                               // the height of that card: it grows with the apps and the device list
+    std::chrono::steady_clock::time_point nextAudio{}, lastMixSet{};
     int W = 0, H = 0, hover = 0, dragW = -1;
     std::chrono::steady_clock::time_point t0{}, nextRes{}, lastVolSet{};
     bool open[kGwCount] = {true, false, false, false, false};
@@ -1618,6 +1624,16 @@ struct GameOverlay {  // the game overlay (SUPER + G)
     double nw = 460, nh = 330, rsX = 0, rsY = 0, rsW = 0, rsH = 0;
     int rsMode = 0;
     bool notesPinned = false, ghostConfigured = false;
+    // the FPS card: the frames per second of the window with the focus, counted on a capture of it (14yb_game_fps.inc) while the card is open or pinned;
+    // and the translucent copy that stays when it is pinned
+    double fpsNow = 0;
+    std::vector<float> fpsHist;                      // one value every half second, the last 30 seconds
+    std::deque<std::chrono::steady_clock::time_point> fpsFrames;  // the frames of the last second
+    std::chrono::steady_clock::time_point fpsSampled{};
+    bool fpsPinned = false, fpsGhostConfigured = false;
+    wl_surface* fpsGhostSurface = nullptr;
+    hidpi::SurfaceScale fpsGhostScale;
+    zwlr_layer_surface_v1* fpsGhostLayer = nullptr;
     wl_surface* ghostSurface = nullptr;
     hidpi::SurfaceScale ghostScale;
     zwlr_layer_surface_v1* ghostLayer = nullptr;
@@ -1805,6 +1821,9 @@ struct App {
     struct Resources {
         double cpu = 0, ram = 0, swap = 0, disk = 0, temp = 0; unsigned long long idle = 0, total = 0; std::string tempPath;
         double ramUsedGb = 0, ramTotalGb = 0, diskUsedGb = 0, diskTotalGb = 0, tempC = -1;
+        gpuinfo::Sample gpu;                         // the graphics card (read while a card that shows it is open)
+        gpuinfo::Sample gpuNvidia;                   // the last answer of nvidia-smi
+        std::chrono::steady_clock::time_point gpuAsked{};
     } res;
     std::chrono::steady_clock::time_point resLast{};
     bool batPresent = false;
@@ -2016,6 +2035,8 @@ void gameMotion(App& app);
 void gameButton(App& app, uint32_t button, bool pressed);
 void drawGame(App& app);
 void tickGame(App& app, std::chrono::steady_clock::time_point now);
+void tickFps(App& app, std::chrono::steady_clock::time_point now);
+std::chrono::steady_clock::time_point fpsWake(const App& app);
 std::chrono::steady_clock::time_point gameWake(const App& app);
 void oskButton(App& app, uint32_t button, bool pressed);
 void tickDrivesMenu(App& app, std::chrono::steady_clock::time_point now);

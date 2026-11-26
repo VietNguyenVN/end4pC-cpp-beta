@@ -63,8 +63,33 @@ bool updateResources(App& app) {
             R.tempC = milli / 1000.0;
         }
     }
+    if (wide) {  // the graphics card: files of the kernel, or nvidia-smi (a program, so at most every two seconds)
+        gpuinfo::Sample card = gpuinfo::readSysfs();
+        if (!card.present && std::filesystem::exists("/proc/driver/nvidia/version")) {
+            // nvidia-smi can take a while (or hang): it runs on its own thread, and the answer is picked up on a later call. `timeout -s KILL`: the
+            // thread's signal mask is the one of the shell (SIGTERM blocked), which the program would inherit.
+            static std::future<gpuinfo::Sample> job;
+            if (job.valid() && job.wait_for(std::chrono::seconds(0)) == std::future_status::ready) R.gpuNvidia = job.get();
+            const auto now = std::chrono::steady_clock::now();
+            if (!job.valid() && now - R.gpuAsked >= std::chrono::seconds(2)) {
+                R.gpuAsked = now;
+                job = std::async(std::launch::async, [] {
+                    gpuinfo::Sample s;
+                    if (FILE* p = popen("timeout -s KILL 2 nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits 2>/dev/null", "r")) {
+                        char line[160] = {};
+                        if (std::fgets(line, sizeof line, p)) gpuinfo::parseNvidia(line, s);
+                        pclose(p);
+                    }
+                    return s;
+                });
+            }
+            card = R.gpuNvidia;
+        }
+        R.gpu = card;
+        app.game.gpuRow = card.present;
+    }
     auto moved = [](double a, double b) { return std::abs(a - b) > 0.005; };
-    return moved(R.cpu, before.cpu) || moved(R.ram, before.ram) || moved(R.swap, before.swap) || moved(R.disk, before.disk) || moved(R.temp, before.temp);
+    return moved(R.cpu, before.cpu) || moved(R.gpu.usage, before.gpu.usage) || moved(R.ram, before.ram) || moved(R.swap, before.swap) || moved(R.disk, before.disk) || moved(R.temp, before.temp);
 }
 
 void islandLiveBattery(App& app, int pct, int what);

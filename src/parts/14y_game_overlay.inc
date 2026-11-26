@@ -6,9 +6,12 @@ constexpr double kGameBarY = 50, kGameBtn = 44, kGameCardW = 340, kGameRadius = 
 constexpr int kGameCross = 56;
 
 struct GameHit { Rect r; int id = 0, arg = 0; };
-enum GameId { GhNone = 0, GhTaskbar, GhClose, GhHead, GhVolTrack, GhVolMute, GhRecord, GhShot, GhNoteText, GhNoteCopy, GhResize, GhPin };
-const char* const kGameNames[kGwCount] = {"Resources", "Volume", "Recorder", "Notes", "Crosshair"};
-const char* const kGameIcons[kGwCount] = {"cpu", "volume-loud", "videocamera-record", "notebook-minimalistic", "target"};
+enum GameId { GhNone = 0, GhTaskbar, GhClose, GhHead, GhVolTrack, GhVolMute, GhRecord, GhShot, GhNoteText, GhNoteCopy, GhResize, GhPin,
+              GhMixTab, GhMixDev, GhMixPick, GhMixApp, GhMixAppMute, GhMicMute, GhMicTrack };
+// The FPS card is parked: no way of counting the frames of another window was accurate enough (see 14yb_game_fps.inc), so it has no button yet.
+constexpr bool kGameFpsReady = false;
+const char* const kGameNames[kGwCount] = {"Resources", "Volume", "Recorder", "Notes", "FPS", "Crosshair"};
+const char* const kGameIcons[kGwCount] = {"cpu", "volume-loud", "videocamera-record", "notebook-minimalistic", "playback-speed", "target"};
 
 double gameEase(double p) { p = std::clamp(p, 0.0, 1.0); return 1 - std::pow(1 - p, 4); }  // (fast start, long landing)
 
@@ -63,18 +66,21 @@ const wl_callback_listener kGameFrame = {gameFrameDone};
 
 
 constexpr double kGameTile = 76, kGameTileGap = 8, kGameTempH = 52, kGameCardPad = 12, kGameBadge = 44;
+constexpr double kGameFpsH = kGameCardPad + kGameBadge + 12 + 84 + 8 + 104 + kGameCardPad;  // the FPS card: head, the number, the graph
 double gameCardH(const GameOverlay& G, int w) {
     if (w == GwNotes) return G.nh;
+    if (w == GwFps) return kGameFpsH;
     const double head = kGameCardPad + kGameBadge + 12;
-    if (w == GwResources) return head + 3 * kGameTile + 3 * kGameTileGap + kGameTempH + kGameCardPad;
-    if (w == GwVolume) return head + 84 + kGameCardPad;
+    if (w == GwResources) return head + (G.gpuRow ? 4 : 3) * (kGameTile + kGameTileGap) + kGameTempH + kGameCardPad;
+    if (w == GwVolume) return G.volH;
     return head + 2 * 56 + kGameTileGap + kGameCardPad;  // recorder
 }
 
 Rect gameCardRect(const GameOverlay& G, int w) { return {G.wx[w], G.wy[w], w == GwNotes ? G.nw : kGameCardW, gameCardH(G, w)}; }
 
 Rect gameTaskbarRect(const App& app, const GameOverlay& G) {
-    const double w = 8 * 2 + kGwCount * kGameBtn + (kGwCount - 1) * 4 + 12 + 1 + 12 + 70 + (app.batPresent ? 60 : 0);
+    const int buttons = kGwCount - (kGameFpsReady ? 0 : 1);
+    const double w = 8 * 2 + buttons * kGameBtn + (buttons - 1) * 4 + 12 + 1 + 12 + 70 + (app.batPresent ? 60 : 0);
     return {(G.W - w) / 2, kGameBarY, w, kGameBtn + 16};
 }
 
@@ -97,6 +103,72 @@ void gameBar(App& app, cairo_t* cr, double x, double y, double w, double h, doub
 }
 
 #include "14ya_game_notes.inc"
+#include "14yb_game_fps.inc"
+
+// ---- the volume card as a mixer: output / input, the devices to switch to, and the volume of each app ------------------------------------
+constexpr double kMixTabH = 40, kMixTile = 84, kMixDevH = 52, kMixDevRow = 40, kMixAppH = 64, kMixNoteH = 52, kMixGap = 8, kMixAppGap = 6, kMixMoreH = 20;
+constexpr size_t kMixMaxApps = 4;
+
+// The devices (indexes into app.amenu.devs) the current tab can switch to.
+std::vector<int> gameMixDevices(const App& app) {
+    std::vector<int> out;
+    const bool sink = app.game.mixTab == 0;
+    for (size_t i = 0; i < app.amenu.devs.size(); i++) {
+        const AudioDevice& d = app.amenu.devs[i];
+        if (d.sink == sink && d.action == "set") out.push_back(static_cast<int>(i));
+    }
+    return out;
+}
+
+// The height of the card with what is on it now (drawGameCard makes the same sums as it goes down the card).
+constexpr size_t kMixMaxDevices = 8;
+size_t gameMixAppsShown(const App& app) {  // up to four apps, fewer when the card would not fit the screen (the first one always)
+    const GameOverlay& G = app.game;
+    const size_t apps = std::min(app.amenu.apps.size(), kMixMaxApps);
+    if (apps == 0 || G.H <= 0) return apps;
+    double base = kGameCardPad + kGameBadge + 12 + kMixTabH + kMixGap + kMixTile + kMixGap + kMixDevH + kMixGap + kGameCardPad;
+    if (G.mixDevOpen) base += static_cast<double>(std::min(gameMixDevices(app).size(), kMixMaxDevices)) * kMixDevRow + 6;
+    const double room = G.H - 150 - base;  // (the taskbar is at the top)
+    size_t fit = room > 0 ? static_cast<size_t>((room + kMixAppGap) / (kMixAppH + kMixAppGap)) : 0;
+    return std::clamp<size_t>(fit, 1, apps);
+}
+double gameVolCardH(const App& app) {
+    const GameOverlay& G = app.game;
+    const size_t apps = app.amenu.apps.size(), shown = gameMixAppsShown(app);
+    double h = kGameCardPad + kGameBadge + 12;
+    h += kMixTabH + kMixGap + kMixTile + kMixGap + kMixDevH;
+    if (G.mixDevOpen) h += static_cast<double>(std::min(gameMixDevices(app).size(), kMixMaxDevices)) * kMixDevRow + 6;
+    if (G.mixTab == 0) {
+        h += kMixGap;
+        h += shown ? shown * kMixAppH + (shown - 1) * kMixAppGap : kMixNoteH;
+        if (apps > shown) h += kMixAppGap + kMixMoreH;
+    }
+    return h + kGameCardPad;
+}
+
+// The expressive slider of the cards: the filled part, a gap with the handle, then the track (and a mark where 100 % is, when it goes higher).
+void gameSlider(App& app, cairo_t* cr, double sx, double cy, double sw, double f, bool loud, bool muted, double bh) {
+    const double fill = std::max(bh, (sw - 8) * f);
+    const Color color = muted ? app.color("outline") : app.color(loud ? "tertiary" : "primary");
+    roundedRect(cr, sx, cy - bh / 2, fill, bh, bh / 2);
+    setSource(cr, color);
+    cairo_fill(cr);
+    const double hx = sx + fill + 4;
+    roundedRect(cr, hx - 1, cy - bh, 4, bh * 2, 2);
+    setSource(cr, color);
+    cairo_fill(cr);
+    if (hx + 9 < sx + sw) {
+        roundedRect(cr, hx + 7, cy - bh / 2, sx + sw - hx - 7, bh, bh / 2);
+        setSource(cr, app.color("secondary_container"), 0.75);
+        cairo_fill(cr);
+    }
+    if (volMark(app) > 0) {
+        const double mx = sx + 4 + (sw - 8) * volMark(app);
+        roundedRect(cr, mx - 1, cy - bh * 0.75, 2, bh * 1.5, 1);
+        setSource(cr, app.color("on_surface_variant"), 0.7);
+        cairo_fill(cr);
+    }
+}
 
 void drawGameCard(App& app, cairo_t* cr, PangoLayout* L, int w, std::vector<GameHit>& hits) {
     GameOverlay& G = app.game;
@@ -117,9 +189,9 @@ void drawGameCard(App& app, cairo_t* cr, PangoLayout* L, int w, std::vector<Game
     roundedRect(cr, r.x, r.y, r.w, r.h, kGameRadius);
     setSource(cr, app.color("surface_container"), 0.98);
     cairo_fill(cr);
-    const bool ghost = w == GwNotes && g_gn.ghostDraw;  // (pinned, the overlay closed: only the box of text)
+    const bool ghost = (w == GwNotes && g_gn.ghostDraw) || (w == GwFps && g_gf.ghostDraw);  // (pinned, the overlay closed: only the box)
     // the header: an M3 shape badge with the icon, a title and a line under it, and the close button; the header drags the card
-    const double headRight = w == GwNotes ? 112 : 64;
+    const double headRight = w == GwNotes || w == GwFps ? 112 : 64;
     if (!ghost) hits.push_back({{r.x, r.y, r.w - headRight, kGameCardPad + kGameBadge + 8}, GhHead, w});
     const double hx = r.x + 16, hy = r.y + kGameCardPad;
     if (!ghost) {
@@ -127,8 +199,8 @@ void drawGameCard(App& app, cairo_t* cr, PangoLayout* L, int w, std::vector<Game
         setSource(cr, app.color("primary_container"));
         cairo_fill(cr);
         drawIcon(cr, kGameIcons[w], hx + (kGameBadge - 24) / 2, hy + (kGameBadge - 24) / 2, 24, app.color("on_primary_container"));
-        const char* sub = w == GwResources ? "Live" : w == GwVolume ? (app.muted ? "Muted" : "Output") : w == GwNotes ? (g_gn.dirty ? "Saving..." : "Saved") : (app.recording ? "Recording" : "Ready");
-        const double tx = hx + kGameBadge + 14, tw = r.w - (w == GwNotes ? 180 : 120);
+        const char* sub = w == GwResources ? "Live" : w == GwVolume ? (G.mixTab == 1 ? "Input" : app.muted ? "Muted" : "Output") : w == GwNotes ? (g_gn.dirty ? "Saving..." : "Saved") : w == GwFps ? "Live" : (app.recording ? "Recording" : "Ready");
+        const double tx = hx + kGameBadge + 14, tw = r.w - (w == GwNotes || w == GwFps ? 180 : 120);
         clkText(cr, L, i18n::tr(kGameNames[w]), 16, true, tx, hy + 14, ink, 1, tw);
         clkText(cr, L, i18n::tr(sub), 12.5, false, tx, hy + 33, app.recording && w == GwRecorder ? app.color("error") : dim, 1, tw);
         const Rect x{r.x + r.w - 16 - 40, hy + 2, 40, 40};
@@ -137,13 +209,14 @@ void drawGameCard(App& app, cairo_t* cr, PangoLayout* L, int w, std::vector<Game
         setSource(cr, app.color("surface_container_highest"), G.hover == GhClose * 10 + w ? 1 : 0.7);
         cairo_fill(cr);
         drawIcon(cr, "close-circle", x.x + 10, x.y + 10, 20, dim);
-        if (w == GwNotes) {  // pinned: it stays on the screen, translucent, when the overlay closes
+        if (w == GwNotes || w == GwFps) {  // pinned: it stays on the screen, translucent, when the overlay closes
+            const bool pinned = w == GwNotes ? G.notesPinned : G.fpsPinned;
             const Rect pin{x.x - 8 - 40, x.y, 40, 40};
-            hits.push_back({pin, GhPin, 0});
+            hits.push_back({pin, GhPin, w});
             cairo_arc(cr, pin.x + 20, pin.y + 20, 20, 0, 2 * M_PI);
-            setSource(cr, app.color(G.notesPinned ? "primary" : "surface_container_highest"), G.notesPinned || G.hover == GhPin * 10 ? 1 : 0.7);
+            setSource(cr, app.color(pinned ? "primary" : "surface_container_highest"), pinned || G.hover == GhPin * 10 + w ? 1 : 0.7);
             cairo_fill(cr);
-            drawIcon(cr, "pin", pin.x + 10, pin.y + 10, 20, app.color(G.notesPinned ? "on_primary" : "on_surface_variant"));
+            drawIcon(cr, "pin", pin.x + 10, pin.y + 10, 20, app.color(pinned ? "on_primary" : "on_surface_variant"));
         }
     }
     const double bx = r.x + kGameCardPad, bw = r.w - 2 * kGameCardPad;
@@ -161,10 +234,11 @@ void drawGameCard(App& app, cairo_t* cr, PangoLayout* L, int w, std::vector<Game
         const App::Resources& R = app.res;
         char ram[40];
         std::snprintf(ram, sizeof ram, "%.1f / %.1f GB", R.ramUsedGb, R.ramTotalGb);
-        const struct { const char* name; const char* icon; double v; std::string txt; } rows[3] = {
-            {"CPU", "cpu", R.cpu, std::to_string(static_cast<int>(std::lround(R.cpu * 100))) + "%"},
-            {"Memory", "server-square", R.ram, ram},
-            {"Disk", "database", R.disk, std::to_string(static_cast<int>(std::lround(R.disk * 100))) + "%"}};
+        struct Row { const char* name; const char* icon; double v; std::string txt; };
+        std::vector<Row> rows = {{"CPU", "cpu", R.cpu, std::to_string(static_cast<int>(std::lround(R.cpu * 100))) + "%"}};
+        if (R.gpu.present) rows.push_back({"GPU", "display", std::max(0.0, R.gpu.usage), gpuinfo::text(R.gpu)});  // (between the processor and the memory)
+        rows.push_back({"Memory", "server-square", R.ram, ram});
+        rows.push_back({"Disk", "database", R.disk, std::to_string(static_cast<int>(std::lround(R.disk * 100))) + "%"});
         for (const auto& row : rows) {
             tile(kGameTile);
             cairo_arc(cr, bx + 12 + 20, y + 12 + 20, 20, 0, 2 * M_PI);
@@ -187,40 +261,126 @@ void drawGameCard(App& app, cairo_t* cr, PangoLayout* L, int w, std::vector<Game
         std::snprintf(b, sizeof b, R.tempC >= 0 ? "%.0f °C" : "—", R.tempC);
         const int tw = clkTextWidth(L, b, 17, true);
         clkText(cr, L, b, 17, true, bx + bw - 16 - tw, y + kGameTempH / 2.0, ink, 1);
+    } else if (w == GwFps) {
+        drawGameFps(app, cr, L, bx, bw, y);
     } else if (w == GwVolume) {
-        tile(84);
-        const Rect mute{bx + 14, y + 20, 44, 44};
-        hits.push_back({mute, GhVolMute, 0});
-        cairo_arc(cr, mute.x + 22, mute.y + 22, 22, 0, 2 * M_PI);
-        setSource(cr, app.color(app.muted ? "error_container" : "secondary_container"));
-        cairo_fill(cr);
-        if (G.hover == GhVolMute * 10) { cairo_arc(cr, mute.x + 22, mute.y + 22, 22, 0, 2 * M_PI); setSource(cr, app.color(app.muted ? "on_error_container" : "on_secondary_container"), 0.1); cairo_fill(cr); }
-        drawIcon(cr, app.muted ? "volume-cross" : "volume-loud", mute.x + 11, mute.y + 11, 22, app.color(app.muted ? "on_error_container" : "on_secondary_container"));
-        const std::string pct = std::to_string(app.volume) + "%";
-        const int pw = clkTextWidth(L, pct, 17, true);
-        const double sx = mute.x + 44 + 14, sw = bx + bw - 14 - pw - 14 - sx;
-        hits.push_back({{sx - 8, y + 20, sw + 16, 44}, GhVolTrack, 0});
-        const double f = volFrac(app, app.volume), fill = std::max(16.0, (sw - 8) * f);
-        const Color volColor = app.color(volLoud(app.volume) && !app.muted ? "tertiary" : "primary");  // above 100 % the slider changes colour
-        roundedRect(cr, sx, y + 42 - 8, fill, 16, 8);  // the expressive slider: filled part, a gap with the handle, then the track
-        setSource(cr, volColor);
-        cairo_fill(cr);
-        const double hx2 = sx + fill + 4;
-        roundedRect(cr, hx2 - 1, y + 42 - 16, 4, 32, 2);
-        setSource(cr, volColor);
-        cairo_fill(cr);
-        if (hx2 + 9 < sx + sw) {
-            roundedRect(cr, hx2 + 7, y + 42 - 8, sx + sw - hx2 - 7, 16, 8);
-            setSource(cr, app.color("secondary_container"), 0.75);
+        AudioMenu& A = app.amenu;
+        const bool input = G.mixTab == 1;
+        {  // the tabs: output and input
+            roundedRect(cr, bx, y, bw, kMixTabH, kMixTabH / 2);
+            setSource(cr, app.color("surface_container_high"));
             cairo_fill(cr);
+            const double tw = (bw - 4) / 2;
+            for (int t = 0; t < 2; t++) {
+                const Rect b{bx + 2 + t * tw, y + 2, tw, kMixTabH - 4};
+                hits.push_back({b, GhMixTab, t});
+                const bool on = G.mixTab == t, hot = G.hover == GhMixTab * 10 + t;
+                if (on || hot) {
+                    roundedRect(cr, b.x, b.y, b.w, b.h, b.h / 2);
+                    setSource(cr, app.color(on ? "secondary_container" : "surface_container_highest"), on ? 1 : 0.7);
+                    cairo_fill(cr);
+                }
+                const Color fg = app.color(on ? "on_secondary_container" : "on_surface_variant");
+                const std::string label = i18n::tr(t == 0 ? "Output" : "Input");
+                const int lw = clkTextWidth(L, label, 14, true);
+                const double x0 = b.x + (b.w - 24 - lw) / 2;
+                drawIcon(cr, t == 0 ? "volume-loud" : "microphone", x0, b.y + (b.h - 18) / 2, 18, fg);
+                clkText(cr, L, label, 14, true, x0 + 24, b.y + b.h / 2.0, fg, 1);
+            }
         }
-        if (volMark(app) > 0) {  // where 100 % is, when the slider goes higher
-            const double mx = sx + 4 + (sw - 8) * volMark(app);
-            roundedRect(cr, mx - 1, y + 42 - 12, 2, 24, 1);
-            setSource(cr, app.color("on_surface_variant"), 0.7);
+        y += kMixTabH + kMixGap;
+        {  // the volume of the tab: the default output, or the default input
+            const bool muted = input ? A.inMuted : app.muted;
+            const int vol = input ? A.inVol : app.volume;
+            const int muteId = input ? GhMicMute : GhVolMute, trackId = input ? GhMicTrack : GhVolTrack;
+            tile(kMixTile);
+            const Rect mute{bx + 14, y + 20, 44, 44};
+            hits.push_back({mute, muteId, 0});
+            cairo_arc(cr, mute.x + 22, mute.y + 22, 22, 0, 2 * M_PI);
+            setSource(cr, app.color(muted ? "error_container" : "secondary_container"));
             cairo_fill(cr);
+            if (G.hover == muteId * 10) { cairo_arc(cr, mute.x + 22, mute.y + 22, 22, 0, 2 * M_PI); setSource(cr, app.color(muted ? "on_error_container" : "on_secondary_container"), 0.1); cairo_fill(cr); }
+            drawIcon(cr, input ? "microphone" : muted ? "volume-cross" : "volume-loud", mute.x + 11, mute.y + 11, 22, app.color(muted ? "on_error_container" : "on_secondary_container"));
+            const std::string pct = std::to_string(vol) + "%";
+            const int pw = clkTextWidth(L, pct, 17, true);
+            const double sx = mute.x + 44 + 14, sw = bx + bw - 14 - pw - 14 - sx;
+            hits.push_back({{sx - 8, y + 20, sw + 16, 44}, trackId, 0});
+            gameSlider(app, cr, sx, y + 42, sw, volFrac(app, vol), volLoud(vol) && !muted, false, 16);
+            clkText(cr, L, pct, 17, true, bx + bw - 14 - pw, y + 42, ink, 1);
         }
-        clkText(cr, L, pct, 17, true, bx + bw - 14 - pw, y + 42, ink, 1);
+        y += kMixTile + kMixGap;
+        {  // the device in use, and the others to switch to
+            std::vector<int> devs = gameMixDevices(app);
+            std::string title = i18n::tr(A.loaded ? "No device" : "Loading…");
+            for (int i : devs) if (A.devs[static_cast<size_t>(i)].isDefault) title = A.devs[static_cast<size_t>(i)].title;
+            if (devs.size() > kMixMaxDevices) devs.resize(kMixMaxDevices);  // (a card with a dozen outputs would not fit the screen)
+            const double h = kMixDevH + (G.mixDevOpen ? static_cast<double>(devs.size()) * kMixDevRow + 6 : 0);
+            tile(h);
+            hits.push_back({{bx, y, bw, kMixDevH}, GhMixDev, 0});
+            if (G.hover == GhMixDev * 10) { roundedRect(cr, bx, y, bw, kMixDevH, 20); setSource(cr, ink, 0.06); cairo_fill(cr); }
+            cairo_arc(cr, bx + 12 + 16, y + kMixDevH / 2, 16, 0, 2 * M_PI);
+            setSource(cr, app.color("tertiary_container"));
+            cairo_fill(cr);
+            drawIcon(cr, input ? "microphone" : "volume-loud", bx + 12 + 7, y + kMixDevH / 2 - 9, 18, app.color("on_tertiary_container"));
+            clkText(cr, L, title, 14, true, bx + 12 + 32 + 12, y + kMixDevH / 2.0, ink, 1, bw - 12 - 32 - 12 - 44);
+            drawIcon(cr, G.mixDevOpen ? "alt-arrow-up" : "alt-arrow-down", bx + bw - 14 - 20, y + (kMixDevH - 20) / 2, 20, dim);
+            if (G.mixDevOpen) {
+                for (size_t j = 0; j < devs.size(); j++) {
+                    const AudioDevice& d = A.devs[static_cast<size_t>(devs[j])];
+                    const Rect row{bx + 6, y + kMixDevH + static_cast<double>(j) * kMixDevRow, bw - 12, kMixDevRow};
+                    hits.push_back({row, GhMixPick, devs[j]});
+                    if (static_cast<int>(j) == G.mixDevHover) { roundedRect(cr, row.x, row.y, row.w, row.h - 2, 14); setSource(cr, ink, 0.07); cairo_fill(cr); }
+                    const double cy = row.y + row.h / 2;
+                    cairo_new_sub_path(cr);  // (the text before it left a current point: without this a line joins it to the circle)
+                    cairo_arc(cr, row.x + 18, cy, 8, 0, 2 * M_PI);
+                    setSource(cr, app.color(d.isDefault ? "primary" : "outline"));
+                    cairo_set_line_width(cr, 2);
+                    cairo_stroke(cr);
+                    if (d.isDefault) { cairo_new_sub_path(cr); cairo_arc(cr, row.x + 18, cy, 4, 0, 2 * M_PI); setSource(cr, app.color("primary")); cairo_fill(cr); }
+                    clkText(cr, L, d.title, 13.5, d.isDefault, row.x + 38, cy, d.isDefault ? ink : dim, 1, row.w - 50);
+                }
+            }
+            y += h;
+        }
+        if (!input) {  // the apps playing sound, each with its own volume
+            y += kMixGap;
+            const size_t shown = gameMixAppsShown(app);
+            if (shown == 0) {
+                tile(kMixNoteH);
+                const std::string note = i18n::tr(A.loaded ? "No apps playing sound" : "Loading…");
+                clkText(cr, L, note, 13.5, false, bx + 18, y + kMixNoteH / 2.0, dim, 1, bw - 36);
+                y += kMixNoteH;
+            }
+            for (size_t i = 0; i < shown; i++) {
+                const AudioApp& a = A.apps[i];
+                tile(kMixAppH);
+                const Rect badge{bx + 12, y + 9, 32, 32};
+                hits.push_back({badge, GhMixAppMute, static_cast<int>(i)});
+                cairo_arc(cr, badge.x + 16, badge.y + 16, 16, 0, 2 * M_PI);
+                setSource(cr, app.color(a.muted ? "error_container" : "secondary_container"));
+                cairo_fill(cr);
+                if (G.hover == GhMixAppMute * 10 + std::min<int>(static_cast<int>(i), 9)) { cairo_arc(cr, badge.x + 16, badge.y + 16, 16, 0, 2 * M_PI); setSource(cr, app.color("on_secondary_container"), 0.12); cairo_fill(cr); }
+                if (a.muted) {
+                    drawIcon(cr, "volume-cross", badge.x + 7, badge.y + 7, 18, app.color("on_error_container"));
+                } else {
+                    const unsigned char lead = a.name.empty() ? 0 : static_cast<unsigned char>(a.name[0]);
+                    const size_t lead_len = lead < 0x80 ? 1 : (lead >> 5) == 6 ? 2 : (lead >> 4) == 14 ? 3 : 4;  // (one letter, whatever the script)
+                    std::string letter = a.name.empty() ? "?" : a.name.substr(0, lead_len);
+                    for (char& c : letter) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                    const int lw = clkTextWidth(L, letter, 15, true);
+                    clkText(cr, L, letter, 15, true, badge.x + (32 - lw) / 2.0, badge.y + 16, app.color("on_secondary_container"), 1);
+                }
+                const std::string pct = std::to_string(a.vol) + "%";
+                const int pw = clkTextWidth(L, pct, 13, true);
+                clkText(cr, L, a.name, 14, true, badge.x + 32 + 10, y + 25, ink, 1, bw - 12 - 32 - 10 - 14 - pw - 8);
+                clkText(cr, L, pct, 13, true, bx + bw - 14 - pw, y + 25, dim, 1);
+                const double sx = bx + 14, sw = bw - 28, cy = y + 48;
+                hits.push_back({{sx - 8, cy - 15, sw + 16, 30}, GhMixApp, static_cast<int>(i)});
+                gameSlider(app, cr, sx, cy, sw, volFrac(app, a.vol), volLoud(a.vol) && !a.muted, a.muted, 10);
+                y += kMixAppH + (i + 1 < shown ? kMixAppGap : 0);
+            }
+            if (A.apps.size() > shown) clkText(cr, L, "+" + std::to_string(A.apps.size() - shown) + " " + i18n::tr("more"), 12.5, false, bx + 14, y + kMixAppGap + kMixMoreH / 2.0, dim, 1);
+        }
     } else {
         const bool rec = app.recording;
         const auto button = [&](const Rect& p, const char* icon, const std::string& label, const char* bg, const char* fgName, int id) {
@@ -268,6 +428,9 @@ void drawGame(App& app) {
         G.animating = el < kGameZoomMs;
     }
     const int W = G.W, H = G.H;
+    G.volH = gameVolCardH(app);
+    for (int w = 0; w < GwCrosshair; w++)  // (cards grow with their content: none may run off the screen)
+        if (G.open[w] && w != GwNotes) G.wy[w] = std::clamp(G.wy[w], 0.0, std::max(0.0, H - gameCardH(G, w)));
     cairo_t* cr = mkcr(G.cs[idx]);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -293,6 +456,7 @@ void drawGame(App& app) {
         hits.push_back({t, 99, 0});  // (a click on the bar itself does nothing, and does not close)
         double x = t.x + 8;
         for (int w = 0; w < kGwCount; w++) {
+            if (w == GwFps && !kGameFpsReady) continue;
             const Rect b{x, t.y + 8, kGameBtn, kGameBtn};
             hits.push_back({b, GhTaskbar, w});
             const bool on = w == GwCrosshair ? G.crossOn : G.open[w], hot = G.hover == GhTaskbar * 10 + w;
@@ -452,6 +616,8 @@ void closeGameNow(App& app) {
     app.onGame = false;
     g_gn.selDrag = false;
     G.rsMode = 0;
+    G.mixDrag = -1;
+    G.mixDevOpen = false;
     gameNotesGhostSync(app);
 }
 
@@ -468,6 +634,9 @@ void onGameConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uin
             G.placed = true;
         }
         gnPlace(*app);
+        fpsPlace(*app);
+        fpsProbeSync(*app);
+        updateResources(*app);  // (so the card of the resources has its GPU row from the first frame)
     }
     G.configured = true;
     drawGame(*app);
@@ -485,6 +654,7 @@ void openGame(App& app) {
     closeAllPopups(app);
     syncCatcher(app);
     closeNotesGhost(app);
+    closeFpsGhost(app);
     const Bar* bar = mainBar(app);
     G.hover = 0;
     G.closing = false;
@@ -506,6 +676,8 @@ void retractGame(App& app) {
     G.t0 = std::chrono::steady_clock::now();
     G.dragW = -1;
     G.volDrag = false;
+    G.mixDrag = -1;
+    G.mixDevOpen = false;
     drawGame(app);
 }
 void toggleGame(App& app) { if (app.game.surface && !app.game.closing) retractGame(app); else openGame(app); }
@@ -516,6 +688,10 @@ void tickGame(App& app, std::chrono::steady_clock::time_point now) {
     if (G.closing && now - G.t0 >= std::chrono::milliseconds(static_cast<int>(kGameCloseMs))) { closeGameNow(app); return; }
     bool redraw = G.animating;
     gameNotesTick(app, now, redraw);
+    if (!G.closing && G.open[GwVolume] && G.mixDrag == -1 && now >= G.nextAudio) {  // the apps and devices of the volume card
+        G.nextAudio = now + std::chrono::seconds(2);
+        startAudioDevicesJob(app);
+    }
     if (!G.closing && now >= G.nextRes) {  // the numbers of the resources card
         G.nextRes = now + std::chrono::seconds(1);
         updateResources(app);
@@ -558,6 +734,55 @@ void gameSetVolume(App& app, double x, const GameHit& track) {
     runDetached({"wpctl", "set-volume", "-l", volLimit(app).c_str(), "@DEFAULT_AUDIO_SINK@", pct.c_str()});
 }
 
+// The slider of an app (or of the microphone) follows the pointer; the number goes to pactl at most every 40 ms while dragging.
+void gameMixSet(App& app, double x, const GameHit& track, bool force) {
+    GameOverlay& G = app.game;
+    AudioMenu& A = app.amenu;
+    const double f = std::clamp((x - (track.r.x + 8)) / (track.r.w - 16), 0.0, 1.0);
+    const int v = std::min(volFromFrac(app, f), app.cfg.volumeMax);
+    const bool mic = G.mixDrag == -2;
+    int* target = mic ? &A.inVol : (G.mixDrag >= 0 && G.mixDrag < static_cast<int>(A.apps.size()) ? &A.apps[static_cast<size_t>(G.mixDrag)].vol : nullptr);
+    if (!target) return;
+    const bool changed = *target != v;
+    *target = v;
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && (!changed || now - G.lastMixSet < std::chrono::milliseconds(40))) return;
+    G.lastMixSet = now;
+    const std::string pct = std::to_string(v) + "%";
+    if (mic) runDetached({"pactl", "set-source-volume", "@DEFAULT_SOURCE@", pct.c_str()});
+    else { const std::string idx = std::to_string(A.apps[static_cast<size_t>(G.mixDrag)].index); runDetached({"pactl", "set-sink-input-volume", idx.c_str(), pct.c_str()}); }
+}
+
+void gameMixPick(App& app, int device) {
+    GameOverlay& G = app.game;
+    AudioMenu& A = app.amenu;
+    G.mixDevOpen = false;
+    if (device < 0 || device >= static_cast<int>(A.devs.size())) return;
+    const AudioDevice chosen = A.devs[static_cast<size_t>(device)];
+    if (chosen.isDefault) return;
+    for (auto& d : A.devs)
+        if (d.sink == chosen.sink && d.action == "set") d.isDefault = d.target == chosen.target && d.extra == chosen.extra;
+    amRunScript({"set", chosen.sink ? "sink" : "source", chosen.target, chosen.extra});
+    G.nextAudio = std::chrono::steady_clock::now() + std::chrono::milliseconds(700);  // (read it again once the change went through)
+}
+
+void gameMixAppMute(App& app, int i) {
+    AudioMenu& A = app.amenu;
+    if (i < 0 || i >= static_cast<int>(A.apps.size())) return;
+    AudioApp& a = A.apps[static_cast<size_t>(i)];
+    a.muted = !a.muted;
+    const std::string idx = std::to_string(a.index);
+    runDetached({"pactl", "set-sink-input-mute", idx.c_str(), a.muted ? "1" : "0"});
+}
+
+// The audio job finished: the apps and devices on the card are new.
+void gameAudioLoaded(App& app) {
+    GameOverlay& G = app.game;
+    // the hit rectangles of the mixer refer to rows of the old lists: they go until the new frame is drawn (a click in between must not hit another app)
+    G.hits.erase(std::remove_if(G.hits.begin(), G.hits.end(), [](const GameHit& h) { return h.id == GhMixPick || h.id == GhMixApp || h.id == GhMixAppMute; }), G.hits.end());
+    if (G.surface && !G.closing && G.open[GwVolume] && G.mixDrag == -1) drawGame(app);
+}
+
 void gameMotion(App& app) {
     GameOverlay& G = app.game;
     if (g_gn.selDrag) {
@@ -594,16 +819,32 @@ void gameMotion(App& app) {
         drawGame(app);
         return;
     }
-    const int over = gameHitAt(G, app.pointerX, app.pointerY);
-    if (over != G.hover) { G.hover = over; drawGame(app); updateCursor(app); }
+    if (G.mixDrag != -1) {
+        for (const GameHit& h : G.hits)
+            if (h.id == (G.mixDrag == -2 ? GhMicTrack : GhMixApp) && (G.mixDrag == -2 || h.arg == G.mixDrag)) { gameMixSet(app, app.pointerX, h, false); break; }
+        drawGame(app);
+        return;
+    }
+    GameHit under;
+    const int over = gameHitAt(G, app.pointerX, app.pointerY, &under);
+    int deviceHover = -1;  // the row of the device list under the pointer
+    if (under.id == GhMixPick) { const auto devs = gameMixDevices(app); for (size_t j = 0; j < devs.size(); j++) if (devs[j] == under.arg) deviceHover = static_cast<int>(j); }
+    if (over != G.hover || deviceHover != G.mixDevHover) { G.hover = over; G.mixDevHover = deviceHover; drawGame(app); updateCursor(app); }
 }
 
 void gameButton(App& app, uint32_t button, bool pressed) {
     GameOverlay& G = app.game;
     if (button != 0x110) return;
     if (!pressed) {
-        const bool was = G.dragW >= 0 || G.volDrag || G.rsMode != 0 || g_gn.selDrag;
+        const bool was = G.dragW >= 0 || G.volDrag || G.rsMode != 0 || g_gn.selDrag || G.mixDrag != -1;
+        if (G.mixDrag != -1) {  // the last value goes out whatever the pace of the drag was
+            for (const GameHit& h : G.hits)
+                if (h.id == (G.mixDrag == -2 ? GhMicTrack : GhMixApp) && (G.mixDrag == -2 || h.arg == G.mixDrag)) { gameMixSet(app, app.pointerX, h, true); break; }
+            G.mixDrag = -1;
+            G.nextAudio = std::chrono::steady_clock::now() + std::chrono::milliseconds(600);
+        }
         if (G.rsMode != 0 || G.dragW == GwNotes) { G.rsMode = 0; gnSaveState(app); }
+        if (G.dragW == GwFps) fpsSaveState(app);
         g_gn.selDrag = false;
         G.dragW = -1;
         G.volDrag = false;
@@ -621,23 +862,35 @@ void gameButton(App& app, uint32_t button, bool pressed) {
             else {
                 G.open[h.arg] = !G.open[h.arg];
                 if (h.arg == GwNotes) { g_gn.focus = G.open[GwNotes]; gnSaveState(app); }
+                if (h.arg == GwFps) fpsSaveState(app);
             }
             break;
-        case GhClose: G.open[h.arg] = false; if (h.arg == GwNotes) gnSaveState(app); break;
+        case GhClose: G.open[h.arg] = false; if (h.arg == GwNotes) gnSaveState(app); if (h.arg == GwFps) fpsSaveState(app); break;
         case GhNoteText: gnClick(app, false); break;
         case GhNoteCopy:
             if (h.arg >= 0 && h.arg < static_cast<int>(g_gn.copies.size())) copyToClipboard(g_gn.copies[h.arg]);
             break;
-        case GhPin: G.notesPinned = !G.notesPinned; gnSaveState(app); break;
+        case GhPin:
+            if (h.arg == GwFps) { G.fpsPinned = !G.fpsPinned; fpsSaveState(app); }
+            else { G.notesPinned = !G.notesPinned; gnSaveState(app); }
+            break;
         case GhResize: G.rsMode = h.arg; G.rsX = app.pointerX; G.rsY = app.pointerY; G.rsW = G.nw; G.rsH = G.nh; break;
         case GhHead: G.dragW = h.arg; G.grabX = app.pointerX - G.wx[h.arg]; G.grabY = app.pointerY - G.wy[h.arg]; break;
         case GhVolTrack: G.volDrag = true; gameSetVolume(app, app.pointerX, h); break;
         case GhVolMute: app.muted = !app.muted; runDetached({"wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"}); break;
+        case GhMicMute: app.amenu.inMuted = !app.amenu.inMuted; runDetached({"pactl", "set-source-mute", "@DEFAULT_SOURCE@", "toggle"}); break;
+        case GhMixTab: G.mixTab = h.arg; G.mixDevOpen = false; G.nextAudio = {}; break;
+        case GhMixDev: G.mixDevOpen = !G.mixDevOpen; G.mixDevHover = -1; break;
+        case GhMixPick: gameMixPick(app, h.arg); break;
+        case GhMixAppMute: gameMixAppMute(app, h.arg); break;
+        case GhMixApp: G.mixDrag = h.arg; gameMixSet(app, app.pointerX, h, true); break;
+        case GhMicTrack: G.mixDrag = -2; gameMixSet(app, app.pointerX, h, true); break;
         case GhRecord:
             if (app.recording) stopRecording(app); else { retractGame(app); startRecording(app); }
             break;
         case GhShot: retractGame(app); openCapture(app); break;
         default: break;
     }
+    fpsProbeSync(app);  // (the counter runs while its card is open)
     drawGame(app);
 }

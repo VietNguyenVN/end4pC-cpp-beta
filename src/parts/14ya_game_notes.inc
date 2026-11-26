@@ -38,6 +38,7 @@ void gnInitMeasure() {  // the layouts of the editors take their context from th
 void drawGameCard(App& app, cairo_t* cr, PangoLayout* L, int w, std::vector<GameHit>& hits);
 void drawGame(App& app);
 void gameNotesGhostSync(App& app);
+void gameFpsGhostSync(App& app);  // (the FPS card is pinned the same way: 14yb_game_fps.inc)
 
 std::string gnFile(const char* name) {
     const char* home = std::getenv("HOME");
@@ -423,4 +424,5 @@ void gameNotesGhostSync(App& app) {
     gnLoad(app);
     if (G.notesPinned && G.open[GwNotes] && !G.surface) { if (!G.ghostSurface) openNotesGhost(app); }
     else closeNotesGhost(app);
+    gameFpsGhostSync(app);
 }

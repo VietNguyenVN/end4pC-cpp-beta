@@ -89,6 +89,9 @@ test('freeform', executable('freeform-test', 'tests/freeform/test_freeform.cpp',
 # The per-monitor hot corner rules (src/hotcorners.h): `meson test -C build`, or tests/hotcorners/run.sh
 test('hotcorners', executable('hotcorners-test', 'tests/hotcorners/test_hotcorners.cpp', install: false))
 
+# What the graphics card is doing, from sysfs and nvidia-smi (src/gpuinfo.h): `meson test -C build`, or tests/gpu/run.sh
+test('gpuinfo', executable('gpuinfo-test', 'tests/gpu/test_gpuinfo.cpp', install: false))
+
 # Headless media integration: real shell code with a temporary fake playerctl.
 test('media', executable('media-test', 'tests/media/test_media.cpp',
   'src/notify_dbus.c', 'src/tray_dbus.c', 'src/polkit_dbus.c', generated,

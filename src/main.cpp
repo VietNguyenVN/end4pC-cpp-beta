@@ -1,5 +1,7 @@
 #include <cairo/cairo.h>
 #include "i18n.h"
+#include <future>
+#include "gpuinfo.h"
 #include "hotcorners.h"
 #include "oled.h"
 #include "units.h"
@@ -53,6 +55,7 @@
 #include <chrono>
 #include <clocale>
 #include <cstring>
+#include <deque>
 #include <set>
 #include <unordered_set>
 #include <string>
@@ -706,6 +709,7 @@ int main(int argc, char** argv) {
         if (const auto tw = timersWake(app); tw != std::chrono::steady_clock::time_point::max()) wakeIn(tw);
         if (const auto iw = islandCardWake(app); iw != std::chrono::steady_clock::time_point::max()) wakeIn(iw);
         if (const auto gw = gameWake(app); gw != std::chrono::steady_clock::time_point::max()) wakeIn(gw);
+        if (const auto fw = fpsWake(app); fw != std::chrono::steady_clock::time_point::max()) wakeIn(fw);
         if (const auto ow = ovWake(app); ow != std::chrono::steady_clock::time_point::max()) wakeIn(ow);
         if (const auto pw = privacyWake(app); pw != std::chrono::steady_clock::time_point::max()) wakeIn(pw);
         if (const auto vw = drivesWake(app); vw != std::chrono::steady_clock::time_point::max()) wakeIn(vw);
@@ -926,6 +930,7 @@ int main(int argc, char** argv) {
             ovTick(app, now);
             popupKeysSync(app);
             tickGame(app, now);
+            tickFps(app, now);
             if (app.launcher.sliding) { if (app.launcher.open()) drawLauncher(app); else app.launcher.sliding = false; }
             if (app.repeatKey && now >= app.repeatAt) {
                 DeskWidget* typer = nullptr;
