@@ -441,6 +441,16 @@ void onlineDownload(App& app, const OnlineItem& it, bool apply) {
     sel.onlineError.clear();
     sel.onlineNote.clear();
     const std::string provider = sel.onlineProvider, script = onlineScript(), dest = expandHome(app.cfg.wallpaperDir) + "/" + provider + "_" + it.id;
+    // Already downloaded (the script saves it as dest + .png, .webp or .jpg): use that file, do not fetch it again.
+    for (const char* ext : {".png", ".webp", ".jpg"}) {
+        const std::string have = dest + ext;
+        if (access(have.c_str(), R_OK) != 0) continue;
+        sel.downloading.erase(tag);
+        if (std::find(sel.allFiles.begin(), sel.allFiles.end(), have) == sel.allFiles.end()) sel.allFiles.insert(sel.allFiles.begin(), have);
+        if (apply) applyTheme(app, have);
+        else sel.onlineNote = "Saved " + baseName(have, false);
+        return;
+    }
     const OnlineItem item = it;
     std::thread([=] {
         const std::string out = captureArgv({"python3", "-I", script, "--download", provider, item.id, item.full, item.dl, dest});
