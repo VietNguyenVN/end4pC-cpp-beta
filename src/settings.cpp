@@ -581,7 +581,7 @@ std::vector<Page> makePages() {
         {Action, "langTemplate", "Translate", "Your language is missing or has mistakes? This opens its file in your text editor, ready to translate: the left side of each line is the English text, change only the right side. Save it and pick the language again to see it. With the system language in English the file is called translate-me.json; rename it to your language code (fr.json, ja.json...).", {}, 0, 100, 1, "Open file"},
         {Text, "preferredPlayer", "Preferred player", "The music player the bar and the player card follow first."},
         {Text, "terminal", "Terminal", "Used to open apps and commands that need one."},
-        {Choice, "clock24", "Clock format", "24-hour or 12-hour with am/pm, in the bar.", {{"1", "24-hour"}, {"0", "12-hour"}}},
+        {Choice, "clock24", "Clock format", "24-hour or 12-hour with am/pm, in the bar and on the lock screen.", {{"1", "24-hour"}, {"0", "12-hour"}}},
         {Toggle, "clockDate", "Show the date", "The date next to the time in a horizontal bar."},
         {Text, "worldClocks", "World clocks", "Time zones for the World tab of the clock popup, separated by commas: Europe/Madrid, Asia/Tokyo. Type - for none. The names are in /usr/share/zoneinfo."},
         {Split, "sys:timezone", "Time zone", "The time zone of the computer, for every app. It asks for your password. Type to search the list.", {}},

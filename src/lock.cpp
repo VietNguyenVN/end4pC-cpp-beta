@@ -8,7 +8,9 @@
 #include <librsvg/rsvg.h>
 #include <pango/pangocairo.h>
 #include <fcntl.h>
+#include <langinfo.h>
 #include <limits.h>
+#include <locale.h>
 #include <poll.h>
 #include <pwd.h>
 #include <security/pam_appl.h>
@@ -22,6 +24,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -86,9 +89,9 @@ bool jsonValue(const std::string& text, const std::string& key, std::string& out
     if (k == std::string::npos) return false;
     const size_t colon = text.find(':', k);
     if (colon == std::string::npos) return false;
-    size_t i = colon + 1;
-    while (i < text.size() && (text[i] == ' ' || text[i] == '\n')) i++;
-    if (i < text.size() && text[i] == '"') {
+    const size_t i = text.find_first_not_of(" \t\r\n", colon + 1);
+    if (i == std::string::npos) return false;
+    if (text[i] == '"') {
         const size_t e = text.find('"', i + 1);
         if (e == std::string::npos) return false;
         out = text.substr(i + 1, e - i - 1);
@@ -158,7 +161,7 @@ Color color(const std::string& n) {
     return n.rfind("on_", 0) == 0 ? Color{0.9, 0.9, 0.9} : Color{0.12, 0.12, 0.12};
 }
 
-struct TextSize { int w = 0, h = 0; };
+struct TextSize { int w = 0, h = 0; double baseline = 0; };
 TextSize text(cairo_t* cr, const std::string& s, double x, double y, double px, bool bold, const Color& c, double alpha = 1, bool draw = true) {
     PangoLayout* l = pango_cairo_create_layout(cr);
     PangoFontDescription* d = pango_font_description_from_string(bold ? "Sans Bold" : "Sans");
@@ -168,6 +171,7 @@ TextSize text(cairo_t* cr, const std::string& s, double x, double y, double px, 
     pango_layout_set_text(l, s.c_str(), -1);
     TextSize ts;
     pango_layout_get_pixel_size(l, &ts.w, &ts.h);
+    ts.baseline = pango_layout_get_baseline(l) / double(PANGO_SCALE);
     if (draw) {
         src(cr, c, alpha);
         cairo_move_to(cr, x, y);
@@ -533,6 +537,8 @@ struct App {
     ext_session_lock_v1* lock = nullptr;
     std::vector<std::unique_ptr<Output>> outputs;
     std::vector<std::string> lockScreens;
+    bool clock24 = true;
+    std::array<std::string, 2> clockPeriods{"AM", "PM"};
     xkb_context* xkbCtx = nullptr;
     xkb_keymap* keymap = nullptr;
     xkb_state* xkbState = nullptr;
@@ -1037,11 +1043,28 @@ void paintFrame(cairo_t* cr, int W, int H) {
         text(cr, d, M + 4, y, 22, false, white, 0.85);
         y -= 4;
     }
-    std::strftime(buf, sizeof buf, "%H:%M", &lt);
+    std::strftime(buf, sizeof buf, g.clock24 ? "%H:%M" : "%-I:%M", &lt);
     {
-        const TextSize ts = text(cr, buf, 0, 0, 132, true, white, 1, false);
+        constexpr double xGap = 12;
+        const double x = M - 4;
+        double size = 132, periodSize = 32;
+        TextSize ts = text(cr, buf, 0, 0, size, true, white, 1, false);
+        const std::string& period = g.clockPeriods[lt.tm_hour >= 12];
+        TextSize ps;
+        if (!g.clock24) {
+            ps = text(cr, period, 0, 0, periodSize, true, white, 1, false);
+            const double available = W - x - xGap - 16;
+            const double scale = std::clamp(available / (ts.w + ps.w), 0.2, 1.0);
+            if (scale < 1) {
+                size *= scale;
+                periodSize *= scale;
+                ts = text(cr, buf, 0, 0, size, true, white, 1, false);
+                ps = text(cr, period, 0, 0, periodSize, true, white, 1, false);
+            }
+        }
         y -= ts.h - 26;
-        text(cr, buf, M - 4, y, 132, true, white);
+        text(cr, buf, x, y, size, true, white);
+        if (!g.clock24) text(cr, period, x + ts.w + xGap, y + ts.baseline - ps.baseline, periodSize, true, white);
     }
 
     {
@@ -1663,21 +1686,39 @@ void dumpPlayer(const std::string& dir) {
     }
 }
 
+void readClockConfig(const std::string& config) {
+    std::string clock24;
+    g.clock24 = !jsonValue(config, "clock24", clock24) || clock24.empty() || clock24.front() != '0' ||
+                clock24.find_first_not_of(" \t\r\n", 1) != std::string::npos;
+    if (g.clock24) return;
+
+    // Keep the process time locale for the date, which i18n translates separately.
+    const locale_t locale = newlocale(LC_TIME_MASK, "", nullptr);
+    if (!locale) return;
+    for (size_t i = 0; i < g.clockPeriods.size(); ++i) {
+        const char* period = nl_langinfo_l(i == 0 ? AM_STR : PM_STR, locale);
+        if (period && *period && g_utf8_validate(period, -1, nullptr)) g.clockPeriods[i] = period;
+    }
+    freelocale(locale);
+}
+
 int main(int argc, char** argv) {
     if (pipe(g_wake) != 0) return 1;
     loadColors();
     applyShellFont(fontFamilyFromConfig(configFile()), fontWeightFromConfig(configFile(), "fontWeightText", 450), fontWeightFromConfig(configFile(), "fontWeightTitle", 550));
+    const std::string config = readFile(configFile());
     {
         std::string lang;
-        jsonValue(readFile(configFile()), "language", lang);
+        jsonValue(config, "language", lang);
         const std::string cd = configFile().substr(0, configFile().rfind('/'));
         i18n::load(lang, assetsDir(), cd + "/i18n");
     }
+    readClockConfig(config);
     loadProfile();
     loadWeatherCache();
     readAnimConfig();
     std::string screens;
-    jsonValue(readFile(configFile()), "lockScreens", screens);
+    jsonValue(config, "lockScreens", screens);
     std::istringstream monitorList(screens);
     for (std::string name; std::getline(monitorList, name, ',');)
         if (!name.empty()) g.lockScreens.push_back(name);
