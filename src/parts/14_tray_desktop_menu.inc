@@ -516,7 +516,7 @@ void drawDesktopMenu(App& app) {
     cairo_fill(cr);
     {
         const double inner = bw - 2 * kDmCarPad, ih = bh - 2 * kDmCarPad, ix = bx + kDmCarPad, iy = by + kDmCarPad;
-        const int n = static_cast<int>(D.files.size()), focus = D.current;
+        const int nFiles = static_cast<int>(D.files.size()), n = nFiles + 1, focus = D.current;  // one more item at the end: the button that opens the wallpaper selector
         std::vector<double> pos(n + 1, 0);
         for (int i = 0; i < n; i++) pos[i + 1] = pos[i] + D.widths[i] + kDmItemGap;
         const int lo = std::clamp(static_cast<int>(std::floor(D.curAnim)), 0, std::max(0, n - 1)), hi = std::min(lo + 1, n - 1);
@@ -535,7 +535,10 @@ void drawDesktopMenu(App& app) {
             beginClipGroup(cr, cutItem);
             setSource(cr, app.color("surface_container_high"));
             cairo_paint(cr);
-            if (cairo_surface_t* th = dmThumb(D, D.files[i])) {
+            if (i == nFiles) {
+                if (D.hovered == nFiles) { setSource(cr, onSurf, 0.10); cairo_paint(cr); }
+                drawIcon(cr, "gallery", x + (w - 22) / 2, iy + (ih - 22) / 2, 22, onSurf);
+            } else if (cairo_surface_t* th = dmThumb(D, D.files[i])) {
                 const double tw = cairo_image_surface_get_width(th), tH = cairo_image_surface_get_height(th);
                 const double sc = std::max(w / tw, ih / tH);
                 cairo_save(cr);
@@ -851,8 +854,8 @@ double dmScrollTarget(int n, int focus, double inner) {
 int dmCarouselAt(const DesktopMenu& D, double x, double y) {
     const double bx = D.card.x + 8 + kDmCarPad, by = D.card.y + 8 + kDmCarPad, ih = kDmCarH - 2 * kDmCarPad, inner = kDmCardW - 16 - 2 * kDmCarPad;
     if (!Rect{bx, by, inner, ih}.contains(x, y)) return -1;
-    const int n = static_cast<int>(D.files.size());
-    if (n == 0 || D.widths.size() < static_cast<size_t>(n)) return -1;
+    const int n = static_cast<int>(D.files.size()) + 1;  // + the button at the end
+    if (n == 1 || D.widths.size() < static_cast<size_t>(n)) return -1;
     std::vector<double> pos(n + 1, 0);
     for (int i = 0; i < n; i++) pos[i + 1] = pos[i] + D.widths[i] + kDmItemGap;
     const int lo = std::clamp(static_cast<int>(std::floor(D.curAnim)), 0, std::max(0, n - 1)), hi = std::min(lo + 1, n - 1);
@@ -954,8 +957,8 @@ void openDesktopMenu(App& app, Bar* bar) {
     std::shuffle(all.begin(), all.end(), rng);
     for (size_t i = 0; i < all.size() && D.files.size() < kDmCount; i++) D.files.push_back(all[i]);
     if (app.wallpaper.empty() && D.files.size() > 1) D.files.erase(D.files.begin());
-    D.widths.assign(D.files.size(), 0);
-    for (size_t i = 0; i < D.files.size(); i++) D.widths[i] = dmTargetWidth(kDmCardW - 16 - 2 * kDmCarPad, static_cast<int>(i), 0);
+    D.widths.assign(D.files.size() + 1, 0);
+    for (size_t i = 0; i < D.widths.size(); i++) D.widths[i] = dmTargetWidth(kDmCardW - 16 - 2 * kDmCarPad, static_cast<int>(i), 0);
     D.last = std::chrono::steady_clock::now();
     D.anim.overshoot = 1.05;
     D.anim.inSeconds = 0.24;
@@ -1050,6 +1053,7 @@ void dmenuClick(App& app) {
         drawDesktopMenu(app);
         return;
     }
+    if (D.hovered == static_cast<int>(D.files.size()) && !D.files.empty()) { retractDesktopMenu(app); toggleSelector(app); return; }
     if (D.hovered >= 0 && D.hovered < static_cast<int>(D.files.size())) {
         const std::string path = D.files[D.hovered];
         retractDesktopMenu(app);
