@@ -8,6 +8,8 @@ const double kCapWidths[kCapSizes] = {3, 5, 8};
 const double kCapFonts[kCapSizes] = {20, 30, 44};
 const double kCapNumR[kCapSizes] = {12, 16, 22};
 
+#include "08b_capture_windows.inc"
+
 struct CapGeom {
     Rect bar, btn[kCapBtnCount];
     Rect style, dot[kCapColors + kCapSizes];
@@ -83,7 +85,7 @@ void capHandlePos(const Capture& c, int i, double& hx, double& hy) {
     hy = dy[i] == 0 ? t : dy[i] == 1 ? my : b;
 }
 int capHandleAt(const Capture& c, double x, double y) {
-    if (!c.has || c.tool != bSelect) return -1;
+    if (!c.has || c.windowShot || c.tool != bSelect) return -1;
     for (int i = 0; i < 8; i++) {
         double hx, hy;
         capHandlePos(c, i, hx, hy);
@@ -113,6 +115,7 @@ int capStyleAt(const Capture& c, double x, double y) {
 void closeCapture(App& app) {
     Capture& c = app.cap;
     if (!c.open()) return;
+    capStopWindow(c);
     if (c.frame) wl_callback_destroy(c.frame);
     if (c.layer) zwlr_layer_surface_v1_destroy(c.layer);
     hidpi::detach(c.scale);
@@ -131,19 +134,24 @@ void closeCapture(App& app) {
     malloc_trim(0);
 }
 
+cairo_surface_t* capSource(const Capture& c) { return c.windowShot ? c.windowShot.get() : c.shot; }
+Rect capImageArea(const Capture& c) { return c.windowShot ? c.windowImage : Rect{0, 0, double(c.w), double(c.h)}; }
+
 double capLuma(const Color& c) { return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b; }
 
 void capMakeMosaic(const Capture& c, CapAnnot& a) {
-    const double iw = cairo_image_surface_get_width(c.shot), ih = cairo_image_surface_get_height(c.shot), kx = iw / c.w, ky = ih / c.h;
+    cairo_surface_t* source = capSource(c);
+    const Rect area = capImageArea(c);
+    const double iw = cairo_image_surface_get_width(source), ih = cairo_image_surface_get_height(source), kx = iw / area.w, ky = ih / area.h;
     const double l = std::min(a.x0, a.x1), t = std::min(a.y0, a.y1), r = std::max(a.x0, a.x1), b = std::max(a.y0, a.y1);
-    const int ix = std::clamp(static_cast<int>(std::floor(l * kx)), 0, static_cast<int>(iw) - 1), iy = std::clamp(static_cast<int>(std::floor(t * ky)), 0, static_cast<int>(ih) - 1);
+    const int ix = std::clamp(static_cast<int>(std::floor((l - area.x) * kx)), 0, static_cast<int>(iw) - 1), iy = std::clamp(static_cast<int>(std::floor((t - area.y) * ky)), 0, static_cast<int>(ih) - 1);
     const int pw = std::clamp(static_cast<int>(std::ceil((r - l) * kx)), 1, static_cast<int>(iw) - ix), ph = std::clamp(static_cast<int>(std::ceil((b - t) * ky)), 1, static_cast<int>(ih) - iy);
     a.block = std::max(6, static_cast<int>(std::lround(std::min(pw, ph) / 14.0)));
     const int sw = (pw + a.block - 1) / a.block, sh = (ph + a.block - 1) / a.block;
     cairo_surface_t* small = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, sw, sh);
     cairo_t* cr = mkcr(small);
     cairo_scale(cr, 1.0 / a.block, 1.0 / a.block);
-    cairo_set_source_surface(cr, c.shot, -ix, -iy);
+    cairo_set_source_surface(cr, source, -ix, -iy);
     cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
     cairo_paint(cr);
     cairo_destroy(cr);
@@ -375,7 +383,6 @@ void drawCapture(App& app) {
         cairo_rectangle(cr, left / sc, top / sc, (right - left) / sc, (bottom - top) / sc);
         cairo_clip(cr);
     }
-    const double iw = cairo_image_surface_get_width(c.shot), ih = cairo_image_surface_get_height(c.shot);
 
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_surface(cr, c.base, 0, 0);
@@ -386,8 +393,11 @@ void drawCapture(App& app) {
         cairo_rectangle(cr, c.sx, c.sy, c.sw, c.sh);
         cairo_clip(cr);
         cairo_save(cr);
-        if (std::abs(iw - W) > 0.5 || std::abs(ih - H) > 0.5) cairo_scale(cr, W / iw, H / ih);
-        cairo_set_source_surface(cr, c.shot, 0, 0);
+        const Rect area = capImageArea(c);
+        cairo_surface_t* source = capSource(c);
+        cairo_translate(cr, area.x, area.y);
+        cairo_scale(cr, area.w / cairo_image_surface_get_width(source), area.h / cairo_image_surface_get_height(source));
+        cairo_set_source_surface(cr, source, 0, 0);
         cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BILINEAR);
         cairo_paint(cr);
         cairo_restore(cr);
@@ -421,6 +431,7 @@ void drawCapture(App& app) {
         const std::string hint = c.record ? "Drag to select the area to record   ·   Enter: the whole screen   ·   Esc: cancel" : "Drag to select an area   ·   Enter: the whole screen   ·   Esc: cancel";
         const auto [tw, th] = measure(hint, "Sans Bold 11");
         const double bw = tw + 40, bh = th + 22, bx = (W - bw) / 2, by = 36;
+        capPaintWindowPicker(cr, app, layout, {bx, by, bw, bh});
         roundedRect(cr, bx, by, bw, bh, bh / 2);
         setSource(cr, app.color("surface_container"), 0.94);
         cairo_fill(cr);
@@ -430,7 +441,7 @@ void drawCapture(App& app) {
         setSource(cr, app.color("primary"));
         cairo_set_line_width(cr, 2);
         cairo_stroke(cr);
-        if (c.tool == bSelect)
+        if (c.tool == bSelect && !c.windowShot)
             for (int i = 0; i < 8; i++) {
                 double hx, hy;
                 capHandlePos(c, i, hx, hy);
@@ -444,7 +455,9 @@ void drawCapture(App& app) {
                 cairo_fill(cr);
             }
         {
-            const double kx = iw / W, ky = ih / H;
+            const Rect area = capImageArea(c);
+            const double kx = cairo_image_surface_get_width(capSource(c)) / area.w;
+            const double ky = cairo_image_surface_get_height(capSource(c)) / area.h;
             const std::string label = std::to_string(std::max(1, static_cast<int>(std::lround(c.sw * kx)))) + " × " + std::to_string(std::max(1, static_cast<int>(std::lround(c.sh * ky))));
             const auto [tw, th] = measure(label, "Sans Bold 10");
             const double bw = tw + 22, bh = th + 12, bx = std::clamp(c.sx, 6.0, std::max(6.0, W - bw - 6.0)), by = c.sy - bh - 8 >= 6 ? c.sy - bh - 8 : c.sy + 8;
@@ -658,15 +671,18 @@ void capSelectTool(Capture& c, int tool) {
 bool capWrite(const App& app, const std::string& file) {
     const Capture& c = app.cap;
     if (!c.shot || !c.has) return false;
-    const double iw = cairo_image_surface_get_width(c.shot), ih = cairo_image_surface_get_height(c.shot), kx = iw / c.w, ky = ih / c.h;
-    const int ix = std::clamp(static_cast<int>(std::lround(c.sx * kx)), 0, static_cast<int>(iw) - 1), iy = std::clamp(static_cast<int>(std::lround(c.sy * ky)), 0, static_cast<int>(ih) - 1);
+    const Rect area = capImageArea(c);
+    cairo_surface_t* source = capSource(c);
+    const double iw = cairo_image_surface_get_width(source), ih = cairo_image_surface_get_height(source), kx = iw / area.w, ky = ih / area.h;
+    const int ix = std::clamp(static_cast<int>(std::lround((c.sx - area.x) * kx)), 0, static_cast<int>(iw) - 1), iy = std::clamp(static_cast<int>(std::lround((c.sy - area.y) * ky)), 0, static_cast<int>(ih) - 1);
     const int cw = std::clamp(static_cast<int>(std::lround(c.sw * kx)), 1, static_cast<int>(iw) - ix), ch = std::clamp(static_cast<int>(std::lround(c.sh * ky)), 1, static_cast<int>(ih) - iy);
     cairo_surface_t* out = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, cw, ch);
     cairo_t* cr = mkcr(out);
-    cairo_set_source_surface(cr, c.shot, -ix, -iy);
+    cairo_set_source_surface(cr, source, -ix, -iy);
     cairo_paint(cr);
     cairo_translate(cr, -ix, -iy);
     cairo_scale(cr, kx, ky);
+    cairo_translate(cr, -area.x, -area.y);
     for (const CapAnnot& a : c.items) capPaintAnnot(cr, a, false);
     cairo_destroy(cr);
     const bool ok = cairo_surface_write_to_png(out, file.c_str()) == CAIRO_STATUS_SUCCESS;
@@ -819,7 +835,7 @@ void captureRecordStart(App& app) {
     drawAll(app);
 }
 
-void openCapture(App& app, bool record) {
+void openCapture(App& app, bool record, int autoAct) {
     Capture& c = app.cap;
     if (c.open() || !app.compositor || !app.layerShell || !app.shm) return;
     if (anyPopupOpen(app)) { closeAllPopups(app); syncCatcher(app); drawAll(app); usleep(120000); }
@@ -840,6 +856,7 @@ void openCapture(App& app, bool record) {
     if (!pb) { runDetached({"notify-send", "-a", "end4pC", "Screenshot", "The screen could not be captured (is grim installed?)"}); return; }
     c = Capture{};
     c.record = record;
+    c.autoAct = autoAct;
     c.recAudio = app.cfg.recordAudio;
     c.recDesktop = app.cfg.recordDesktop;
     c.recFps = app.cfg.recordFps;
@@ -849,9 +866,12 @@ void openCapture(App& app, bool record) {
     c.shot = surfaceFromPixbuf(pb);
     g_object_unref(pb);
     c.shotFile = shot;
+    capLoadWindows(c, app.cfg.screenshotWindows);
     c.surface = wl_compositor_create_surface(app.compositor);
     attachScale(app, c.scale, c.surface, [&app] { captureRedraw(app); });
-    c.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, c.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-capture");
+    wl_output* output = nullptr;
+    for (const auto& bar : app.bars) if (bar->connector == mon) { output = bar->output; break; }
+    c.layer = zwlr_layer_shell_v1_get_layer_surface(app.layerShell, c.surface, output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "end4pC-capture");
     zwlr_layer_surface_v1_set_anchor(c.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
     zwlr_layer_surface_v1_set_size(c.layer, 0, 0);
     zwlr_layer_surface_v1_set_exclusive_zone(c.layer, -1);
@@ -906,7 +926,12 @@ void captureMotion(App& app) {
     }
     const int hoverBtn = capButtonAt(c, app.pointerX, app.pointerY);
     const int hoverStyle = capStyleAt(c, app.pointerX, app.pointerY);
-    if (c.mode != 0 || hoverBtn != c.hoverBtn || hoverStyle != c.hoverStyle) {
+    const int windowHover = c.mode == kCapIdle ? capTargetAt(c, x, y) : -1;
+    const bool windowButtonHot = capWindowTargets(c) && capWindowsButton(c).contains(x, y);
+    if (c.mode != 0 || hoverBtn != c.hoverBtn || hoverStyle != c.hoverStyle ||
+        windowHover != c.windowHover || windowButtonHot != c.windowButtonHot) {
+        c.windowHover = windowHover;
+        c.windowButtonHot = windowButtonHot;
         c.hoverBtn = hoverBtn;
         c.hoverStyle = hoverStyle;
         captureRedraw(app);
@@ -922,6 +947,7 @@ void captureButton(App& app, uint32_t button, bool pressed) {
     if (button != kLeft) return;
     const double x = app.pointerX, y = app.pointerY;
     if (pressed) {
+        if (capWindowClick(app, x, y)) return;
         const int b = capButtonAt(c, x, y);
         if (b >= 0 && c.record) {
             if (b == rStart) { captureRecordStart(app); return; }
@@ -986,8 +1012,9 @@ void captureButton(App& app, uint32_t button, bool pressed) {
         const int hnd = capHandleAt(c, x, y);
         c.start = capSel(c);
         if (hnd >= 0) { c.mode = kCapResize; c.handle = hnd; }
+        else if (c.windowShot && capSel(c).contains(x, y)) return;
         else if (c.has && capSel(c).contains(x, y)) { c.mode = kCapMove; c.ax = x - c.sx; c.ay = y - c.sy; }
-        else { c.mode = kCapCreate; c.ax = std::clamp(x, 0.0, static_cast<double>(c.w)); c.ay = std::clamp(y, 0.0, static_cast<double>(c.h)); c.has = false; c.sw = c.sh = 0; c.items.clear(); c.redo.clear(); }
+        else { c.windowShot.reset(); c.mode = kCapCreate; c.ax = std::clamp(x, 0.0, static_cast<double>(c.w)); c.ay = std::clamp(y, 0.0, static_cast<double>(c.h)); c.has = false; c.sw = c.sh = 0; c.items.clear(); c.redo.clear(); }
         captureRedraw(app);
     } else if (c.mode == kCapDraw) {
         c.mode = kCapIdle;
@@ -1003,7 +1030,13 @@ void captureButton(App& app, uint32_t button, bool pressed) {
     } else if (c.mode != kCapIdle) {
         const bool created = c.mode == kCapCreate;
         c.mode = kCapIdle;
-        if (c.sw < kCapMin || c.sh < kCapMin) { c.has = false; c.items.clear(); c.redo.clear(); }
+        if (c.sw < kCapMin || c.sh < kCapMin) {
+            c.has = false; c.items.clear(); c.redo.clear();
+            if (created && std::hypot(x - c.ax, y - c.ay) < kCapMin) {
+                const int window = capTargetAt(c, x, y);
+                if (window >= 0) { capPickWindow(app, window); return; }
+            }
+        }
         if (created && c.has && c.autoAct) { captureRecognize(app, c.autoAct == 2 ? 1 : c.autoAct == 3 ? 2 : 0); return; }  // "screenshot ocr": letting go of the area is the action
         c.hoverBtn = capButtonAt(c, x, y);
         captureRedraw(app);
@@ -1041,6 +1074,19 @@ void captureKey(App& app, uint32_t key) {
         else if (key == kEnter || key == kKpEnter) captureRecordStart(app);
         return;
     }
+    if (c.windowFd >= 0) {
+        if (key == kEsc) closeCapture(app);
+        return;
+    }
+    if (key == KEY_W && !ctrl && capWindowTargets(c)) { // W opens the window picker.
+        const Rect b = capWindowsButton(c);
+        capWindowClick(app, b.x + b.w / 2, b.y + b.h / 2);
+        return;
+    }
+    if (c.windowMenu) {
+        capWindowKey(app, key);
+        return;
+    }
     if (key == kEsc) closeCapture(app);
     else if (ctrl && key == kZ) { if (shift) capRedo(c); else capUndo(c); captureRedraw(app); }
     else if (ctrl && key == kY) { capRedo(c); captureRedraw(app); }
@@ -1053,6 +1099,12 @@ int captureCursorShape(const App& app) {
     static const int resize[8] = {WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_NW_RESIZE, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_N_RESIZE, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_NE_RESIZE,
                                   WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_E_RESIZE, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_SE_RESIZE, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_S_RESIZE,
                                   WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_SW_RESIZE, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_W_RESIZE};
+    if (c.windowFd >= 0) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_WAIT;
+    if (capWindowTargets(c) && (c.windowHover >= 0 || c.windowButtonHot ||
+        (c.windowMenu && (capWindowMenu(c).tabs[0].contains(app.pointerX, app.pointerY) ||
+                         capWindowMenu(c).tabs[1].contains(app.pointerX, app.pointerY)))))
+        return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
+    if (c.windowMenu) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
     if (c.mode == kCapResize) return resize[c.handle];
     if (c.mode == kCapMove) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_MOVE;
     if (c.mode == kCapCreate || c.mode == kCapDraw) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_CROSSHAIR;
@@ -1063,6 +1115,6 @@ int captureCursorShape(const App& app) {
     }
     const int hnd = capHandleAt(c, app.pointerX, app.pointerY);
     if (hnd >= 0) return resize[hnd];
-    if (c.has && capSel(c).contains(app.pointerX, app.pointerY)) return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_MOVE;
+    if (c.has && capSel(c).contains(app.pointerX, app.pointerY)) return c.windowShot ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_MOVE;
     return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_CROSSHAIR;
 }

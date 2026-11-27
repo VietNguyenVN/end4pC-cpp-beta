@@ -561,6 +561,7 @@ std::vector<Page> makePages() {
         {Split, "sys:app:text", "Text editor", "Opens plain text files.", {}},
         {Text, "screenshotDir", "Screenshots folder", "Where screenshots are saved. Empty: Pictures/Screenshots."},
         {Toggle, "screenshotCopy", "Copy screenshots", "Also put each screenshot in the clipboard, ready to paste."},
+        {Toggle, "screenshotWindows", "Select windows in snip", "Highlight windows under the pointer and browse regular and special workspaces with W."},
         {Choice, "recordFps", "Recording frame rate", "Frames per second. Automatic lets the recorder decide. It can also be changed before recording starts.", {{"0", "Auto"}, {"24", "24"}, {"30", "30"}, {"60", "60"}}},
         {Text, "recordDir", "Recordings folder", "Where screen recordings are saved. Empty: Videos."},
         {Toggle, "recordDesktop", "Record the computer's sound", "Include what the speakers play (music, a video, a call) in screen recordings. It can also be switched before recording starts."},
@@ -2810,7 +2811,7 @@ bool rowAvailable(const Row& r) {
     if (r.key == "niri:ringWidth") return g.val["niri:ring"] == "1";
     if (r.key == "niri:shadowSoftness") return g.val["niri:shadow"] == "1";
     if (r.key == "mon:enabled") return g_mons.size() > 1;
-    if (r.key == "magnifier") return compositorName() == "Hyprland";
+    if (r.key == "magnifier" || r.key == "screenshotWindows") return compositorName() == "Hyprland";
     if (r.key == "dockAutoHide" || r.key == "dockPin" || r.key == "dockMedia" || r.key == "dockLauncher" || r.key == "dockMagnify" || r.key == "dockIconSize" || r.key == "dockPinned") return g.val["dock"] == "1";
     if (r.key == "groupLooksReset") return g.val["groupStyle"] == "separated" && (g.val["barPosition"] == "top" || g.val["barPosition"] == "bottom");
     if (r.key == "groupSpacing") return g.val["layoutFor"] != "v" && (g.val["groupStyle"] == "pills" || g.val["groupStyle"] == "separated");
