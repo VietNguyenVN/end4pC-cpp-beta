@@ -8,7 +8,7 @@
 namespace tools_tabs {
 
 // Order matches the original TOOLS_PAGE indices.
-enum Tab { Translator, Notes, Freeform, Converter, Video, Units, Timers, Stopwatch, Reminders, Keybinds, Autostart, Phone, Count };
+enum Tab { Translator, Notes, Freeform, Converter, Video, Units, Timers, Stopwatch, Reminders, Keybinds, Autostart, Phone, Score, Count };
 struct TabInfo { const char* id; const char* label; };
 inline constexpr std::array<TabInfo, Count> tabs{{
     {"translator", "Translator"},
@@ -23,6 +23,7 @@ inline constexpr std::array<TabInfo, Count> tabs{{
     {"keybinds", "Keybinds"},
     {"autostart", "Autostart"},
     {"phone", "Phone"},
+    {"score", "Score"},
 }};
 
 using Order = std::array<int, Count>;
@@ -63,7 +64,7 @@ inline void moveTab(Order& order, int from, int to) {
     else if (to < from) std::rotate(order.begin() + to, order.begin() + from, order.begin() + from + 1);
 }
 
-inline bool isHidden(std::string_view list, std::string_view id) {
+inline bool listHas(std::string_view list, std::string_view id) {
     while (!list.empty()) {
         const auto comma = list.find(',');
         if (list.substr(0, comma) == id) return true;
@@ -71,6 +72,23 @@ inline bool isHidden(std::string_view list, std::string_view id) {
         list.remove_prefix(comma + 1);
     }
     return false;
+}
+
+// Some tabs are off until the user turns them on (Score: betting related, for entertainment only). The list names the tabs that are hidden,
+// and for these ones the tabs that were turned on, written with a plus ("+score"), so a user with an older list gets them hidden too.
+inline bool optIn(std::string_view id) { return id == "score"; }
+
+inline bool isHidden(std::string_view list, std::string_view id) {
+    if (optIn(id) && !id.empty()) return !listHas(list, std::string("+") + std::string(id));
+    return listHas(list, id);
+}
+
+// Adds the entry of a tab to the list of the hidden ones (see isHidden); `hide` is whether the tab is hidden.
+inline void appendHidden(std::string& list, std::string_view id, bool hide) {
+    if (hide == optIn(id)) return;  // a normal tab is listed when hidden, an opt-in one when shown
+    if (!list.empty()) list += ',';
+    if (optIn(id)) list += '+';
+    list += id;
 }
 
 }  // namespace tools_tabs

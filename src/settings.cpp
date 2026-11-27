@@ -540,6 +540,8 @@ std::vector<Page> makePages() {
         {Text, "prefixWeb", "Web", "Type this first to search the web."},
         {Text, "prefixKeybind", "Keybinds", "Type this first to search keybinds."},
         {Text, "prefixTranslate", "Translator", "Type this first to translate between English and Spanish."},
+        {Text, "scoreOdds", "Odds provider", "Score page: the Altenar integration name of the betting site whose odds the picks use (many sites run on Altenar). To find it, open the site, look in the network tab of your browser for a request to the Altenar server and copy its integration value. Empty: the picks use the model's own prices."},
+        {Text, "scoreSite", "Odds site address", "Score page: the web address of that betting site. Only needed to reserve a booking code; if the code is refused, fill it in."},
     }});
     p.push_back({"System", "cpu", {
         {Split, "sys:cursor", "Cursor theme", "The mouse pointer, for every app.", {}},
@@ -672,7 +674,7 @@ std::vector<Page> makePages() {
         else if (pg.name == "Desktop") sections(pg, {{"wallpaperTransition", "Wallpaper"}, {"centeredWallpaper", "Centered wallpaper"}, {"collage", "Multiple wallpapers"}, {"wcards", "Widgets"}, {"cookieSides", "Cookie clock"}, {"deskVizStyle", "Visualizer"}, {"customTextFont", "Text"}});
         else if (pg.name == "System") sections(pg, {{"sys:cursor", "Cursor"}, {"sys:icons", "Icons"}, {"sys:font", "Fonts"}, {"sys:app:browser", "Default Apps"}, {"screenshotDir", "Capture"}, {"doNotDisturb", "Notifications"}, {"periphSummary", "Devices"}});
         else if (pg.name == "Interface") sections(pg, {{"animEnabled", "Animations"}, {"hotCorners", "Hot Corners"}, {"lockOnStart", "Lock screen"}, {"dock", "Dock"}, {"osdPosition", "OSD"}, {"overviewLive", "Overview"}, {"switcherStyle", "Window switcher"}, {"magnifier", "Accessibility"}});
-        else if (pg.name == "Services") sections(pg, {{"weatherUnit", "Weather"}, {"updatesEnable", "Updates"}, {"lyricsProvider", "Lyrics"}, {"webappAdd", "Webapps"}, {"searchEngine", "Search"}});
+        else if (pg.name == "Services") sections(pg, {{"weatherUnit", "Weather"}, {"updatesEnable", "Updates"}, {"lyricsProvider", "Lyrics"}, {"webappAdd", "Webapps"}, {"searchEngine", "Search"}, {"scoreOdds", "Score"}});
         // Every dropdown of System and the font of the shell has the same width: it must not depend on the options, which arrive later (the list of installed
         // fonts is read when the page opens), or the button grows when they do.
         for (auto& r : pg.rows) if (r.kind == Split && (r.key.compare(0, 4, "sys:") == 0 || r.key == "fontFamily")) r.splitW = 280;
@@ -4201,6 +4203,10 @@ void drawPageBody(cairo_t* cr, int pi, double scroll, bool live) {
             const std::string shown = focus ? g.edit : valStr(r);
             double tw = 0, h2 = 0;
             measure(shown, 14, false, 0, tw, h2);
+            if (!focus && shown.empty()) {  // an empty field shows an example, faded
+                const char* sample = r.key == "scoreOdds" ? "altenar" : r.key == "scoreSite" ? "https://altenar.com" : "";
+                if (*sample) text(cr, std::string(i18n::tr("e.g.")) + " " + sample, f.x + 14, f.y + (f.h - h2) / 2, 14, false, onSurface, 0, 0.4);
+            }
             const double tx = fieldTextX(f.x, f.w, shown, focus ? g.caret : 0);
             if (focus) { g.fieldTx = tx; g.fieldR = f; }
             cairo_save(cr);

@@ -394,9 +394,7 @@ Config sanitized(Config c) {
     {
         std::string hidden;
         for (const auto& tab : tools_tabs::tabs) {
-            if (!tools_tabs::isHidden(c.hiddenToolsTabs, tab.id)) continue;
-            if (!hidden.empty()) hidden += ',';
-            hidden += tab.id;
+            tools_tabs::appendHidden(hidden, tab.id, tools_tabs::isHidden(c.hiddenToolsTabs, tab.id));
         }
         c.hiddenToolsTabs = std::move(hidden);
     }
@@ -567,6 +565,8 @@ bool loadConfig(App& app) {
         readStringKey(t, "worldClocks", next.worldClocks);
         readStringKey(t, "searchEngine", next.searchEngine);
         readStringKey(t, "weatherCity", next.weatherCity);
+        readStringKey(t, "scoreOdds", next.scoreOdds);
+        readStringKey(t, "scoreSite", next.scoreSite);
         readStringKey(t, "weatherUnit", next.weatherUnit);
         readStringKey(t, "lyricsProvider", next.lyricsProvider);
         readStringKey(t, "notificationPosition", next.notificationPosition);
@@ -848,6 +848,8 @@ void saveConfig(const App& app) {
           << "  \"worldClocks\": \"" << app.cfg.worldClocks << "\",\n"
           << "  \"searchEngine\": \"" << app.cfg.searchEngine << "\",\n"
           << "  \"weatherCity\": \"" << app.cfg.weatherCity << "\",\n"
+          << "  \"scoreOdds\": \"" << app.cfg.scoreOdds << "\",\n"
+          << "  \"scoreSite\": \"" << app.cfg.scoreSite << "\",\n"
           << "  \"weatherInterval\": " << app.cfg.weatherInterval << ",\n"
           << "  \"weatherTheme\": " << app.cfg.weatherTheme << ",\n"
           << "  \"materialIcons\": " << app.cfg.materialIcons << ",\n"
@@ -1271,6 +1273,10 @@ std::string setConfig(App& app, const std::string& key, const std::string& value
         (key == "terminal" ? next.terminal : next.searchEngine) = value;
     } else if (key == "worldClocks") {
         next.worldClocks = value == "-" ? "" : value;
+    } else if (key == "scoreSite") {
+        next.scoreSite = value == "-" ? "" : value;
+    } else if (key == "scoreOdds") {
+        next.scoreOdds = value == "-" ? "" : value;
     } else if (key == "weatherCity") {
         next.weatherCity = value == "-" ? "" : value;
     } else if (std::find_if(kPrefixKeys, kPrefixKeys + kPrefixCount, [&](const char* k) { return key == k; }) != kPrefixKeys + kPrefixCount) {

@@ -44,7 +44,7 @@ static void parsing() {
     CHECK(permutation(parseOrder(std::string(5000, ',') + "units")));                     // a hostile long value
     // a list from an older build with fewer tabs: the tabs that came later land at the end
     const Order old = parseOrder("translator,notes,converter,video,units,timers,stopwatch,reminders");
-    CHECK(permutation(old) && old[2] == Converter && old[8] == Freeform && old[Count - 1] == Phone);
+    CHECK(permutation(old) && old[2] == Converter && old[8] == Freeform && old[Count - 1] == Score);
 }
 
 static void formatting() {
@@ -66,7 +66,7 @@ static void moving() {
     moveTab(o, 4, 4);                                                                     // nowhere
     CHECK(o == defaults());
     moveTab(o, Count - 1, 0);                                                             // last to first
-    CHECK(permutation(o) && o[0] == Phone && o[1] == Translator && o[Count - 1] == Autostart);
+    CHECK(permutation(o) && o[0] == Score && o[1] == Translator && o[Count - 1] == Phone);
     moveTab(o, 0, Count - 1);                                                             // first to last
     CHECK(o == defaults());
     moveTab(o, 5, 6);                                                                     // neighbours swap
@@ -77,6 +77,17 @@ static void moving() {
 
 static void hidden() {
     CHECK(!isHidden("", "notes"));
+    CHECK(isHidden("", "score") && isHidden("notes", "score") && !isHidden("+score", "score") && !isHidden("notes,+score", "score"));  // Score is off until it is turned on
+    CHECK(isHidden("score", "score") && isHidden("+scoreboard", "score"));                 // (whole entries only)
+    {
+        std::string l;
+        appendHidden(l, "score", true);
+        appendHidden(l, "notes", true);
+        appendHidden(l, "units", false);
+        CHECK(l == "notes");                                                               // hidden: Score is not listed, a normal tab is
+        appendHidden(l, "score", false);
+        CHECK(l == "notes,+score" && !isHidden(l, "score") && isHidden(l, "notes"));
+    }
     CHECK(isHidden("notes", "notes") && isHidden("converter,notes", "notes") && isHidden("notes,converter", "notes"));
     CHECK(!isHidden("notes2", "notes") && !isHidden("mynotes", "notes") && !isHidden("converter,video", "notes"));   // whole ids only
     CHECK(!isHidden("Notes", "notes"));

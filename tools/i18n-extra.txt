@@ -329,3 +329,11 @@ more
 Tidy
 characters
 lines
+Under 2.5 goals
+Under 3.5 goals
+Not both teams score
+in the table
+e.g.
+W
+D
+L

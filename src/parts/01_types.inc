@@ -403,6 +403,8 @@ struct Config {
     std::string worldClocks = "America/New_York,Europe/Madrid,Asia/Tokyo";
     std::string terminal = "kitty";
     std::string weatherCity;
+    std::string scoreSite;  // web address of that betting site (for the booking code), like https://example.com
+    std::string scoreOdds;  // Altenar integration name of the betting site whose odds the Score page uses (empty: the model's own prices)
     int clock24 = 1;
     std::string language;
     std::string sideWidgetStyles;

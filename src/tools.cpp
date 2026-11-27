@@ -557,6 +557,7 @@ Rect imeCaretFor(const std::string& value, size_t at, Rect field, double px) {
 #include "tools/keybinds_store.inc"
 #include "tools/page_keybinds.inc"
 #include "tools/page_phone.inc"
+#include "tools/page_score.inc"
 // Workers get their own data snapshots and never touch page or Wayland state.
 template<class F>
 auto sampleInBackground(F read) {
@@ -645,6 +646,7 @@ int buildPages() {
     g.ownedPages[Keybinds] = std::make_unique<KeybindsPage>();
     g.ownedPages[Autostart] = std::make_unique<AutostartPage>();
     g.ownedPages[Phone] = std::make_unique<PhonePage>();
+    g.ownedPages[Score] = std::make_unique<ScorePage>();
     filterToolsPages();
     return requested < 0 ? -1 : visiblePage(g.ownedPages[requested].get());
 }
@@ -1180,9 +1182,7 @@ void toggleToolTab(int index) {
         const auto& tab = tools_tabs::tabs[i];
         bool hide = tools_tabs::isHidden(g.hiddenToolsTabs, tab.id);
         if (i == index) hide = !hide;
-        if (!hide) continue;
-        if (!hidden.empty()) hidden += ',';
-        hidden += tab.id;
+        tools_tabs::appendHidden(hidden, tab.id, hide);
     }
     const std::string reply = sendToolsCommand("set hiddenToolsTabs " + (hidden.empty() ? "-" : hidden));
     g.tabMenuError = reply != "ok\n";
