@@ -12,7 +12,12 @@ std::string tmCleanLabel(const std::string& in) {
 }
 
 bool tmReadNode(sd_bus_message* m, std::vector<TrayMenu::Node>& nodes, int parent, int depth) {
-    if (sd_bus_message_enter_container(m, 'r', "ia{sv}av") < 0) return false;
+    if (depth > 16) return false;
+    char nodeType = 0;
+    const char* nodeSig = nullptr;
+    if (sd_bus_message_peek_type(m, &nodeType, &nodeSig) <= 0 || nodeType != 'r' || !nodeSig) return false;
+    if (std::strncmp(nodeSig, "ia{sv}", 6) != 0) return false;
+    if (sd_bus_message_enter_container(m, 'r', nodeSig) < 0) return false;
     TrayMenu::Node n;
     n.parent = parent;
     n.depth = depth;
@@ -58,14 +63,33 @@ bool tmReadNode(sd_bus_message* m, std::vector<TrayMenu::Node>& nodes, int paren
     }
     const int idx = static_cast<int>(nodes.size());
     nodes.push_back(n);
-    if (sd_bus_message_enter_container(m, 'a', "v") >= 0) {
-        while (sd_bus_message_enter_container(m, 'v', "(ia{sv}av)") > 0) {
-            tmReadNode(m, nodes, idx, depth + 1);
-            nodes[idx].hasChildren = true;
+    char arrType = 0;
+    const char* arrSig = nullptr;
+    if (sd_bus_message_peek_type(m, &arrType, &arrSig) > 0 && arrType == 'a' && arrSig) {
+        const std::string elemSig = arrSig;
+        if (sd_bus_message_enter_container(m, 'a', elemSig.c_str()) >= 0) {
+            if (elemSig == "v") {
+                char childType = 0;
+                const char* childSig = nullptr;
+                while (sd_bus_message_peek_type(m, &childType, &childSig) > 0 && childType == 'v' && childSig) {
+                    if (sd_bus_message_enter_container(m, 'v', childSig) < 0) break;
+                    bool ok = true;
+                    if (tmReadNode(m, nodes, idx, depth + 1)) nodes[idx].hasChildren = true;
+                    else ok = sd_bus_message_skip(m, childSig) >= 0;
+                    if (sd_bus_message_exit_container(m) < 0 || !ok) break;
+                }
+            } else if (!elemSig.empty() && elemSig[0] == '(') {
+                char childType = 0;
+                while (sd_bus_message_peek_type(m, &childType, nullptr) > 0 && childType == 'r') {
+                    if (tmReadNode(m, nodes, idx, depth + 1)) nodes[idx].hasChildren = true;
+                    else if (sd_bus_message_skip(m, elemSig.c_str()) < 0) break;
+                }
+            }
+            while (sd_bus_message_skip(m, nullptr) > 0) {}
             sd_bus_message_exit_container(m);
         }
-        sd_bus_message_exit_container(m);
     }
+    while (sd_bus_message_skip(m, nullptr) > 0) {}
     sd_bus_message_exit_container(m);
     return true;
 }
