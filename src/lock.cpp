@@ -1383,7 +1383,7 @@ void onKey(void*, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t state
     const bool ctrl = xkb_state_mod_name_is_active(g.xkbState, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0;
     if (g.status == App::Wrong) g.status = App::Idle;
     if (sym == XKB_KEY_Return || sym == XKB_KEY_KP_Enter) { submit(); return; }
-    if (sym == XKB_KEY_Escape || (ctrl && (sym == XKB_KEY_u || sym == XKB_KEY_U))) {
+    if (sym == XKB_KEY_Escape || (ctrl && (sym == XKB_KEY_BackSpace || sym == XKB_KEY_u || sym == XKB_KEY_U))) {
         explicit_bzero(g.password.data(), g.password.size());
         g.password.clear();
     } else if (sym == XKB_KEY_BackSpace) {
