@@ -1205,6 +1205,9 @@ struct DesktopMenu {
     int hoverRow = -1;
     bool subOpen = false, subLeft = false;
     int subKind = 0;
+    PopAnim subAnim;  // the side panel (wallpaper options, widgets) grows in with the same animation as the menu, only quicker
+    bool subShown = false;
+    int subShownKind = -1;
     int hoverSub = -1;
     Rect card, sub;
     std::vector<std::pair<int, Rect>> subHits;

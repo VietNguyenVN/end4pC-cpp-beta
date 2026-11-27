@@ -396,6 +396,22 @@ void trayMenuClick(App& app) {
 constexpr double kDmRoom = 20, kDmCardW = 348, kDmSubW = 324, kDmGap = 8, kDmCarH = 160, kDmRowH = 56, kDmSubH = 430;
 constexpr double kDmCardH = 8 + kDmCarH + 4 + 3 * kDmRowH + 2 * 2 + 8;
 constexpr double kDmModeH = 56, kDmTogH = 48, kDmSepH = 16, kDmWSubH = 12 + 2 * (kDmTogH + 2) + kDmSepH + 10 * (kDmTogH + 2) + 10;
+constexpr double kDmSubInSeconds = 0.12;  // the side panel opens in half the time of the menu (0.24)
+// The side panel grows from its own edge next to the card (not from the menu's origin, which would make it come out from under the card).
+void dmSubGroupEnd(cairo_t* cr, double rev, const DesktopMenu& D) {
+    const double px = D.subLeft ? D.sub.x + D.sub.w : D.sub.x, py = D.sub.y + D.sub.h / 2, r = std::clamp(rev, 0.0, 1.0);
+    cairo_pop_group_to_source(cr);
+    cairo_matrix_t m;
+    cairo_matrix_init_identity(&m);
+    if (g_animStyle == "boing" || g_animStyle == "zoom") {
+        const double sc = 0.9 + 0.1 * (g_animStyle == "boing" ? rev : r);
+        cairo_matrix_init(&m, 1 / sc, 0, 0, 1 / sc, px * (1 - 1 / sc), py * (1 - 1 / sc));
+    } else if (g_animStyle == "slide") {
+        cairo_matrix_init_translate(&m, (D.subLeft ? 1 : -1) * kDmGap * (1 - r), 0);
+    }
+    cairo_pattern_set_matrix(cairo_get_source(cr), &m);
+    cairo_paint_with_alpha(cr, std::min(1.0, rev * 6));
+}
 constexpr double kDmItemRadius = 28, kDmItemGap = 8, kDmCarPad = 8, kDmCarRadius = 36, kDmSmallMin = 40, kDmSmallMax = 56;
 constexpr int kDmCount = 6;
 
@@ -604,6 +620,19 @@ void drawDesktopMenu(App& app) {
         setSource(cr, Color{onPrimary.r * pc + edge.r * (1 - pc), onPrimary.g * pc + edge.g * (1 - pc), onPrimary.b * pc + edge.b * (1 - pc)});
         cairo_fill(cr);
     };
+    // The side panel: when it opens (or switches kind) it plays the menu's own animation, quicker.
+    if (!D.subOpen) D.subShown = false;
+    else if (!D.subShown || D.subShownKind != D.subKind) {
+        D.subShown = true;
+        D.subShownKind = D.subKind;
+        D.subAnim.overshoot = 1.05;
+        D.subAnim.inSeconds = kDmSubInSeconds;
+        popStart(D.subAnim);
+        D.subAnim.animStart = std::chrono::steady_clock::now();
+    }
+    const bool subGrown = D.subOpen && D.subAnim.phase == kPopIn;
+    const double subRev = std::max(0.0, D.subAnim.reveal);
+    if (subGrown) popGroupBegin(cr);
     if (D.subOpen && D.subKind == 1) {
         const Rect S = D.sub;
         roundedRect(cr, S.x, S.y, S.w, S.h, 26);
@@ -765,6 +794,10 @@ void drawDesktopMenu(App& app) {
         toggleRow(S.x + 8, y, S.w - 16, 500, "gallery", "Centered wallpaper", app.cfg.centeredWallpaper != 0);
         toggleRow(S.x + 8, y + kDmTogH + 2, S.w - 16, 501, "layers", "Multiple wallpapers", app.cfg.collage != 0);
     }
+    if (subGrown) {
+        if (subRev > 0.001) dmSubGroupEnd(cr, subRev, D);
+        else cairo_pop_group_to_source(cr);
+    }
     D.animating = g_dmSpringsMoving;
     if (tipFor) {
         const Color bg = app.color("inverse_surface"), fg = app.color("inverse_on_surface");
@@ -883,12 +916,17 @@ void tickDesktopMenu(App& app, std::chrono::steady_clock::time_point now) {
     const int before = D.anim.phase;
     bool moving = false;
     if (popTick(D.anim, now, moving)) { closeDesktopMenu(app); return; }
-    if (moving || before != D.anim.phase) drawDesktopMenu(app);
+    bool subMoving = false;
+    if (D.subShown) popTick(D.subAnim, now, subMoving);
+    if (moving || subMoving || before != D.anim.phase || (D.subShown && D.subAnim.phase == kPopOpen && D.subAnim.reveal < 1)) drawDesktopMenu(app);
     if (before == kPopIn && D.anim.phase == kPopOpen) dmenuMotion(app);
 }
 std::chrono::steady_clock::time_point desktopMenuWake(const App& app) {
     if (!app.dmenu.open() || !app.dmenu.configured) return std::chrono::steady_clock::time_point::max();
-    return popWake(app.dmenu.anim.phase, app.dmenu.anim.settleAt, std::chrono::steady_clock::now());
+    const auto now = std::chrono::steady_clock::now();
+    const auto wake = popWake(app.dmenu.anim.phase, app.dmenu.anim.settleAt, now);
+    if (app.dmenu.subShown && app.dmenu.subAnim.phase == kPopIn) return std::min(wake, now + std::chrono::milliseconds(16));
+    return wake;
 }
 
 void onDmenuConfigure(void* d, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t, uint32_t) {
