@@ -200,34 +200,35 @@ void userPaint(App& app, DeskWidget& d, cairo_t* cr, int W, int H) {
     {
         const double bh = std::clamp(H * 0.14, 34.0, 44.0), by = H - pad - bh + 6;
         const double pw = bh, lw = std::clamp(W * 0.26, 96.0, 140.0), lx = W - pad - pw - 8 - lw;
-        const double sep = 16;
-        const double colW = std::clamp((lx - pad - 12 - 2 * sep) / 3.0, 30.0, 56.0);
         const long up = X.upSeconds, vals[3] = {up / 86400, (up % 86400) / 3600, (up % 3600) / 60};
         const char* labels[3] = {"days", "hours", "min"};
         const double numPx = std::clamp(H * 0.06, 14.0, 19.0), lblPx = std::clamp(H * 0.04, 10.0, 13.0), top = by + (bh - (numPx + lblPx + 6)) / 2;
-        pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
-        double firstW = 0;
-        for (int m = 0; m < 2; m++) {
-            PangoFontDescription* fd = pango_font_description_from_string(m == 0 ? "Sans Bold" : "Sans");
-            pango_font_description_set_absolute_size(fd, (m == 0 ? numPx : lblPx) * PANGO_SCALE);
+        // As in the Quickshell card: every column is as wide as its own text, and a 1 px divider sits 10 px from each column.
+        constexpr double kGapToDivider = 10;
+        auto textWidth = [&](const std::string& str, double px, bool bold) {
+            PangoFontDescription* fd = pango_font_description_from_string(bold ? "Sans Bold" : "Sans");
+            pango_font_description_set_absolute_size(fd, px * PANGO_SCALE);
             pango_layout_set_font_description(layout, fd);
             pango_font_description_free(fd);
             pango_layout_set_width(layout, -1);
-            pango_layout_set_text(layout, m == 0 ? std::to_string(vals[0]).c_str() : labels[0], -1);
+            pango_layout_set_text(layout, str.c_str(), -1);
             int tw = 0, th = 0;
             pango_layout_get_pixel_size(layout, &tw, &th);
-            firstW = std::max(firstW, static_cast<double>(tw));
-        }
-        const double startX = pad + 2 - (colW - firstW) / 2;
+            return static_cast<double>(tw);
+        };
+        pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
+        double cx = pad + 2;
         for (int k2 = 0; k2 < 3; k2++) {
-            const double cx = startX + k2 * (colW + sep);
-            text(std::to_string(vals[k2]), numPx, true, cx, top, app.color("on_surface"), 1.0, colW);
+            const std::string num = std::to_string(vals[k2]);
+            const double colW = std::max(textWidth(num, numPx, true), textWidth(labels[k2], lblPx, false)) + 2;
+            text(num, numPx, true, cx, top, app.color("on_surface"), 1.0, colW);
             text(labels[k2], lblPx, false, cx, top + numPx + 4, app.color("on_surface_variant"), 1.0, colW);
             if (k2 < 2) {
                 setSource(cr, app.color("on_surface"), 0.2);
-                cairo_rectangle(cr, cx + colW + sep / 2 - 0.5, by + bh / 2 - 15, 1, 30);
+                cairo_rectangle(cr, cx + colW + kGapToDivider - 0.5, by + bh / 2 - 14, 1, 28);
                 cairo_fill(cr);
             }
+            cx += colW + 2 * kGapToDivider + 1;
         }
         pango_layout_set_alignment(layout, PANGO_ALIGN_LEFT);
     }
