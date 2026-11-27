@@ -700,13 +700,21 @@ void clkCodexSummary(ClkCtx& X, double x, double y) {
         std::string text = std::string(i18n::tr(label)) + " ";
         text += usage.seen ? aiPercentText(fraction) + " " + i18n::tr(mode) : "—";
         X.literal(text, 16, true, left, y + 74, ink);
+        const auto alert = codexAlert(usage);
+        const Color progress = alert == CodexAlert::Normal ? ink : codexAlertColor(alert, X.app.cfg.colorMode == "light");
         roundedRect(cr, left, y + 96, track, 8, 4);
-        setSource(cr, ink, 0.18);
+        setSource(cr, progress, 0.18);
         cairo_fill(cr);
         if (fraction > 0) {
-            roundedRect(cr, left, y + 96, track * fraction, 8, 4);
-            setSource(cr, usage.pct >= 0.9 ? X.app.color("error") : ink);
+            const double filled = track * fraction;
+            roundedRect(cr, left, y + 96, filled, 8, std::min(4.0, filled / 2));
+            setSource(cr, progress);
             cairo_fill(cr);
+        } else if (alert == CodexAlert::Exhausted) {
+            roundedRect(cr, left + 0.75, y + 96.75, track - 1.5, 6.5, 3.25);
+            setSource(cr, progress);
+            cairo_set_line_width(cr, 1.5);
+            cairo_stroke(cr);
         }
         const long long reset = usage.resetsAt - static_cast<long long>(std::time(nullptr));
         if (usage.seen && usage.pct >= 0.7)

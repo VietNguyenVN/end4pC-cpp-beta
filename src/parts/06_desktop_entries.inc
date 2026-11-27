@@ -1093,6 +1093,42 @@ double codexFraction(const Config& cfg, const App::BarAi& usage) {
     const double used = std::clamp(usage.pct, 0.0, 1.0);
     return cfg.aiCodexPercent == "available" ? 1.0 - used : used;
 }
+enum class CodexAlert { Normal, HeadsUp, Low, Near, Critical, Exhausted };
+
+CodexAlert codexAlert(const App::BarAi& usage) {
+    if (!usage.seen) return CodexAlert::Normal;
+    // Codex warns at 50%, 75%, 90% and 95% used.
+    if (usage.pct >= 1.0) return CodexAlert::Exhausted;
+    if (usage.pct >= 0.95) return CodexAlert::Critical;
+    if (usage.pct >= 0.90) return CodexAlert::Near;
+    if (usage.pct >= 0.75) return CodexAlert::Low;
+    if (usage.pct >= 0.50) return CodexAlert::HeadsUp;
+    return CodexAlert::Normal;
+}
+
+Color codexAlertColor(CodexAlert alert, bool lightBackground) {
+    unsigned hex = 0;
+    switch (alert) {
+    case CodexAlert::HeadsUp:   hex = lightBackground ? 0x796000 : 0xd6b452; break;
+    case CodexAlert::Low:       hex = lightBackground ? 0x8a5000 : 0xffbb35; break;
+    case CodexAlert::Near:      hex = lightBackground ? 0xa53b00 : 0xff863e; break;
+    case CodexAlert::Critical:  hex = lightBackground ? 0xb51236 : 0xff6275; break;
+    case CodexAlert::Exhausted: hex = lightBackground ? 0x960024 : 0xff385d; break;
+    case CodexAlert::Normal:    break;
+    }
+    return {((hex >> 16) & 255) / 255.0, ((hex >> 8) & 255) / 255.0, (hex & 255) / 255.0};
+}
+
+Color aiAlertInk(const App& app, int kind, Color ink) {
+    if (kind != 1) return ink;
+    const auto alert = codexAlert(aiBarUsage(app, kind));
+    if (alert == CodexAlert::Normal) return ink;
+    // Use the selected style's foreground to account for reversed foregrounds
+    // on styles such as Badge, including their hover state.
+    const bool lightBackground = 0.2126 * ink.r + 0.7152 * ink.g + 0.0722 * ink.b < 0.5;
+    return codexAlertColor(alert, lightBackground);
+}
+
 double aiBarFraction(const App& app, int kind) {
     const auto& usage = aiBarUsage(app, kind);
     return kind == 1 ? codexFraction(app.cfg, usage) : std::clamp(usage.pct, 0.0, 1.0);
@@ -1100,15 +1136,28 @@ double aiBarFraction(const App& app, int kind) {
 std::string aiPercentText(double fraction) {
     return std::to_string(static_cast<int>(std::lround(fraction * 100))) + "%";
 }
+std::string codexPercentText(const Config& cfg, const App::BarAi& usage) {
+    if (!usage.seen) return "—";
+    const double fraction = codexFraction(cfg, usage);
+    if (cfg.aiCodexPercent == "available" && fraction > 0 && fraction < 0.005) return "<1%";
+    if (cfg.aiCodexPercent != "available" && fraction < 1 && fraction >= 0.995) return ">99%";
+    return aiPercentText(fraction);
+}
 std::string aiBarText(const App& app, int kind) {
-    return kind == 1 && !aiBarUsage(app, kind).seen ? "—" : aiPercentText(aiBarFraction(app, kind));
+    return kind == 1 ? codexPercentText(app.cfg, aiBarUsage(app, kind)) : aiPercentText(aiBarFraction(app, kind));
 }
 Color aiBarColor(const App& app, int kind) {
     const auto& a = aiBarUsage(app, kind);
-    if (a.seen && a.pct >= 0.9) return app.color("error");
+    if (kind == 0 && a.seen && a.pct >= 0.9) return app.color("error");
     return app.color((kind == 0 ? a.sessions > 0 : a.seen) ? "on_surface" : "on_surface_variant");
 }
-const char* aiBarIcon(int kind) { return kind == 0 ? "claude" : "openai"; }
+const char* aiBarIcon(const App& app, int kind) {
+    if (kind == 0) return "claude";
+    const auto alert = codexAlert(aiBarUsage(app, kind));
+    if (alert == CodexAlert::Exhausted) return "error";
+    if (alert >= CodexAlert::Near) return "priority_high";
+    return "openai";
+}
 Color aiM3Color(const App& app, int kind) {
     const auto& a = aiBarUsage(app, kind);
     return app.color((kind == 0 ? a.sessions > 0 : a.seen) ? "on_surface_variant" : "outline");
@@ -1260,7 +1309,7 @@ double aiM3Content(cairo_t* cr, const App& app, PangoLayout* layout, double x, d
     int tw = 0, th = 0;
     pango_layout_get_pixel_size(layout, &tw, &th);
     if (cr) {
-        drawIcon(cr, aiBarIcon(kind), x, cy - ic / 2, 16, ink);
+        drawIcon(cr, aiBarIcon(app, kind), x, cy - ic / 2, 16, ink);
         setSource(cr, ink);
         cairo_move_to(cr, x + ic + gap, cy - th / 2.0);
         pango_cairo_show_layout(cr, layout);
@@ -1272,6 +1321,7 @@ double aiPillContent(cairo_t* cr, const App& app, PangoLayout* layout, double x,
     if (style == "m3") return aiM3Content(cr, app, layout, x, cy, kind, ink);
     constexpr double ic = 16, gap = 4, ringD = 24, capW = 44, capH = 16;
     const double pct = aiBarFraction(app, kind);
+    const bool codexWarning = kind == 1 && codexAlert(aiBarUsage(app, kind)) != CodexAlert::Normal;
     const std::string num = aiBarText(app, kind);
     pango_layout_set_text(layout, num.c_str(), -1);
     int tw = 0, th = 0;
@@ -1279,9 +1329,10 @@ double aiPillContent(cairo_t* cr, const App& app, PangoLayout* layout, double x,
     if (style == "bar") {
         const double bx = x + ic + gap, by = cy - capH / 2.0;
         if (cr) {
-            drawIcon(cr, aiBarIcon(kind), x, cy - ic / 2, 16, ink);
+            drawIcon(cr, aiBarIcon(app, kind), x, cy - ic / 2, 16, ink);
             roundedRect(cr, bx, by, capW, capH, capH / 2);
-            setSource(cr, app.color("surface_container_highest"));
+            if (codexWarning) setSource(cr, ink, 0.12);
+            else setSource(cr, app.color("surface_container_highest"));
             cairo_fill(cr);
             roundedRect(cr, bx, by, std::max(capH, capW * pct), capH, capH / 2);
             setSource(cr, ink, 0.35);
@@ -1298,7 +1349,8 @@ double aiPillContent(cairo_t* cr, const App& app, PangoLayout* layout, double x,
             cairo_set_line_width(cr, 2.5);
             cairo_new_sub_path(cr);
             cairo_arc(cr, rcx, cy, r, 0, 2 * M_PI);
-            setSource(cr, app.color("outline_variant"));
+            if (codexWarning) setSource(cr, ink, 0.25);
+            else setSource(cr, app.color("outline_variant"));
             cairo_stroke(cr);
             if (pct > 0) {
                 cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
@@ -1308,7 +1360,7 @@ double aiPillContent(cairo_t* cr, const App& app, PangoLayout* layout, double x,
                 cairo_stroke(cr);
                 cairo_set_line_cap(cr, CAIRO_LINE_CAP_BUTT);
             }
-            drawIcon(cr, aiBarIcon(kind), rcx - 7, cy - 7, 14, ink);
+            drawIcon(cr, aiBarIcon(app, kind), rcx - 7, cy - 7, 14, ink);
             setSource(cr, ink);
             cairo_move_to(cr, x + ringD + gap, cy - th / 2.0);
             pango_cairo_show_layout(cr, layout);
@@ -1332,7 +1384,7 @@ double aiPillContent(cairo_t* cr, const App& app, PangoLayout* layout, double x,
         return nw + gap + tw;
     }
     if (cr) {
-        drawIcon(cr, aiBarIcon(kind), x, cy - ic / 2, 16, ink);
+        drawIcon(cr, aiBarIcon(app, kind), x, cy - ic / 2, 16, ink);
         setSource(cr, ink);
         cairo_move_to(cr, x + ic + gap, cy - th / 2.0);
         pango_cairo_show_layout(cr, layout);
@@ -1362,9 +1414,9 @@ double aiBarPaint(cairo_t* cr, const App& app, PangoLayout* layout, double x, do
             Color ink = m3 ? aiM3Color(app, kind) : aiBarColor(app, kind);
             if (framed) {
                 ink = styleFrame(cr, app, style, x + w, cy - kQuickBox / 2, pillW, kQuickBox, hotKind == kind);
-                if (aiBarUsage(app, kind).pct >= 0.9 && aiBarUsage(app, kind).seen && style != "badge" && style != "tonal") ink = app.color("error");
+                if (kind == 0 && aiBarUsage(app, kind).pct >= 0.9 && aiBarUsage(app, kind).seen && style != "badge" && style != "tonal") ink = app.color("error");
             }
-            aiPillContent(cr, app, layout, x + w + pad, cy, kind, style, ink);
+            aiPillContent(cr, app, layout, x + w + pad, cy, kind, style, aiAlertInk(app, kind, ink));
         }
         w += pillW;
         if (i == 0 && firstW) *firstW = w + sep / 2.0;
@@ -1644,9 +1696,10 @@ void aiSidePaint(cairo_t* cr, const App& app, PangoLayout* layout, const Rect& r
     Color ink = style == "m3" ? aiM3Color(app, kind) : aiBarColor(app, kind);
     if (style != "m3") {
         const Color framed = styleFrame(cr, app, style, r.x, r.y, r.w, r.h, hot, true);
-        if (genericFrame(style)) ink = aiBarUsage(app, kind).pct >= 0.9 && aiBarUsage(app, kind).seen && style != "badge" && style != "tonal" ? app.color("error") : framed;
+        if (genericFrame(style)) ink = kind == 0 && aiBarUsage(app, kind).pct >= 0.9 && aiBarUsage(app, kind).seen && style != "badge" && style != "tonal" ? app.color("error") : framed;
     }
-    drawIcon(cr, aiBarIcon(kind), r.x + (r.w - 18) / 2, r.y + 2, 18, ink);
+    ink = aiAlertInk(app, kind, ink);
+    drawIcon(cr, aiBarIcon(app, kind), r.x + (r.w - 18) / 2, r.y + 2, 18, ink);
     PangoFontDescription* f = pango_font_description_from_string("Sans Bold 8");
     pango_layout_set_font_description(layout, f);
     pango_layout_set_text(layout, aiBarText(app, kind).c_str(), -1);
