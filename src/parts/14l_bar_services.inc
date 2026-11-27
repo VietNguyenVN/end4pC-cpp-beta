@@ -73,14 +73,15 @@ bool barModulesRead(App& app) {
         avail(x) && wsScalar(x, "weeklyAvailable", weeklyAvailable) && weeklyAvailable == "true",
         num(x, "weeklyPercentage"), 0, static_cast<long long>(num(x, "weeklyResetsAt"))
     };
-    auto updateAi = [&](App::BarAi& current, const App::BarAi& next) {
-        if (next.seen != current.seen || std::abs(next.pct - current.pct) > 0.0005 || next.sessions != current.sessions) {
+    auto updateAi = [&](App::BarAi& current, const App::BarAi& next, bool codex) {
+        if (next.seen != current.seen || std::abs(next.pct - current.pct) > 0.0005 || next.sessions != current.sessions ||
+            (codex && codexAlert(next) != codexAlert(current))) {
             current = next;
             changed = true;
         } else current.resetsAt = next.resetsAt;
     };
-    for (int k = 0; k < 2; k++) updateAi(app.barAi[k], ai[k]);
-    updateAi(app.codexWeekly, weekly);
+    for (int k = 0; k < 2; k++) updateAi(app.barAi[k], ai[k], k == 1);
+    updateAi(app.codexWeekly, weekly, true);
     if (changed) measureBarModules(app);
     return changed;
 }
