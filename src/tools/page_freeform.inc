@@ -745,6 +745,7 @@ struct FreeformPage final : ToolPage {
         if (!caretPoint(item, x, y, h)) return false;
         context = imeField(item.text, caret, {canvas.x + x, canvas.y + y, 2, h});
         context.field = reinterpret_cast<const void*>(static_cast<uintptr_t>(item.id));  // the item's id, not its address: a deleted item's slot may be taken by another
+        return true;
     }
     void imeEdit(const ImeEdit& edit) override {
         lastKey = Clock::now();

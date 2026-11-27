@@ -1530,9 +1530,6 @@ void tickAll() {
 void teardown() {
     if (g.animationFrame) wl_callback_destroy(g.animationFrame);
     clearSwitchImages();
-    if (g.xkbState) xkb_state_unref(g.xkbState);
-    if (g.xkbMap) xkb_keymap_unref(g.xkbMap);
-    if (g.xkbCtx) xkb_context_unref(g.xkbCtx);
     if (g.cursorDev) wp_cursor_shape_device_v1_destroy(g.cursorDev);
     disableIme();
     if (g.ime) zwp_text_input_v3_destroy(g.ime);
@@ -1542,10 +1539,14 @@ void teardown() {
     hidpi::detach(g.scale);
     if (g.surface) wl_surface_destroy(g.surface);
     for (auto& slot : toolsBuffers) slot.clear();
-    if (g.display) { wl_display_roundtrip(g.display); wl_display_disconnect(g.display); }
+    // Send pending destroy requests without dispatching input after teardown.
+    if (g.display) { wl_display_flush(g.display); wl_display_disconnect(g.display); }
+    if (g.xkbState) xkb_state_unref(g.xkbState);
+    if (g.xkbMap) xkb_keymap_unref(g.xkbMap);
+    if (g.xkbCtx) xkb_context_unref(g.xkbCtx);
     if (g.sampleEvent >= 0) close(g.sampleEvent);
     g.pages.clear();
-    g.ownedPages.clear();  // last: the roundtrip above can still deliver a pointer event, which asks for the current page
+    g.ownedPages.clear();
 }
 }
 
