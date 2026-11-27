@@ -27,6 +27,7 @@
   "mediaHorizontalStyle": "classic",
   "networkSpeed": 0,
   "screenshotCopy": 1,
+  "screenshotWindows": 0,
   "recordAudio": 0,
   "recordDesktop": 0,
   "recordFps": 0,

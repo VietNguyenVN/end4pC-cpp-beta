@@ -630,6 +630,7 @@ void pointerAxisStep(App* app, bool down) {
         else if (app->hotCorner == 1) runDetached({"wpctl", "set-volume", "-l", volLimit(*app).c_str(), "@DEFAULT_AUDIO_SINK@", volStep(*app, value > 0).c_str()});
         return;
     }
+    if (app->onCap) { capWindowScroll(*app, value); return; }
     if (app->onOv) { ovScroll(*app, down ? 1 : -1); return; }
     if (app->onFq) { fqScroll(*app, down ? 1 : -1); return; }
     if (app->onGame) { if (app->game.open[GwNotes] && g_gn.panel.contains(app->pointerX, app->pointerY)) gameNotesScroll(*app, value > 0 ? 1 : -1); return; }

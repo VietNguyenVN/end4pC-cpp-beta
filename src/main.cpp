@@ -59,6 +59,7 @@
 #include <clocale>
 #include <cstring>
 #include <deque>
+#include <linux/input-event-codes.h>
 #include <set>
 #include <unordered_set>
 #include <string>
@@ -448,7 +449,7 @@ int main(int argc, char** argv) {
     timersLoad();
     timeZoneSync(app);  // (the zone it starts with is the one to compare with)
 
-    pollfd fds[26] = {
+    pollfd fds[27] = {
         {wl_display_get_fd(app.display), POLLIN, 0},
         {timerFd, POLLIN, 0},
         {sigFd, POLLIN, 0},
@@ -475,6 +476,7 @@ int main(int argc, char** argv) {
         {powerFd, POLLIN, 0},
         {-1, POLLIN, 0},           // UPower's signals on the system bus (set every loop turn)
         {-1, POLLIN, 0},           // the launcher's file search (fd)
+        {-1, POLLIN, 0},           // the snip tool's toplevel capture
     };
     auto lastTick = std::chrono::steady_clock::now();
 
@@ -749,7 +751,8 @@ int main(int argc, char** argv) {
         }
         fds[21].fd = app.pk.fd;
         fds[22].fd = app.amenu.job.fd;
-        if (poll(fds, 26, timeoutMs) < 0 && errno != EINTR) {
+        fds[26].fd = app.cap.windowFd;
+        if (poll(fds, std::size(fds), timeoutMs) < 0 && errno != EINTR) {
             wl_display_cancel_read(app.display);
             break;
         }
@@ -1048,6 +1051,7 @@ int main(int argc, char** argv) {
             wmFd = -1;
             fds[4].fd = -1;
         }
+        if (fds[26].fd == app.cap.windowFd && fds[26].revents & (POLLIN | POLLHUP | POLLERR)) capReadWindow(app);
         if (fds[0].revents & (POLLERR | POLLHUP)) break;
     }
 

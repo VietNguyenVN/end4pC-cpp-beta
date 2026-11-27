@@ -259,7 +259,7 @@ void handleClient(App& app, int listenFd) {
     else if (cmd == "screenshot" || cmd.rfind("screenshot ", 0) == 0) {
         const std::string mode = cmd.size() > 11 ? cmd.substr(11) : "region";
         if (mode == "region") { openCapture(app); reply = "ok"; }
-        else if (mode == "ocr" || mode == "lens" || mode == "qr") { openCapture(app); if (app.cap.open()) app.cap.autoAct = mode == "ocr" ? 1 : mode == "lens" ? 2 : 3; reply = "ok"; }
+        else if (mode == "ocr" || mode == "lens" || mode == "qr") { openCapture(app, false, mode == "ocr" ? 1 : mode == "lens" ? 2 : 3); reply = "ok"; }
         else if (mode == "qrcode") reply = "usage: qr <text>";
         else if (mode == "screen" || mode == "window" || mode == "edit") { runScreenshot(app, mode.c_str()); reply = "ok"; }
         else reply = "usage: screenshot region|screen|window|edit|ocr|lens";

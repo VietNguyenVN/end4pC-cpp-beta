@@ -31,7 +31,7 @@ WIDGETS = ["todo", "weather", "player", "resources", "calendar", "clock", "userc
 EXCLUDE = {
     "language", "clock24", "volumeMax", "volumeStep", "batteryLow", "batteryCritical", "batteryNotify",
     "peripheralNotify", "peripheralLow", "peripheralCritical", "unlockKeyring", "lockOnStart",
-    "screenshotCopy", "recordAudio", "recordDesktop", "recordFps", "screenshotDir", "recordDir",
+    "screenshotCopy", "screenshotWindows", "recordAudio", "recordDesktop", "recordFps", "screenshotDir", "recordDir",
     "notificationTimeout", "doNotDisturb", "keepAwake", "updatesEnable", "updatesAur", "updatesFlatpak", "updatesInterval",
     "weatherCity", "weatherInterval", "weatherUnit", "preferredPlayer", "terminal", "worldClocks", "searchEngine",
     "lyricsProvider", "aiClaude", "aiCodex", "aiTokenLimit", "avatarPath", "avatarPicture", "dockPinned",

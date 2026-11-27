@@ -1857,7 +1857,7 @@ void launcherClick(App& app) {
         return;
     }
     if (const int btn = launcherButtonAt(app, app.pointerX, launcherPy(app)); btn >= 0) {
-        if (std::string(kLaunButtons[btn].key) == "scanQr") { retractLauncher(app); openCapture(app); if (app.cap.open()) app.cap.autoAct = 3; return; }
+        if (std::string(kLaunButtons[btn].key) == "scanQr") { retractLauncher(app); openCapture(app, false, 3); return; }
         L.text = std::string(1, kPfxClipboard);
         L.cursor = 1;
         L.btnHover = -1;

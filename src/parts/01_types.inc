@@ -477,6 +477,7 @@ struct Config {
     std::string customImagePath;
     std::string screenshotDir, recordDir;
     int screenshotCopy = 1;
+    int screenshotWindows = 0;
     int recordFps = 0;
     int recordDesktop = 0;
     int recordAudio = 0;
@@ -902,6 +903,12 @@ struct CapAnnot {
     int block = 10;
 };
 
+struct CapWindow {
+    std::string id, title, workspace;
+    Rect bounds;
+    bool special = false, visible = false;
+};
+
 struct Capture {
     int autoAct = 0;  // 1: text recognition, 2: Google Lens, 3: QR code, as soon as an area is chosen
     wl_surface* surface = nullptr;
@@ -911,6 +918,13 @@ struct Capture {
     int w = 0, h = 0;
     cairo_surface_t* shot = nullptr;
     std::string shotFile;
+    std::vector<CapWindow> windows;
+    std::vector<int> windowGroup[2];
+    bool windowMenu = false, specialWindows = false, windowError = false, windowButtonHot = false;
+    int windowHover = -1, windowScroll = 0, pendingWindow = -1;
+    int windowFd = -1, windowPng = -1;
+    std::shared_ptr<cairo_surface_t> windowShot;
+    Rect windowImage;
     bool has = false;
     double sx = 0, sy = 0, sw = 0, sh = 0;
     int mode = 0;
@@ -2019,7 +2033,7 @@ constexpr int kNotifCountW = 20;
 void focusWorkspace(int id);
 void updateCursor(App& app);
 void toggleSelector(App& app);
-void openCapture(App& app, bool record = false);
+void openCapture(App& app, bool record = false, int autoAct = 0);
 void closeAllPopups(App& app);
 bool anyPopupOpen(const App& app);
 void syncCatcher(App& app);
