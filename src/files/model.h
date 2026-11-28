@@ -8,10 +8,11 @@ enum class Kind { Folder, Image, Audio, Video, Archive, Pdf, Text, Code, Other }
 
 struct Entry {
     std::string name, path;
-    bool dir = false, link = false, hidden = false, regular = false;  // regular: a plain file (not a pipe, a device or a socket)
+    bool dir = false, link = false, hidden = false, regular = false, executable = false;  // regular: a plain file (not a pipe, a device or a socket)
     uint64_t size = 0;
-    time_t mtime = 0;
+    time_t mtime = 0, atime = 0;
     Kind kind = Kind::Other;
+    std::string extension;
     std::string lower;  // the name in lower case, for sorting and filtering
 };
 
@@ -84,6 +85,25 @@ std::string formatDate(time_t t) {
     return buf;
 }
 
+// ---- preferences -----------------------------------------------------------------------------------------------------------------------
+std::string hiddenPreferenceFile() { return dataDir() + "/fil3s-show-hidden"; }
+
+bool rememberHidden(bool show) {
+    std::error_code ec;
+    fs::create_directories(dataDir(), ec);
+    if (ec) return false;
+    const std::string path = hiddenPreferenceFile();
+    std::string tmp = path + ".XXXXXX";
+    const int fd = mkostemp(tmp.data(), O_CLOEXEC);
+    if (fd < 0) return false;
+    const char value = show ? '1' : '0';
+    const bool written = write(fd, &value, 1) == 1;
+    const bool closed = close(fd) == 0;
+    if (written && closed && rename(tmp.c_str(), path.c_str()) == 0) return true;
+    unlink(tmp.c_str());
+    return false;
+}
+
 // ---- places ----------------------------------------------------------------------------------------------------------------------------
 std::string trashFiles() { return envDir("XDG_DATA_HOME", homeDir() + "/.local/share") + "/Trash/files"; }
 std::string trashInfo() { return envDir("XDG_DATA_HOME", homeDir() + "/.local/share") + "/Trash/info"; }
@@ -152,7 +172,7 @@ std::vector<Place> driveList() {
 }
 
 // ---- the listing -----------------------------------------------------------------------------------------------------------------------
-enum class Sort { Name, Size, Date };
+enum class Sort { Name, Size, Date, Type, Extension, Accessed };
 
 struct Listing {
     std::string dir;
@@ -178,6 +198,9 @@ std::vector<Entry> readFolder(const std::string& dir, std::string& error) {
         e.regular = S_ISREG(st.st_mode);
         e.size = e.dir ? 0 : static_cast<uint64_t>(st.st_size);
         e.mtime = st.st_mtime;
+        e.atime = st.st_atime;
+        e.executable = e.regular && (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) && access(e.path.c_str(), X_OK) == 0;
+        e.extension = extensionOf(e.name);
         e.kind = kindOf(e.name, e.dir);
         e.lower = lowerCase(e.name);
         out.push_back(std::move(e));
@@ -185,12 +208,16 @@ std::vector<Entry> readFolder(const std::string& dir, std::string& error) {
     if (ec) error = ec.message();
     return out;
 }
-void sortEntries(std::vector<Entry>& v, Sort by, bool descending) {
+void sortEntries(std::vector<Entry>& v, Sort by, bool descending, bool foldersFirst, bool hiddenLast) {
     std::stable_sort(v.begin(), v.end(), [&](const Entry& a, const Entry& b) {
-        if (a.dir != b.dir) return a.dir;  // folders first, always
+        if (foldersFirst && a.dir != b.dir) return a.dir;
+        if (hiddenLast && a.hidden != b.hidden) return !a.hidden;
         int c = 0;
         if (by == Sort::Size) c = a.size < b.size ? -1 : a.size > b.size ? 1 : 0;
-        else if (by == Sort::Date) c = a.mtime < b.mtime ? -1 : a.mtime > b.mtime ? 1 : 0;
+        else if (by == Sort::Date) c = (a.mtime > b.mtime) - (a.mtime < b.mtime);
+        else if (by == Sort::Accessed) c = (a.atime > b.atime) - (a.atime < b.atime);
+        else if (by == Sort::Type) c = (a.kind > b.kind) - (a.kind < b.kind);
+        else if (by == Sort::Extension) c = a.extension.compare(b.extension);
         if (c == 0) {
             // natural order: "file2" before "file10"
             const std::string &x = a.lower, &y = b.lower;
@@ -212,22 +239,22 @@ void sortEntries(std::vector<Entry>& v, Sort by, bool descending) {
 }
 
 // A folder is read in a thread: the window shows "loading" and then the files, whatever the size of the folder.
-struct Lister {
+struct Lister : std::enable_shared_from_this<Lister> {
     std::mutex mutex;
     Listing result;
     std::atomic<uint64_t> wanted{0};
     int wakeFd = -1;
     void request(const std::string& dir, uint64_t generation) {
         wanted = generation;
-        std::thread([this, dir, generation] {
+        std::thread([this, keepAlive = shared_from_this(), dir, generation] {
             Listing l;
             l.dir = dir;
             l.generation = generation;
             l.entries = readFolder(dir, l.error);
             l.done = true;
-            if (wanted.load() != generation) return;  // another folder was asked for meanwhile
             {
                 std::lock_guard<std::mutex> lock(mutex);
+                if (wanted.load() != generation) return;
                 result = std::move(l);
             }
             const char c = 1;
@@ -533,6 +560,7 @@ double probeDuration(const std::string& path) {
     return n > 0 ? std::atof(buf) : 0;
 }
 bool haveTool(const std::string& name) {
+    if (name.find('/') != std::string::npos) return access(name.c_str(), X_OK) == 0;
     const char* path = std::getenv("PATH");
     std::stringstream ss(path ? path : "/usr/bin");
     std::string dir;
@@ -551,13 +579,14 @@ struct Cmd {
 };
 
 // One worker thread does the operations one after the other, with a line of status for the window.
-enum class Op { Copy, Move, Trash, Restore, Delete, Command };
+enum class Op { Copy, Duplicate, Move, Trash, Restore, Delete, Command, CopyText };
 struct Job { Op op; std::vector<std::string> paths; std::string dest; std::vector<Cmd> cmds; };
 struct Worker {
     std::mutex mutex;
     std::condition_variable cv;
     std::deque<Job> jobs;
     std::string failure, label;
+    bool textCopied = false;
     std::vector<std::string> outputs;  // what the commands made (the window selects it when it is ready)
     double fraction = -1;              // 0..1 of the command running; -1: it cannot tell (the bar just moves)
     int done = 0, total = 0;
@@ -587,19 +616,22 @@ struct Worker {
     void wake() { const char c = 1; if (wakeFd >= 0 && write(wakeFd, &c, 1) < 0) {} }
 
     // Runs one command; the progress of ffmpeg comes through `-progress pipe:1` (out_time_us=...).
-    bool runCommand(const Cmd& cmd, std::string& error) {
+    bool runCommand(const Cmd& cmd, std::string& error, int input = -1) {
         int pipefd[2];
-        if (pipe(pipefd) != 0) { error = "pipe failed"; return false; }
+        if (pipe2(pipefd, O_CLOEXEC) != 0) { error = "pipe failed"; return false; }
         const pid_t pid = fork();
         if (pid < 0) { close(pipefd[0]); close(pipefd[1]); error = "fork failed"; return false; }
         if (pid == 0) {
             if (!cmd.cwd.empty() && chdir(cmd.cwd.c_str()) != 0) _exit(126);
-            dup2(pipefd[1], 1);
-            dup2(pipefd[1], 2);
+            const int null = open("/dev/null", O_RDWR | O_CLOEXEC);
+            // wl-copy keeps a background process alive to serve the selection.
+            // It must not hold the pipe that the worker reads for command output.
+            const int output = input >= 0 ? null : pipefd[1];
+            if (output >= 0) { dup2(output, 1); dup2(output, 2); }
             close(pipefd[0]);
             close(pipefd[1]);
-            const int null = open("/dev/null", O_RDONLY);
-            if (null >= 0) dup2(null, 0);
+            const int source = input >= 0 ? input : null;
+            if (source >= 0) dup2(source, 0);
             std::vector<char*> args;
             for (const std::string& a : cmd.argv) args.push_back(const_cast<char*>(a.c_str()));
             args.push_back(nullptr);
@@ -630,10 +662,29 @@ struct Worker {
         }
         close(pipefd[0]);
         int status = 0;
-        waitpid(pid, &status, 0);
+        pid_t waited;
+        do { waited = waitpid(pid, &status, 0); } while (waited < 0 && errno == EINTR);
         child = 0;
-        const bool ok = WIFEXITED(status) && WEXITSTATUS(status) == 0 && !cancel.load();
+        const bool ok = waited == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0 && !cancel.load();
         if (!ok) error = cancel.load() ? "cancelled" : WIFEXITED(status) && WEXITSTATUS(status) == 127 ? cmd.argv[0] + " is not installed" : lastLine.empty() ? "failed" : lastLine;
+        return ok;
+    }
+
+    bool copyText(const std::string& text) {
+        // Use stdin so even a large selection is independent of the OS argument length limit.
+        const int fd = memfd_create("fil3s-clipboard", MFD_CLOEXEC);
+        if (fd < 0) return false;
+        size_t done = 0;
+        while (done < text.size()) {
+            const ssize_t n = write(fd, text.data() + done, text.size() - done);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) break;
+            done += static_cast<size_t>(n);
+        }
+        std::string error;
+        const bool ok = done == text.size() && lseek(fd, 0, SEEK_SET) == 0 &&
+                        runCommand({{"wl-copy", "--type", "text/plain;charset=utf-8"}, "", "", "", 0, ""}, error, fd);
+        close(fd);
         return ok;
     }
 
@@ -653,7 +704,12 @@ struct Worker {
                 changed = true;
             }
             wake();
-            if (job.op == Op::Command) {
+            if (job.op == Op::CopyText) {
+                const bool ok = !cancel && copyText(job.dest);
+                std::lock_guard<std::mutex> lock(mutex);
+                textCopied |= ok;
+                if (!ok && !cancel) failure = i18n::tr("Could not copy to the clipboard");
+            } else if (job.op == Op::Command) {
                 for (const Cmd& cmd : job.cmds) {
                     if (cancel) break;
                     {
@@ -679,7 +735,12 @@ struct Worker {
                 std::string error;
                 bool ok = true;
                 const std::string name = fs::path(p).filename().string();
-                if (job.op == Op::Copy) ok = copyAny(p, freeName(job.dest, name), error);
+                std::string duplicate;
+                if (job.op == Op::Copy || job.op == Op::Duplicate) {
+                    const std::string to = freeName(job.dest, name);
+                    ok = copyAny(p, to, error);
+                    if (ok && job.op == Op::Duplicate) duplicate = to;
+                }
                 else if (job.op == Op::Move) {
                     if (fs::path(p).parent_path() == fs::path(job.dest)) ok = true;  // already there
                     else ok = moveAny(p, freeName(job.dest, name), error);
@@ -689,6 +750,7 @@ struct Worker {
                 else ok = deleteForever(p, error);
                 std::lock_guard<std::mutex> lock(mutex);
                 label = name;
+                if (!duplicate.empty()) outputs.push_back(std::move(duplicate));
                 done++;
                 if (!ok) failure = name + ": " + error;
                 changed = true;
@@ -705,15 +767,18 @@ struct Worker {
     }
 };
 
-// Opening a file: the desktop's default program, detached so it outlives the window and never blocks it.
-void openWithDefault(const std::string& path) {
+// Detached so the launched application outlives this window.
+void launchDetached(const char* program, const char* arg, const char* cwd = nullptr, bool exact = false) {
     const pid_t pid = fork();
     if (pid == 0) {
         if (fork() == 0) {
             setsid();
+            if (cwd && chdir(cwd) != 0) _exit(126);
             const int null = open("/dev/null", O_RDWR);
             if (null >= 0) { dup2(null, 0); dup2(null, 1); dup2(null, 2); }
-            execlp("xdg-open", "xdg-open", path.c_str(), static_cast<char*>(nullptr));
+            if (exact) execl(program, program, static_cast<char*>(nullptr));
+            else if (arg) execlp(program, program, arg, static_cast<char*>(nullptr));
+            else execlp(program, program, static_cast<char*>(nullptr));
         }
         _exit(0);
     } else if (pid > 0) {

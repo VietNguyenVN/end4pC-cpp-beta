@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
+#include <gio/gio.h>
 #include <librsvg/rsvg.h>
 #include <pango/pangocairo.h>
 #include <poll.h>
@@ -60,11 +61,12 @@ struct Field {
 constexpr int kDefaultW = 1180, kDefaultH = 720, kMinW = 760, kMinH = 480;
 constexpr double kPad = 16, kHeaderH = 56, kSideW = 248, kRadius = 28;
 
-enum Id { None, BtnBack, BtnForward, BtnUp, BtnClose, BtnView, BtnSort, BtnHidden, BtnNew, Crumb, SideEmpty, ScrollThumb, ScrollTrack, PlaceRow, Item, SearchField, SearchClear, MenuRow, DialogOk, DialogCancel, DialogField, Scrim, StatusCancel, Empty };
-struct Hit { Rect r; int id, arg; };
+enum Id { None, BtnBack, BtnForward, BtnUp, BtnClose, BtnView, BtnSort, BtnSplit, BtnHidden, BtnNew, AddressBar, BtnCopyPath, Crumb, SideEmpty, ScrollThumb, ScrollTrack, PlaceRow, Item, SearchField, SearchClear, MenuRow, DialogOk, DialogCancel, DialogField, Scrim, StatusCancel, Empty };
+struct Hit { Rect r; int id, arg, pane; };
+enum class ViewMode { Icons, Details, Compact };
 
 // One entry of the right-click menu; an entry with `children` opens a second panel beside it.
-enum class Act { AddPlace, RemovePlace, ResetPlaces, OpenPlace, Open, Cut, Copy, Paste, Rename, Trash, Delete, Restore, EmptyTrash, NewFolder, NewFile, Convert, Compress, Extract, ExtractHere, SelectAll, Refresh, Hidden, None };
+enum class Act { AddPlace, RemovePlace, ResetPlaces, OpenPlace, Open, OpenWith, RunExecutable, SetView, SetSort, SortOrder, FoldersFirst, HiddenLast, CopyToPane, MoveToPane, Cut, Copy, CopyPath, CopyFolderPath, CopyPlacePath, CopyNames, Duplicate, NewWindow, Terminal, Paste, Rename, Trash, Delete, Restore, EmptyTrash, NewFolder, NewFile, Convert, Compress, Extract, ExtractHere, SelectAll, Refresh, Hidden, None };
 struct MenuItem {
     std::string label;
     const char* icon = "";
@@ -72,6 +74,9 @@ struct MenuItem {
     int arg = 0;
     bool enabled = true, separator = false;
     std::vector<MenuItem> children;
+    std::shared_ptr<GAppInfo> application;
+    std::string target;
+    bool checked = false;
 };
 enum class Dlg { None, NewFolder, NewFile, Rename, ConfirmDelete };
 
@@ -85,6 +90,39 @@ struct Buffer {
         buffer = nullptr;
         busy = false;
     }
+};
+
+struct Pane {
+    std::string cwd;
+    std::vector<std::string> back, forward, crumbPaths;
+    std::vector<Entry> entries;
+    std::vector<int> view;
+    bool loading = false, viewDirty = true, keepScroll = false;
+    std::string loadError;
+    uint64_t generation = 0;
+    Sort sort = Sort::Name;
+    bool descending = false, foldersFirst = true, hiddenLast = false;
+    ViewMode mode = ViewMode::Icons;
+    Field search;
+    std::set<std::string> selected, selectAfter;
+    int cursor = -1, anchor = -1;
+    Elastic band;
+    double scroll = 0, scrollMax = 0;
+    Rect card, content, scrollTrack;
+    double thumbTop = 0, thumbH = 0;
+    bool dragScroll = false;
+    double dragScrollOffset = 0;
+    int columns = 1, rows = 1;
+    double cellW = 0, cellH = 0;
+    bool lasso = false;
+    double lassoX0 = 0, lassoY0 = 0, lassoX1 = 0, lassoY1 = 0;
+    std::set<std::string> lassoBase;
+    int lastClickIndex = -1;
+    Clock::time_point lastClick{}, reloadAt{};
+    int inotifyFd = -1, watch = -1;
+    std::shared_ptr<Lister> lister = std::make_shared<Lister>();
+    std::set<std::string> waitingThumbs;
+    std::map<std::string, Clock::time_point> fadingThumbs;
 };
 
 struct App {
@@ -123,51 +161,23 @@ struct App {
     int hoverId = None, hoverArg = 0;
     std::vector<Hit> hits;
 
-    // Where we are.
-    std::string cwd;
-    std::vector<std::string> back, forward;
-    std::vector<Entry> entries;          // the folder, sorted
-    std::vector<int> view;               // the entries that pass the filter and the hidden switch
-    bool loading = false;
-    std::string loadError;
-    uint64_t generation = 0;
-    bool viewDirty = true;
-    Sort sort = Sort::Name;
-    bool descending = false, showHidden = false, grid = true;
-    Field search;
-    int focus = 0;                       // 1 search field, 2 field of a dialog
+    Pane panes[2];
+    int activePane = 0, hitPane = -1, hoverPane = -1;
+    bool split = false;
+    bool showHidden = false;
+    std::string terminal = "kitty";
+    int focus = 0;
     bool caretOn = true;
     Clock::time_point caretReset = Clock::now();
-
-    // Selection: by path, so it survives a refresh.
-    std::set<std::string> selected;
-    int cursor = -1, anchor = -1;        // positions in `view`
     std::vector<std::string> clip;
     bool clipCut = false;
-    std::set<std::string> selectAfter;   // names made by a conversion: selected when the folder is read again
-
-    // Scrolling and layout (set while drawing).
-    Elastic band;
-    double scroll = 0, scrollMax = 0;
-    Rect content, sidebar;
-    // The scroll bar of the folder (always visible here: it is also a handle). Geometry set while drawing.
-    Rect scrollTrack;
-    double thumbTop = 0, thumbH = 0;
-    bool dragScroll = false;
-    double dragScrollOffset = 0;
-    int columns = 1;
-    double cellW = 0, cellH = 0;
-    // The lasso: dragging on the empty part of the folder selects what the rectangle touches (positions in the content, so it follows the scroll).
-    bool lasso = false;
-    double lassoX0 = 0, lassoY0 = 0, lassoX1 = 0, lassoY1 = 0;
-    std::set<std::string> lassoBase;
-    int lastClickIndex = -1;
-    Clock::time_point lastClick{};
+    Rect sidebar;
 
     // Menu and dialog.
     bool menuOpen = false;
     double menuX = 0, menuY = 0;
     std::vector<MenuItem> menu;
+    int menuOffset = 0;
     int menuSub = -1;                    // the entry whose panel is open
     int subPending = -2;                 // the entry the pointer rests on while another one's panel is open (-2: none): it takes over after a moment
     Clock::time_point subPendingAt{};
@@ -188,18 +198,15 @@ struct App {
     double placeRowsY0 = 0, placeStep = 46;
     int placeCount = 0;
     Clock::time_point drivesAt{};
-    int inotifyFd = -1, watch = -1;
-
-    // Thumbnails appear with a short fade instead of popping in: the ones drawn as placeholders wait here, and start fading when their picture arrives.
-    std::set<std::string> waitingThumbs;
-    std::map<std::string, Clock::time_point> fadingThumbs;
-    bool animating = false;  // something on screen is moving (a fade): the loop keeps drawing
-    Lister lister;
+    bool animating = false;
     Thumbnailer thumbs;
     Worker worker;
     std::string status;
     Clock::time_point start = Clock::now(), lastTick = Clock::now();
 } g;
+
+Pane& pane() { return g.panes[g.hitPane >= 0 ? g.hitPane : g.activePane]; }
+bool horizontal() { return pane().mode == ViewMode::Compact; }
 
 int g_wakeFd = -1;
 
