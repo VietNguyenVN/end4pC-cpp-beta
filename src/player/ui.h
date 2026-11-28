@@ -447,7 +447,7 @@ void drawRight(cairo_t* cr, const Rect& card) {
     const double tabY = card.y + 16, tabH = 44;
     // The tabs, in this order: the queue, the lyrics, the playlists (the numbers of g.tab: 0 lyrics, 1 queue, 2 playlists).
     const std::string names[3] = {i18n::tr("Lyrics"), i18n::tr("Queue"), i18n::tr("Playlists")};
-    const char* icons[3] = {"music-notes", "playlist", "folder-open"};
+    const char* icons[3] = {"music-notes", "playlist", "checklist-minimalistic"};
     const int ids[3] = {TabLyrics, TabQueue, TabPlaylists};
     double x = card.x + 16;
     for (const int i : {1, 0, 2}) {
