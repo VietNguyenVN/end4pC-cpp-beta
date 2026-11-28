@@ -98,6 +98,7 @@ void loadSettings() {
     std::string line;
     while (std::getline(f, line)) {
         if (line.rfind("sidebar=", 0) == 0) g.sidebar = line.substr(8) != "0";
+        else if (line.rfind("restore=", 0) == 0) g.restoreSession = line.substr(8) != "0";
         else if (line.rfind("font=", 0) == 0) g.fontPx = std::clamp(std::atoi(line.c_str() + 5), 9, 40);
     }
 }
@@ -105,7 +106,122 @@ void saveSettings() {
     std::error_code ec;
     fs::create_directories(dataDir(), ec);
     std::ofstream f(settingsPath(), std::ios::trunc);
-    f << "sidebar=" << (g.sidebar ? 1 : 0) << "\nfont=" << g.fontPx << "\n";
+    f << "sidebar=" << (g.sidebar ? 1 : 0) << "\nfont=" << g.fontPx << "\nrestore=" << (g.restoreSession ? 1 : 0) << "\n";
+}
+
+// ---- the session: the files that were open are open again next time (like Geany) --------------------------------------------------------
+std::string sessionPath() { return dataDir() + "/t3xt-session.txt"; }
+void saveSession() {
+    std::error_code ec;
+    fs::create_directories(dataDir(), ec);
+    const std::string tmp = sessionPath() + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::trunc);
+        int saved = 0, activeSaved = -1;
+        std::ostringstream body;
+        for (size_t i = 0; i < g.docs.size(); i++) {
+            const t3::Doc& d = *g.docs[i];
+            if (d.path.empty()) continue;  // (an unnamed document is not a file: it is not kept)
+            if (static_cast<int>(i) == g.active) activeSaved = saved;
+            body << d.path << '\t' << d.cur.line << '\t' << d.cur.col << '\t' << static_cast<long>(d.scrollY) << '\n';
+            saved++;
+        }
+        f << "active=" << std::max(0, activeSaved) << '\n' << body.str();
+    }
+    fs::rename(tmp, sessionPath(), ec);
+}
+
+void openPath(const std::string& given);
+void switchTo(int i);
+// Opens again what the last session had: each file at the line where the cursor was, and the tab that was in front.
+void restoreSession() {
+    std::ifstream f(sessionPath());
+    std::string line;
+    if (!std::getline(f, line) || line.rfind("active=", 0) != 0) return;
+    const int wanted = std::max(0, std::atoi(line.c_str() + 7));
+    std::vector<size_t> opened;  // the documents this restored, in order
+    while (std::getline(f, line) && opened.size() < 40) {
+        std::stringstream ss(line);
+        std::string path, a, b, c;
+        std::getline(ss, path, '\t'); std::getline(ss, a, '\t'); std::getline(ss, b, '\t'); std::getline(ss, c, '\t');
+        std::error_code ec;
+        if (path.empty() || path[0] != '/' || !fs::is_regular_file(path, ec)) continue;
+        const size_t before = g.docs.size();
+        openPath(path);
+        if (g.docs.empty() || g.docs[static_cast<size_t>(g.active)]->path.empty()) continue;
+        t3::Doc& d = doc();
+        d.cur = d.anchor = d.clampPos({std::atoi(a.c_str()), std::atoi(b.c_str())});
+        d.scrollY = static_cast<double>(std::max(0, std::atoi(c.c_str())));
+        opened.push_back(static_cast<size_t>(g.active));
+        (void)before;
+    }
+    if (!opened.empty()) switchTo(static_cast<int>(opened[std::min(static_cast<size_t>(wanted), opened.size() - 1)]));
+}
+
+// One window only, like Geany: a second launch hands its files to the first one (over a socket in the runtime folder) and exits.
+std::string socketPath() { return runtimeDir() + "/end4pC-t3xt.sock"; }
+int g_listenFd = -1;
+bool handOffToRunning(int argc, char** argv) {
+    const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return false;
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    const std::string path = socketPath();
+    if (path.size() >= sizeof addr.sun_path) { close(fd); return false; }
+    std::strcpy(addr.sun_path, path.c_str());
+    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0) { close(fd); return false; }
+    std::string msg;
+    for (int i = 1; i < argc; i++) {
+        char real[4096];
+        const std::string abs = realpath(argv[i], real) ? std::string(real) : (argv[i][0] == '/' ? std::string(argv[i]) : std::string());
+        if (!abs.empty() && abs.find('\n') == std::string::npos) msg += abs + "\n";
+    }
+    if (argc <= 1) msg = "NEW\n";
+    for (size_t done = 0; done < msg.size();) {
+        const ssize_t n = write(fd, msg.data() + done, msg.size() - done);
+        if (n <= 0) break;
+        done += static_cast<size_t>(n);
+    }
+    close(fd);
+    return true;
+}
+void listenForHandOffs() {
+    const std::string path = socketPath();
+    unlink(path.c_str());  // (a socket left by a run that crashed)
+    const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    if (fd < 0) return;
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    if (path.size() >= sizeof addr.sun_path) { close(fd); return; }
+    std::strcpy(addr.sun_path, path.c_str());
+    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0 || listen(fd, 8) != 0) { close(fd); return; }
+    chmod(path.c_str(), 0600);
+    g_listenFd = fd;
+}
+void addEmptyDoc();
+// What another launch sent: files to open (each line a path), or NEW for an empty document.
+void acceptHandOffs() {
+    if (g_listenFd < 0) return;
+    while (true) {
+        const int c = accept4(g_listenFd, nullptr, nullptr, SOCK_CLOEXEC);
+        if (c < 0) break;
+        std::string data;
+        char buf[4096];
+        pollfd p{c, POLLIN, 0};
+        while (data.size() < 64 * 1024 && poll(&p, 1, 200) > 0) {  // (a client that says nothing does not hold the window)
+            const ssize_t n = read(c, buf, sizeof buf);
+            if (n <= 0) break;
+            data.append(buf, static_cast<size_t>(n));
+        }
+        close(c);
+        std::stringstream ss(data);
+        std::string line;
+        while (std::getline(ss, line)) {
+            if (line == "NEW") { const bool blank = g.docs.size() && doc().path.empty() && !doc().modified; if (!blank) addEmptyDoc(); }
+            else if (!line.empty() && line[0] == '/') openPath(line);
+        }
+        g.dirty = true;
+    }
 }
 
 // ---- the sidebar's folder --------------------------------------------------------------------------------------------------------------
@@ -153,6 +269,7 @@ void switchTo(int i) {
     g.active = i;
     g.band.reset();
     followActiveFile();
+    saveSession();
     g.dirty = true;
 }
 void addEmptyDoc() {
@@ -183,6 +300,7 @@ void closeDoc(int i) {
     if (g.docs.empty()) addEmptyDoc();
     g.active = std::clamp(g.active > i ? g.active - 1 : g.active, 0, static_cast<int>(g.docs.size()) - 1);
     followActiveFile();
+    saveSession();
     g.dirty = true;
 }
 
@@ -419,8 +537,10 @@ bool handleKey(uint32_t key) {
     if (sym == XKB_KEY_Escape) { if (g.findOpen) closeFind(); else if (d.hasSelection()) { d.anchor = d.cur; g.dirty = true; } return false; }
     if (ctrl) {
         switch (sym) {
-            case XKB_KEY_z: if (shift) d.redo(); else d.undo(); ensureCursorVisible(); return false;
-            case XKB_KEY_Z: d.redo(); ensureCursorVisible(); return false;
+            case XKB_KEY_z: case XKB_KEY_Z:  // (Caps Lock makes the key give a capital Z: only the Shift key means redo)
+                if (shift) d.redo(); else d.undo();
+                ensureCursorVisible();
+                return false;
             case XKB_KEY_y: case XKB_KEY_Y: d.redo(); ensureCursorVisible(); return false;
             case XKB_KEY_a: case XKB_KEY_A: d.selectAll(); g.dirty = true; return false;
             case XKB_KEY_c: case XKB_KEY_C: copyToClipboard(d.selectedText()); return false;
@@ -866,7 +986,9 @@ int run(int argc, char** argv) {
     applyShellFont(fontFamilyFromConfig(dataDir() + "/config.json"), fontWeightFromConfig(dataDir() + "/config.json", "fontWeightText", 450), fontWeightFromConfig(dataDir() + "/config.json", "fontWeightTitle", 550));
     loadColors();
     loadSettings();
+    if (handOffToRunning(argc, argv)) return 0;  // already open: it gets the files
     if (!connectWayland()) return 1;
+    listenForHandOffs();
     // dead keys and compose sequences, from the locale of the session
     g.xkbCtx = g.xkbCtx ? g.xkbCtx : xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     {
@@ -886,8 +1008,9 @@ int run(int argc, char** argv) {
     g_wakeFd = wake[1];
     g.docs.push_back(std::make_unique<t3::Doc>());
     g.sideDir = homeDir();
+    if (g.restoreSession) restoreSession();
     for (int i = 1; i < argc; i++) openPath(argv[i]);
-    if (argc <= 1) readSideDir(); else followActiveFile();
+    if (g.docs.size() == 1 && doc().path.empty()) readSideDir(); else followActiveFile();
     if (g.sideEntries.empty() && !g.sideDir.empty()) readSideDir();
 
     std::signal(SIGTERM, onTermSignal);
@@ -897,8 +1020,8 @@ int run(int argc, char** argv) {
     while (g.running && !g_term) {
         while (wl_display_prepare_read(g.display) != 0) wl_display_dispatch_pending(g.display);
         wl_display_flush(g.display);
-        pollfd fds[] = {{wl_display_get_fd(g.display), POLLIN, 0}, {wake[0], POLLIN, 0}};
-        if (poll(fds, 2, pollTimeout()) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
+        pollfd fds[] = {{wl_display_get_fd(g.display), POLLIN, 0}, {wake[0], POLLIN, 0}, {g_listenFd, POLLIN, 0}};
+        if (poll(fds, 3, pollTimeout()) < 0 && errno != EINTR) { wl_display_cancel_read(g.display); break; }
         if (fds[0].revents & POLLIN) wl_display_read_events(g.display);
         else wl_display_cancel_read(g.display);
         wl_display_dispatch_pending(g.display);
@@ -908,9 +1031,12 @@ int run(int argc, char** argv) {
             while (read(wake[0], junk, sizeof junk) > 0) {}
             g.dirty = true;
         }
+        if (fds[2].revents & POLLIN) acceptHandOffs();
         tick();
         if (g.dirty) render();
     }
+    saveSession();
+    if (g_listenFd >= 0) { close(g_listenFd); unlink(socketPath().c_str()); }
     teardown();
     g_object_unref(g_measure);
     cairo_destroy(dcr);

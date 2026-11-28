@@ -9,6 +9,8 @@
 #include <pango/pangocairo.h>
 #include <poll.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -118,7 +120,7 @@ struct App {
     // The documents.
     std::vector<std::unique_ptr<t3::Doc>> docs;
     int active = 0;
-    bool sidebar = true;
+    bool sidebar = true, restoreSession = true;  // restoreSession: the files of the last time open again (t3xt.txt: restore=0 turns it off)
     int fontPx = 14;
     double tabScroll = 0;
 
