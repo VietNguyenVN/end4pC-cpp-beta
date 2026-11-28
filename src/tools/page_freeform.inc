@@ -632,33 +632,31 @@ struct FreeformPage final : ToolPage {
     }
     void loadFamilies() {
         if (!families.empty()) return;
-        PangoFontFamily** all = nullptr;
-        int n = 0;
-        pango_font_map_list_families(pango_cairo_font_map_get_default(), &all, &n);
+        // Query cached character sets without opening a font for every family.
+        // Pango only needs to load the rows we actually draw.
+        FcPattern* pattern = FcPatternCreate();
+        FcObjectSet* objects = FcObjectSetBuild(FC_FAMILY, FC_CHARSET, nullptr);
+        FcFontSet* fonts = pattern && objects ? FcFontList(nullptr, pattern, objects) : nullptr;
+        if (objects) FcObjectSetDestroy(objects);
+        if (pattern) FcPatternDestroy(pattern);
+
         std::vector<std::string> names;
-        PangoFontMap* map = pango_cairo_font_map_get_default();
-        PangoContext* ctx = pango_font_map_create_context(map);
-        PangoLanguage* en = pango_language_from_string("en");
-        for (int i = 0; i < n; i++) {  // only families that can write letters (not the symbol and dingbat ones)
-            const char* name = pango_font_family_get_name(all[i]);
-            PangoFontDescription* d = pango_font_description_new();
-            pango_font_description_set_family(d, name);
-            pango_font_description_set_absolute_size(d, 14 * PANGO_SCALE);
-            PangoFont* f = pango_font_map_load_font(map, ctx, d);
-            bool letters = false;
-            if (f) {
-                PangoCoverage* cov = pango_font_get_coverage(f, en);
-                letters = pango_coverage_get(cov, 'a') == PANGO_COVERAGE_EXACT && pango_coverage_get(cov, 'Z') == PANGO_COVERAGE_EXACT;
-                g_object_unref(cov);
-                g_object_unref(f);
+        if (fonts) {
+            for (int i = 0; i < fonts->nfont; ++i) {
+                FcPattern* face = fonts->fonts[i];
+                FcCharSet* chars = nullptr;
+                FcChar8* name = nullptr;
+                if (FcPatternGetCharSet(face, FC_CHARSET, 0, &chars) == FcResultMatch &&
+                    FcCharSetHasChar(chars, 'a') && FcCharSetHasChar(chars, 'Z') &&
+                    FcPatternGetString(face, FC_FAMILY, 0, &name) == FcResultMatch && name[0])
+                    names.emplace_back(reinterpret_cast<const char*>(name));
             }
-            pango_font_description_free(d);
-            if (letters) names.push_back(name);
+            FcFontSetDestroy(fonts);
         }
-        g_object_unref(ctx);
-        g_free(all);
-        auto lower = [](std::string s) { for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return s; };
-        std::sort(names.begin(), names.end(), [&](const std::string& a, const std::string& b) { return lower(a) < lower(b); });
+        std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) {
+            const int order = g_ascii_strcasecmp(a.c_str(), b.c_str());
+            return order == 0 ? a < b : order < 0;
+        });
         names.erase(std::unique(names.begin(), names.end()), names.end());
         if (names.size() > 600) names.resize(600);
         families.push_back("");  // the first row is the default font
