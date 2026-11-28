@@ -30,6 +30,8 @@ void navigate(const std::string& path, bool record = true) {
     g.search = {};
     g.loadError.clear();
     g.thumbs.forgetPending();
+    g.waitingThumbs.clear();
+    g.fadingThumbs.clear();
     watchFolder();
     reload(false);
 }
@@ -225,6 +227,48 @@ void extractSelection(bool intoFolder) {
     submitCommands(std::move(cmds));
 }
 
+// ---- the places ------------------------------------------------------------------------------------------------------------------------
+bool placeExists(const std::string& path) {
+    for (const Place& p : g.places) if (p.path == path) return true;
+    return false;
+}
+void reindexPlaces() { for (size_t i = 0; i < g.places.size(); i++) g.places[i].user = static_cast<int>(i); }
+void addPlace(const std::string& path) {
+    std::error_code ec;
+    if (path.empty() || !fs::is_directory(path, ec)) { say(i18n::tr("That folder cannot be opened")); return; }
+    if (placeExists(path)) { say(i18n::tr("Already in Places")); return; }
+    g.places.push_back(makePlace(path));
+    reindexPlaces();
+    savePlaces(g.places);
+    g.dirty = true;
+}
+void removePlace(int i) {
+    if (i < 0 || i >= static_cast<int>(g.places.size())) return;
+    g.places.erase(g.places.begin() + i);
+    reindexPlaces();
+    savePlaces(g.places);
+    g.dirty = true;
+}
+void movePlace(int from, int to) {
+    const int n = static_cast<int>(g.places.size());
+    if (from < 0 || from >= n) return;
+    to = std::clamp(to, 0, n - 1);
+    if (from == to) return;
+    Place moved = g.places[static_cast<size_t>(from)];
+    g.places.erase(g.places.begin() + from);
+    g.places.insert(g.places.begin() + to, std::move(moved));
+    reindexPlaces();
+    savePlaces(g.places);
+    g.dirty = true;
+}
+void updateDrop() {
+    const int n = static_cast<int>(g.places.size());
+    if (n == 0) return;
+    const int to = std::clamp(static_cast<int>((g.py - g.placeRowsY0) / g.placeStep), 0, n - 1);
+    if (to != g.dropIndex) { g.dropIndex = to; g.dirty = true; }
+}
+void cancelPlacePress() { g.pressedPlace = -1; g.placeDrag = false; g.dirty = true; }
+
 // ---- the menu --------------------------------------------------------------------------------------------------------------------------
 MenuItem item(const std::string& label, const char* ic, Act act, int arg = 0, bool enabled = true) {
     MenuItem m;
@@ -251,6 +295,7 @@ void buildMenu(bool onItem) {
         g.menu.push_back(item(i18n::tr("Cut"), "scissors", Act::Cut));
         g.menu.push_back(item(i18n::tr("Copy"), "copy", Act::Copy));
         g.menu.push_back(item(i18n::tr("Rename"), "pen", Act::Rename, 0, one));
+        if (one && sel[0]->dir && !placeExists(sel[0]->path)) g.menu.push_back(item(i18n::tr("Add to Places"), "bookmark", Act::AddPlace, 0));
         g.menu.push_back(item(i18n::tr("Move to Trash"), "trash-bin-minimalistic", Act::Trash));
         g.menu.push_back(separatorItem());
         // Conversions: only when every selected file is of the same family.
@@ -295,13 +340,28 @@ void buildMenu(bool onItem) {
     g.menu.push_back(item(i18n::tr("New file"), "document-add", Act::NewFile));
     g.menu.push_back(separatorItem());
     g.menu.push_back(item(i18n::tr("Paste"), "clipboard-add", Act::Paste, 0, !g.clip.empty()));
+    if (!placeExists(g.cwd)) g.menu.push_back(item(i18n::tr("Add this folder to Places"), "bookmark", Act::AddPlace, 1));
     g.menu.push_back(item(i18n::tr("Select all"), "list-check", Act::SelectAll));
     g.menu.push_back(separatorItem());
     g.menu.push_back(item(i18n::tr(g.showHidden ? "Hide hidden files" : "Show hidden files"), "eye", Act::Hidden));
     g.menu.push_back(item(i18n::tr("Refresh"), "restart", Act::Refresh));
 }
-void openMenu(bool onItem) {
-    buildMenu(onItem);
+// The menu of a row of the sidebar (a place of the user, the Trash, a drive...), or of the blank part of it (side == -1).
+void buildSideMenu(int side) {
+    g.menu.clear();
+    g.menuSub = -1;
+    g.subPending = -2;
+    if (side < 0 || side >= static_cast<int>(g_sideRows.size())) {
+        g.menu.push_back(item(i18n::tr("Add this folder to Places"), "add-circle", Act::AddPlace, 1, !inTrash() && !placeExists(g.cwd)));
+        g.menu.push_back(item(i18n::tr("Reset Places"), "restart", Act::ResetPlaces));
+        return;
+    }
+    g.menu.push_back(item(i18n::tr("Open"), "folder-open", Act::OpenPlace, side));
+    if (side < static_cast<int>(g.places.size())) g.menu.push_back(item(i18n::tr("Remove from Places"), "close-circle", Act::RemovePlace, side));
+    else if (g_sideRows[static_cast<size_t>(side)].path == trashFiles()) g.menu.push_back(item(i18n::tr("Empty the Trash"), "trash-bin-trash", Act::EmptyTrash));
+}
+void openMenu(bool onItem, int side = -2) {
+    if (side != -2) buildSideMenu(side); else buildMenu(onItem);
     g.menuOpen = true;
     g.menuX = g.px;
     g.menuY = g.py;
@@ -310,6 +370,10 @@ void openMenu(bool onItem) {
 void closeMenu() { if (g.menuOpen) { g.menuOpen = false; g.menuSub = -1; g.subPending = -2; g.dirty = true; } }
 void runAct(const MenuItem& m) {
     switch (m.act) {
+        case Act::AddPlace: { const auto sel = selectedEntries(); addPlace(m.arg == 1 || sel.empty() ? g.cwd : sel[0]->path); break; }
+        case Act::RemovePlace: removePlace(m.arg); break;
+        case Act::ResetPlaces: resetPlaces(); g.places = loadPlaces(); g.dirty = true; break;
+        case Act::OpenPlace: if (m.arg >= 0 && m.arg < static_cast<int>(g_sideRows.size())) navigate(g_sideRows[static_cast<size_t>(m.arg)].path); break;
         case Act::Open: { const auto sel = selectedEntries(); if (sel.size() == 1) for (size_t i = 0; i < g.view.size(); i++) if (entryAt(static_cast<int>(i)).path == sel[0]->path) { openEntry(static_cast<int>(i)); break; } break; }
         case Act::Cut: copySelection(true); break;
         case Act::Copy: copySelection(false); break;
@@ -397,6 +461,7 @@ bool handleKey(uint32_t key) {
     if (!g.xkbState) return false;
     const xkb_keysym_t sym = xkb_state_key_get_one_sym(g.xkbState, key + 8);
     const bool ctrl = modActive(XKB_MOD_NAME_CTRL), shift = modActive(XKB_MOD_NAME_SHIFT), alt = modActive(XKB_MOD_NAME_ALT);
+    if (g.pressedPlace != -1 && sym == XKB_KEY_Escape) { cancelPlacePress(); return false; }
     if (g.dialog == Dlg::ConfirmDelete) {
         if (sym == XKB_KEY_Escape) closeDialog();
         else if (sym == XKB_KEY_Return || sym == XKB_KEY_KP_Enter) commitDialog();
@@ -462,7 +527,8 @@ bool handleKey(uint32_t key) {
 }
 
 // ---- the mouse -------------------------------------------------------------------------------------------------------------------------
-void setHover() {
+void updateCursor();
+void setHoverImpl() {
     int id = None, arg = 0;
     if (g.inside) for (auto it = g.hits.rbegin(); it != g.hits.rend(); ++it) if (it->r.contains(g.px, g.py)) { id = it->id; arg = it->arg; break; }
     if (id != g.hoverId || arg != g.hoverArg) {
@@ -481,6 +547,8 @@ void setHover() {
         }
     }
 }
+void setHover() { setHoverImpl(); updateCursor(); }
+
 // The lasso follows the pointer: whatever its rectangle touches is selected (with Ctrl held at the start, on top of what was already selected).
 void updateLasso() {
     g.lassoX1 = std::clamp(g.px - g.content.x, 0.0, g.content.w);
@@ -494,11 +562,57 @@ void updateLasso() {
     }
     g.dirty = true;
 }
+// The pointer: an arrow by default, a hand over what can be clicked, a text cursor over the fields. (Without this the compositor may show whatever it had.)
+void updateCursor() {
+    if (!g.cursorMgr || !g.pointer || !g.inside) return;
+    if (!g.cursorDev) g.cursorDev = wp_cursor_shape_manager_v1_get_pointer(g.cursorMgr, g.pointer);
+    int shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
+    if (g.placeDrag) {  // picked up: a closed hand
+        if (g.cursorShape != WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_GRABBING) { g.cursorShape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_GRABBING; wp_cursor_shape_device_v1_set_shape(g.cursorDev, g.enterSerial, g.cursorShape); }
+        return;
+    }
+    switch (g.hoverId) {
+        case SearchField: case DialogField: shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT; break;
+        case None: case Empty: case Scrim: case SideEmpty: break;
+        case ScrollThumb: case ScrollTrack: break;  // (an arrow over the scroll bar, as everywhere)
+        case MenuRow: if (g.hoverArg >= 0) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER; break;
+        default: shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER; break;
+    }
+    if (g.dialog != Dlg::None && g.hoverId == Scrim) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
+    if (shape == g.cursorShape) return;
+    g.cursorShape = shape;
+    wp_cursor_shape_device_v1_set_shape(g.cursorDev, g.enterSerial, shape);
+}
+
+// Dragging the scroll bar: the handle follows the pointer, and the folder with it.
+void dragScrollTo(double py) {
+    const double travel = g.scrollTrack.h - g.thumbH;
+    if (travel <= 0 || g.scrollMax <= 0) return;
+    const double top = std::clamp(py - g.dragScrollOffset, g.scrollTrack.y, g.scrollTrack.y + travel);
+    g.scroll = std::clamp((top - g.scrollTrack.y) / travel * g.scrollMax, 0.0, g.scrollMax);
+    g.band.reset();
+    g.dirty = true;
+}
 void onMotion() {
+    if (g.pressedPlace >= 0) {  // a button is down on a place: moving before the hold counts cancels it; once picked up, the pointer sets where it lands
+        if (g.placeDrag) { updateDrop(); g.dirty = true; }
+        else if (std::abs(g.py - g.pressY) > 8 || std::abs(g.px - g.pressX) > 8) g.pressedPlace = -2;
+    }
+    if (g.dragScroll) { dragScrollTo(g.py); return; }
     if (g.lasso) { updateLasso(); return; }
     setHover();
 }
-void onRelease() { if (g.lasso) { g.lasso = false; g.dirty = true; } }
+void onRelease() {
+    if (g.pressedPlace != -1) {
+        const int row = g.pressedPlace;
+        const bool dragging = g.placeDrag, stillOnIt = g.hoverId == PlaceRow && g.hoverArg == row;
+        const int to = g.dropIndex;
+        cancelPlacePress();
+        if (dragging) movePlace(row, to);
+        else if (row >= 0 && stillOnIt && row < static_cast<int>(g_sideRows.size())) navigate(g_sideRows[static_cast<size_t>(row)].path);
+        return;
+    }
+    if (g.dragScroll) { g.dragScroll = false; g.dirty = true; } if (g.lasso) { g.lasso = false; g.dirty = true; } }
 
 void activateMenuRow(int arg) {
     const MenuItem* m = nullptr;
@@ -535,6 +649,8 @@ void onClick(uint32_t button) {
     if (button == 0x114) { goForward(); return; }  // and the "forward" one
     if (right) {
         if (g.hoverId == Item) { if (!g.selected.count(entryAt(g.hoverArg).path)) selectOnly(g.hoverArg); openMenu(true); }
+        else if (g.hoverId == PlaceRow) openMenu(false, g.hoverArg);
+        else if (g.hoverId == SideEmpty) openMenu(false, -1);
         else if (g.hoverId == Empty || g.hoverId == None) { g.selected.clear(); openMenu(false); }
         return;
     }
@@ -556,7 +672,19 @@ void onClick(uint32_t button) {
         case SearchField: g.focus = 1; g.search.cur = g.search.s.size(); g.dirty = true; break;
         case SearchClear: g.search = {}; g.viewDirty = true; g.dirty = true; break;
         case Crumb: if (g.hoverArg >= 0 && g.hoverArg < static_cast<int>(g_crumbPaths.size())) navigate(g_crumbPaths[static_cast<size_t>(g.hoverArg)]); break;
-        case PlaceRow: if (g.hoverArg >= 0 && g.hoverArg < static_cast<int>(g_sideRows.size())) navigate(g_sideRows[static_cast<size_t>(g.hoverArg)].path); break;
+        case PlaceRow:  // it opens when the button is let go; held for a moment, it is picked up instead (see tick)
+            g.pressedPlace = g.hoverArg;
+            g.pressAt = Clock::now();
+            g.pressX = g.px;
+            g.pressY = g.py;
+            g.placeDrag = false;
+            break;
+        case ScrollThumb: g.dragScroll = true; g.dragScrollOffset = g.py - g.thumbTop; g.dirty = true; break;
+        case ScrollTrack:  // a click on the track: the handle jumps to the pointer and can be dragged from there
+            g.dragScroll = true;
+            g.dragScrollOffset = g.thumbH / 2;
+            dragScrollTo(g.py);
+            break;
         case StatusCancel: g.worker.cancelAll(); break;
         case Empty:
             g.lassoBase = modActive(XKB_MOD_NAME_CTRL) || modActive(XKB_MOD_NAME_SHIFT) ? g.selected : std::set<std::string>{};
@@ -651,7 +779,7 @@ void onTopConfigure(void*, xdg_toplevel*, int32_t w, int32_t h, wl_array*) {
 void onTopClose(void*, xdg_toplevel*) { g.running = false; }
 const xdg_toplevel_listener kToplevelListener = {onTopConfigure, onTopClose, nullptr, nullptr};
 
-void onPEnter(void*, wl_pointer*, uint32_t, wl_surface*, wl_fixed_t x, wl_fixed_t y) { g.inside = true; g.px = wl_fixed_to_double(x); g.py = wl_fixed_to_double(y); setHover(); }
+void onPEnter(void*, wl_pointer*, uint32_t serial, wl_surface*, wl_fixed_t x, wl_fixed_t y) { g.enterSerial = serial; g.cursorShape = -1; g.inside = true; g.px = wl_fixed_to_double(x); g.py = wl_fixed_to_double(y); setHover(); }
 void onPLeave(void*, wl_pointer*, uint32_t, wl_surface*) { g.inside = false; setHover(); }
 void onPMotion(void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) { g.px = wl_fixed_to_double(x); g.py = wl_fixed_to_double(y); onMotion(); }
 void onPButton(void*, wl_pointer*, uint32_t, uint32_t, uint32_t button, uint32_t state) { if (state == WL_POINTER_BUTTON_STATE_PRESSED) onClick(button); else if (button == 0x110) onRelease(); }
@@ -698,6 +826,7 @@ void onGlobal(void*, wl_registry* reg, uint32_t name, const char* iface, uint32_
     else if (!std::strcmp(iface, wp_viewporter_interface.name) && !hidpi::disabled()) g.viewporter = static_cast<wp_viewporter*>(wl_registry_bind(reg, name, &wp_viewporter_interface, 1));
     else if (!std::strcmp(iface, wp_fractional_scale_manager_v1_interface.name) && !hidpi::disabled())
         g.fscaleMgr = static_cast<wp_fractional_scale_manager_v1*>(wl_registry_bind(reg, name, &wp_fractional_scale_manager_v1_interface, 1));
+    else if (!std::strcmp(iface, wp_cursor_shape_manager_v1_interface.name)) g.cursorMgr = static_cast<wp_cursor_shape_manager_v1*>(wl_registry_bind(reg, name, &wp_cursor_shape_manager_v1_interface, 1));
     else if (!std::strcmp(iface, wl_seat_interface.name)) {
         g.seat = static_cast<wl_seat*>(wl_registry_bind(reg, name, &wl_seat_interface, std::min(version, 5u)));
         wl_seat_add_listener(g.seat, &kSeatListener, nullptr);
@@ -767,6 +896,13 @@ void tick() {
         g.subPending = -2;
         g.dirty = true;
     }
+    if (g.pressedPlace >= 0 && !g.placeDrag && g.pressedPlace < static_cast<int>(g.places.size()) && now - g.pressAt > std::chrono::milliseconds(450)) {
+        g.placeDrag = true;  // held long enough: the place is picked up
+        g.dropIndex = g.pressedPlace;
+        g.dirty = true;
+        updateCursor();
+    }
+    if (g.animating) g.dirty = true;  // a fade is running
     if (g.band.step()) g.dirty = true;
     if (g.viewDirty) rebuildView();
     if (now - g.drivesAt > std::chrono::seconds(4)) {
@@ -785,7 +921,8 @@ void tick() {
 }
 
 int pollTimeout() {
-    if (g.band.busy() || g.lasso) return 16;
+    if (g.band.busy() || g.lasso || g.animating || g.placeDrag) return 16;
+    if (g.pressedPlace >= 0) return 33;
     if (g.menuOpen && g.subPending != -2) return 33;
     if (g.worker.busy || !g.toast.empty()) return 33;
     if (g.focus != 0) return 120;
@@ -793,6 +930,7 @@ int pollTimeout() {
 }
 
 void teardown() {
+    if (g.cursorDev) wp_cursor_shape_device_v1_destroy(g.cursorDev);
     g.worker.shutdown();
     g.thumbs.shutdown();
     if (g.inotifyFd >= 0) close(g.inotifyFd);
@@ -835,7 +973,7 @@ int run(int argc, char** argv) {
     g.thumbs.start(wake[1]);
     g.worker.start(wake[1]);
     g.inotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    g.places = userPlaces();
+    g.places = loadPlaces();
     g.drives = driveList();
 
     std::string first = homeDir();

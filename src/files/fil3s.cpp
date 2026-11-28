@@ -42,6 +42,7 @@
 #include "../hidpi.h"
 #include "../i18n.h"
 #include "../shellfont.h"
+#include "cursor-shape-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
 namespace {
@@ -59,11 +60,11 @@ struct Field {
 constexpr int kDefaultW = 1180, kDefaultH = 720, kMinW = 760, kMinH = 480;
 constexpr double kPad = 16, kHeaderH = 56, kSideW = 248, kRadius = 28;
 
-enum Id { None, BtnBack, BtnForward, BtnUp, BtnClose, BtnView, BtnSort, BtnHidden, BtnNew, Crumb, PlaceRow, Item, SearchField, SearchClear, MenuRow, DialogOk, DialogCancel, DialogField, Scrim, StatusCancel, Empty };
+enum Id { None, BtnBack, BtnForward, BtnUp, BtnClose, BtnView, BtnSort, BtnHidden, BtnNew, Crumb, SideEmpty, ScrollThumb, ScrollTrack, PlaceRow, Item, SearchField, SearchClear, MenuRow, DialogOk, DialogCancel, DialogField, Scrim, StatusCancel, Empty };
 struct Hit { Rect r; int id, arg; };
 
 // One entry of the right-click menu; an entry with `children` opens a second panel beside it.
-enum class Act { Open, Cut, Copy, Paste, Rename, Trash, Delete, Restore, EmptyTrash, NewFolder, NewFile, Convert, Compress, Extract, ExtractHere, SelectAll, Refresh, Hidden, None };
+enum class Act { AddPlace, RemovePlace, ResetPlaces, OpenPlace, Open, Cut, Copy, Paste, Rename, Trash, Delete, Restore, EmptyTrash, NewFolder, NewFile, Convert, Compress, Extract, ExtractHere, SelectAll, Refresh, Hidden, None };
 struct MenuItem {
     std::string label;
     const char* icon = "";
@@ -97,6 +98,10 @@ struct App {
     xdg_wm_base* wm = nullptr;
     wp_viewporter* viewporter = nullptr;
     wp_fractional_scale_manager_v1* fscaleMgr = nullptr;
+    wp_cursor_shape_manager_v1* cursorMgr = nullptr;  // the shape of the pointer is asked of the compositor (an arrow, a hand over buttons, a text cursor over fields)
+    wp_cursor_shape_device_v1* cursorDev = nullptr;
+    uint32_t enterSerial = 0;
+    int cursorShape = -1;
     wl_surface* surface = nullptr;
     xdg_surface* xsurface = nullptr;
     xdg_toplevel* toplevel = nullptr;
@@ -145,6 +150,11 @@ struct App {
     Elastic band;
     double scroll = 0, scrollMax = 0;
     Rect content, sidebar;
+    // The scroll bar of the folder (always visible here: it is also a handle). Geometry set while drawing.
+    Rect scrollTrack;
+    double thumbTop = 0, thumbH = 0;
+    bool dragScroll = false;
+    double dragScrollOffset = 0;
     int columns = 1;
     double cellW = 0, cellH = 0;
     // The lasso: dragging on the empty part of the folder selects what the rectangle touches (positions in the content, so it follows the scroll).
@@ -168,10 +178,22 @@ struct App {
     std::string toast;
     Clock::time_point toastAt{};
 
-    std::vector<Place> places, drives;
+    std::vector<Place> places, drives;   // places: the ones the user can edit (add, remove, reorder with a long press)
+    // A long press on a place picks it up: it follows the pointer and the others make room; letting go drops it there.
+    int pressedPlace = -1;               // the row of the sidebar under the button (-1 none, -2 the press was cancelled)
+    Clock::time_point pressAt{};
+    double pressX = 0, pressY = 0;
+    bool placeDrag = false;
+    int dropIndex = 0;
+    double placeRowsY0 = 0, placeStep = 46;
+    int placeCount = 0;
     Clock::time_point drivesAt{};
     int inotifyFd = -1, watch = -1;
 
+    // Thumbnails appear with a short fade instead of popping in: the ones drawn as placeholders wait here, and start fading when their picture arrives.
+    std::set<std::string> waitingThumbs;
+    std::map<std::string, Clock::time_point> fadingThumbs;
+    bool animating = false;  // something on screen is moving (a fade): the loop keeps drawing
     Lister lister;
     Thumbnailer thumbs;
     Worker worker;

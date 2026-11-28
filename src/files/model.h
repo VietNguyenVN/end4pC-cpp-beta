@@ -88,23 +88,55 @@ std::string formatDate(time_t t) {
 std::string trashFiles() { return envDir("XDG_DATA_HOME", homeDir() + "/.local/share") + "/Trash/files"; }
 std::string trashInfo() { return envDir("XDG_DATA_HOME", homeDir() + "/.local/share") + "/Trash/info"; }
 
-struct Place { std::string label, path, icon; };
-std::vector<Place> userPlaces() {
-    std::vector<Place> out;
+struct Place { std::string label, path, icon; int user = -1; };  // user: the position among the places the user can edit (-1: a fixed row)
+
+// A place from a folder: the usual ones (Home, Documents...) keep their name and icon, any other is called after the folder.
+Place makePlace(const std::string& path) {
     const std::string home = homeDir();
-    auto add = [&](const char* label, const std::string& p, const char* ic) {
+    struct Known { const char* dir; const char* label; const char* icon; };
+    static const Known known[] = {{"", "Home", "home-smile"}, {"/Desktop", "Desktop", "monitor"}, {"/Documents", "Documents", "document-text"}, {"/Downloads", "Downloads", "download-minimalistic"},
+                                  {"/Music", "Music", "music-note"}, {"/Pictures", "Pictures", "gallery"}, {"/Videos", "Videos", "videocamera"}};
+    for (const Known& k : known) if (path == home + k.dir) return {i18n::tr(k.label), path, k.icon, -1};
+    const std::string name = fs::path(path).filename().string();
+    return {name.empty() ? path : name, path, "folder", -1};
+}
+std::string placesFile() { return dataDir() + "/fil3s-places.txt"; }
+std::vector<std::string> defaultPlacePaths() {
+    std::vector<std::string> out;
+    const std::string home = homeDir();
+    out.push_back(home);
+    for (const char* d : {"/Desktop", "/Documents", "/Downloads", "/Music", "/Pictures", "/Videos"}) {
         std::error_code ec;
-        if (fs::is_directory(p, ec)) out.push_back({i18n::tr(label), p, ic});
-    };
-    out.push_back({i18n::tr("Home"), home, "home-smile"});
-    add("Desktop", home + "/Desktop", "monitor");
-    add("Documents", home + "/Documents", "document-text");
-    add("Downloads", home + "/Downloads", "download-minimalistic");
-    add("Music", home + "/Music", "music-note");
-    add("Pictures", home + "/Pictures", "gallery");
-    add("Videos", home + "/Videos", "videocamera");
+        if (fs::is_directory(home + d, ec)) out.push_back(home + d);
+    }
     return out;
 }
+// The places of the sidebar: the list the user made (one folder per line), or the usual ones until they change it.
+std::vector<Place> loadPlaces() {
+    std::vector<std::string> paths;
+    std::ifstream f(placesFile());
+    std::string line;
+    bool have = false;
+    while (std::getline(f, line)) {
+        have = true;
+        if (!line.empty() && line[0] == '/' && line.find('\0') == std::string::npos) paths.push_back(line);
+    }
+    if (!have) paths = defaultPlacePaths();
+    std::vector<Place> out;
+    for (const std::string& p : paths) { Place pl = makePlace(p); pl.user = static_cast<int>(out.size()); out.push_back(std::move(pl)); }
+    return out;
+}
+void savePlaces(const std::vector<Place>& places) {
+    std::error_code ec;
+    fs::create_directories(dataDir(), ec);
+    const std::string tmp = placesFile() + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::trunc);
+        for (const Place& p : places) f << p.path << "\n";
+    }
+    fs::rename(tmp, placesFile(), ec);
+}
+void resetPlaces() { std::error_code ec; fs::remove(placesFile(), ec); }
 // Mounted drives: what the desktop mounts under /run/media/<user> or /mnt.
 std::vector<Place> driveList() {
     std::vector<Place> out;
@@ -212,7 +244,9 @@ struct Lister {
 };
 
 // ---- thumbnails ------------------------------------------------------------------------------------------------------------------------
-constexpr int kThumbPx = 256;
+constexpr int kThumbPx = 256;      // the size of the thumbnails on disk ("large" of the freedesktop spec)
+constexpr int kMemoryPx = 192;     // what is kept in memory: the biggest tile (96 px) at a scale of 2
+constexpr size_t kMemoryMax = 400; // thumbnails kept in memory (about 60 MB at the most); the disk cache has the rest
 struct Thumb { cairo_surface_t* surface = nullptr; bool failed = false; uint64_t used = 0; };
 
 cairo_surface_t* surfaceFromPixbuf(GdkPixbuf* pb) {
@@ -229,6 +263,51 @@ cairo_surface_t* surfaceFromPixbuf(GdkPixbuf* pb) {
         }
     cairo_surface_mark_dirty(img);
     return img;
+}
+
+// The thumbnail cache of the desktop (freedesktop.org thumbnail spec): ~/.cache/thumbnails/large/<md5 of the file:// uri>.png, with the modification
+// time of the picture inside the PNG. Fil3s reads what other file managers made and writes what they can read, so a folder seen once is instant
+// the next time (and in the next session).
+struct ThumbKey { std::string uri, name; };
+ThumbKey thumbKey(const std::string& path) {
+    ThumbKey k;
+    gchar* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
+    if (!uri) return k;
+    gchar* sum = g_compute_checksum_for_string(G_CHECKSUM_MD5, uri, -1);
+    k.uri = uri;
+    k.name = std::string(sum) + ".png";
+    g_free(uri);
+    g_free(sum);
+    return k;
+}
+std::string thumbRoot() { return envDir("XDG_CACHE_HOME", homeDir() + "/.cache") + "/thumbnails"; }
+// A cached thumbnail whose recorded mtime is the file's own (a changed picture is made again), or nullptr.
+GdkPixbuf* readCachedThumb(const ThumbKey& key, time_t mtime) {
+    if (key.name.empty()) return nullptr;
+    for (const char* size : {"large", "normal"}) {
+        const std::string file = thumbRoot() + "/" + size + "/" + key.name;
+        if (access(file.c_str(), R_OK) != 0) continue;
+        GdkPixbuf* pb = gdk_pixbuf_new_from_file(file.c_str(), nullptr);
+        if (!pb) continue;
+        const char* recorded = gdk_pixbuf_get_option(pb, "tEXt::Thumb::MTime");
+        if (recorded && std::atoll(recorded) == static_cast<long long>(mtime)) return pb;
+        g_object_unref(pb);
+    }
+    return nullptr;
+}
+void writeCachedThumb(GdkPixbuf* pb, const ThumbKey& key, time_t mtime, const std::string& sourcePath) {
+    if (key.name.empty() || sourcePath.rfind(thumbRoot() + "/", 0) == 0) return;  // (never a thumbnail of a thumbnail)
+    const std::string dir = thumbRoot() + "/large";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    chmod(thumbRoot().c_str(), 0700);
+    chmod(dir.c_str(), 0700);
+    const std::string tmp = dir + "/." + key.name + "." + std::to_string(getpid()) + ".tmp", target = dir + "/" + key.name;
+    const std::string mt = std::to_string(static_cast<long long>(mtime));
+    if (gdk_pixbuf_save(pb, tmp.c_str(), "png", nullptr, "tEXt::Thumb::URI", key.uri.c_str(), "tEXt::Thumb::MTime", mt.c_str(), "tEXt::Software", "end4pC Fil3s", nullptr)) {
+        chmod(tmp.c_str(), 0600);
+        if (rename(tmp.c_str(), target.c_str()) != 0) unlink(tmp.c_str());
+    } else unlink(tmp.c_str());
 }
 
 // Decodes the thumbnails of the files on screen, the last asked first (what you scrolled to is what you want to see). Two threads.
@@ -265,23 +344,26 @@ struct Thumbnailer {
         }
         return nullptr;
     }
+    // The oldest quarter goes when there are too many (what is on screen is the most recently asked for, so it stays). Call with the mutex held.
+    void evictLocked() {
+        if (done.size() <= kMemoryMax) return;
+        std::vector<std::pair<uint64_t, std::string>> order;
+        for (auto& [p, th] : done) order.push_back({th.used, p});
+        std::sort(order.begin(), order.end());
+        for (size_t i = 0; i < order.size() / 4; i++) {
+            auto it = done.find(order[i].second);
+            if (it->second.surface) cairo_surface_destroy(it->second.surface);
+            queued.erase(it->first);
+            done.erase(it);
+        }
+    }
     void forgetPending() {  // another folder: what was queued for the old one is not needed
         std::lock_guard<std::mutex> lock(mutex);
         pending.clear();
         queued.clear();
         for (auto& [p, th] : done) queued.insert(p);
         // keep the decoded ones (cheap to reuse when going back) but bound them
-        if (done.size() > 600) {
-            std::vector<std::pair<uint64_t, std::string>> order;
-            for (auto& [p, th] : done) order.push_back({th.used, p});
-            std::sort(order.begin(), order.end());
-            for (size_t i = 0; i < order.size() / 2; i++) {
-                auto it = done.find(order[i].second);
-                if (it->second.surface) cairo_surface_destroy(it->second.surface);
-                queued.erase(it->first);
-                done.erase(it);
-            }
-        }
+        evictLocked();
     }
     void work() {
         while (true) {
@@ -294,23 +376,37 @@ struct Thumbnailer {
                 pending.pop_back();
             }
             Thumb th;
-            GError* err = nullptr;
-            // Pictures come from anywhere: only the common formats, only regular files, and nothing with a huge canvas (a decompression bomb).
-            int iw = 0, ih = 0;
+            struct stat st{};
             GdkPixbuf* pb = nullptr;
-            if (gdk_pixbuf_get_file_info(path.c_str(), &iw, &ih) && iw > 0 && ih > 0 && static_cast<int64_t>(iw) * ih <= 120'000'000)
-                pb = gdk_pixbuf_new_from_file_at_scale(path.c_str(), kThumbPx, kThumbPx, TRUE, &err);
+            if (stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+                const ThumbKey key = thumbKey(path);
+                pb = readCachedThumb(key, st.st_mtime);  // made before (by us or by another file manager): no decoding of the picture itself
+                if (!pb) {
+                    // Pictures come from anywhere: only regular files, only the formats gdk-pixbuf knows, nothing with a huge canvas (a decompression bomb).
+                    int iw = 0, ih = 0;
+                    if (gdk_pixbuf_get_file_info(path.c_str(), &iw, &ih) && iw > 0 && ih > 0 && static_cast<int64_t>(iw) * ih <= 120'000'000)
+                        pb = gdk_pixbuf_new_from_file_at_scale(path.c_str(), kThumbPx, kThumbPx, TRUE, nullptr);
+                    if (pb) {
+                        GdkPixbuf* oriented = gdk_pixbuf_apply_embedded_orientation(pb);
+                        if (oriented) { g_object_unref(pb); pb = oriented; }
+                        writeCachedThumb(pb, key, st.st_mtime, path);
+                    }
+                }
+            }
             if (pb) {
-                GdkPixbuf* oriented = gdk_pixbuf_apply_embedded_orientation(pb);
-                if (oriented) { g_object_unref(pb); pb = oriented; }
+                const int w = gdk_pixbuf_get_width(pb), h = gdk_pixbuf_get_height(pb), big = std::max(w, h);
+                if (big > kMemoryPx) {  // the memory copy is only as big as it is ever drawn
+                    GdkPixbuf* small = gdk_pixbuf_scale_simple(pb, std::max(1, w * kMemoryPx / big), std::max(1, h * kMemoryPx / big), GDK_INTERP_BILINEAR);
+                    if (small) { g_object_unref(pb); pb = small; }
+                }
                 th.surface = surfaceFromPixbuf(pb);
                 g_object_unref(pb);
             } else th.failed = true;
-            if (err) g_error_free(err);
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 th.used = ++clock;
                 done[path] = th;
+                evictLocked();
             }
             const char c = 1;
             if (wakeFd >= 0 && write(wakeFd, &c, 1) < 0) {}

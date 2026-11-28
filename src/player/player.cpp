@@ -40,6 +40,7 @@
 #include "../shellfont.h"
 #include "engine.h"
 #include "mpris.h"
+#include "cursor-shape-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
 namespace {
@@ -84,6 +85,10 @@ struct App {
     xdg_wm_base* wm = nullptr;
     wp_viewporter* viewporter = nullptr;
     wp_fractional_scale_manager_v1* fscaleMgr = nullptr;
+    wp_cursor_shape_manager_v1* cursorMgr = nullptr;
+    wp_cursor_shape_device_v1* cursorDev = nullptr;
+    uint32_t enterSerial = 0;
+    int cursorShape = -1;
     wl_surface* surface = nullptr;
     xdg_surface* xsurface = nullptr;
     xdg_toplevel* toplevel = nullptr;

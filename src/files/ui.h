@@ -14,6 +14,7 @@ bool hotIn(const Rect& r, const Rect& visible, int id, int arg = 0) {
 }
 
 const Entry& entryAt(int viewIndex) { return g.entries[static_cast<size_t>(g.view[static_cast<size_t>(viewIndex)])]; }
+constexpr double kBarW = 14;  // the room the scroll bar takes at the right of the files
 bool isSelected(const Entry& e) { return g.selected.count(e.path) > 0; }
 bool inTrash() { return g.cwd == trashFiles(); }
 
@@ -135,59 +136,130 @@ void drawSidebar(cairo_t* cr, const Rect& card) {
     rrect(cr, card.x, card.y, card.w, card.h, kRadius);
     cairo_fill(cr);
     g_sideRows.clear();
+    hotIn(card, card, SideEmpty);  // (the blank part of the sidebar: it has a menu of its own; the rows are added after it, so they win)
     double y = card.y + 14;
-    const double x = card.x + 10, w = card.w - 20, rowH = 44;
-    auto section = [&](const std::string& title, const std::vector<Place>& list) {
-        if (list.empty()) return;
-        text(cr, title, x + 14, y + 4, 13, true, color("on_surface_variant"), 0.85);
-        y += 28;
-        for (const Place& p : list) {
-            if (y + rowH > card.y + card.h - 10) break;
-            g_sideRows.push_back(p);
-            placeRow(cr, {x, y, w, rowH}, p, static_cast<int>(g_sideRows.size()) - 1, g.cwd == p.path);
-            y += rowH + 2;
-        }
-        y += 8;
+    const double x = card.x + 10, w = card.w - 20, rowH = 44, bottomEdge = card.y + card.h - 10;
+    auto sectionTitle = [&](const std::string& title) { text(cr, title, x + 14, y + 4, 13, true, color("on_surface_variant"), 0.85); y += 28; };
+    auto fixedRow = [&](const Place& p) {
+        if (y + rowH > bottomEdge) return;
+        g_sideRows.push_back(p);
+        placeRow(cr, {x, y, w, rowH}, p, static_cast<int>(g_sideRows.size()) - 1, g.cwd == p.path);
+        y += rowH + 2;
     };
-    std::vector<Place> main = g.places;
-    main.push_back({i18n::tr("Trash"), trashFiles(), "trash-bin-minimalistic"});
-    section(i18n::tr("Places"), main);
-    section(i18n::tr("Drives"), g.drives);
-    std::vector<Place> system{{i18n::tr("Computer"), "/", "server-minimalistic"}};
-    section(i18n::tr("System"), system);
+
+    // Places: the ones the user keeps (add with the menu of a folder, remove with the menu of a row, reorder with a long press), then the Trash.
+    text(cr, i18n::tr("Places"), x + 14, y + 4, 13, true, color("on_surface_variant"), 0.85);
+    y += 28;
+    const int n = static_cast<int>(g.places.size());
+    for (const Place& p : g.places) { Place q = p; g_sideRows.push_back(q); }  // (in order: the index of a row is the position of the place)
+    g.placeRowsY0 = y;
+    g.placeStep = rowH + 2;
+    const int dragged = g.placeDrag && g.pressedPlace >= 0 && g.pressedPlace < n ? g.pressedPlace : -1;
+    std::vector<int> order;
+    for (int i = 0; i < n; i++) if (i != dragged) order.push_back(i);
+    if (dragged >= 0) order.insert(order.begin() + std::clamp(g.dropIndex, 0, static_cast<int>(order.size())), dragged);  // the gap where it would land
+    for (int slot = 0; slot < n; slot++) {
+        const double ry = y + slot * (rowH + 2);
+        if (ry + rowH > bottomEdge) break;
+        if (order[static_cast<size_t>(slot)] == dragged) continue;
+        placeRow(cr, {x, ry, w, rowH}, g.places[static_cast<size_t>(order[static_cast<size_t>(slot)])], order[static_cast<size_t>(slot)], g.cwd == g.places[static_cast<size_t>(order[static_cast<size_t>(slot)])].path);
+    }
+    y += n * (rowH + 2);
+    if (n == 0) { text(cr, i18n::tr("Right-click a folder to add it here"), x + 14, y, 13, false, color("on_surface_variant"), 0.7, w - 28, 0, true); y += 44; }
+    fixedRow({i18n::tr("Trash"), trashFiles(), "trash-bin-minimalistic"});
+    y += 8;
+    if (!g.drives.empty()) { sectionTitle(i18n::tr("Drives")); for (const Place& p : g.drives) fixedRow(p); y += 8; }
+    sectionTitle(i18n::tr("System"));
+    fixedRow({i18n::tr("Computer"), "/", "server-minimalistic"});
+
+    // The mark of the program at the bottom, so the sidebar is never an empty column (it gives way when the rows need the room).
+    {
+        const double size = 48, ly = card.y + card.h - 14 - size;
+        if (y + 12 < ly) {
+            shapePath(cr, "Cookie12Sided", x + 8, ly, size);
+            src(cr, color("primary_container"));
+            cairo_fill(cr);
+            icon(cr, "folder-open", x + 8 + 12, ly + 12, 24, color("on_primary_container"));
+            text(cr, "Fil3s", x + 8 + size + 14, ly + (size - textHeight("Fil3s", 24, true)) / 2, 24, true, color("on_surface"));
+        }
+    }
+
+    if (dragged >= 0) {  // the one in the hand: it follows the pointer
+        const Place& p = g.places[static_cast<size_t>(dragged)];
+        const double top = g.placeRowsY0, last = g.placeRowsY0 + std::max(0, n - 1) * (rowH + 2);
+        const Rect fr{x, std::clamp(g.py - rowH / 2, top, last), w, rowH};
+        for (int i = 4; i >= 1; i--) { src(cr, color("on_surface"), 0.035); rrect(cr, fr.x - i, fr.y - i + 3, fr.w + 2 * i, fr.h + 2 * i, rowH / 2 + i); cairo_fill(cr); }
+        src(cr, color("surface_container_highest"));
+        rrect(cr, fr.x, fr.y, fr.w, fr.h, fr.h / 2);
+        cairo_fill(cr);
+        src(cr, color("primary"), 0.8);
+        cairo_set_line_width(cr, 1.5);
+        rrect(cr, fr.x + 0.75, fr.y + 0.75, fr.w - 1.5, fr.h - 1.5, fr.h / 2 - 0.75);
+        cairo_stroke(cr);
+        icon(cr, p.icon.c_str(), fr.x + 16, fr.y + (fr.h - 22) / 2, 22, color("on_surface"));
+        text(cr, p.label, fr.x + 50, fr.y + (fr.h - textHeight(p.label, 15, false)) / 2, 15, false, color("on_surface"), 1, fr.w - 62);
+    }
 }
 
 // ---- the files -------------------------------------------------------------------------------------------------------------------------
 // The picture of a file in a square: its thumbnail (images), or a coloured tile with the icon of its kind.
 void drawTile(cairo_t* cr, const Entry& e, double x, double y, double size, double radius, bool selectedNow) {
     const auto [bgName, fgName] = tileColors(e.kind);
-    cairo_surface_t* th = e.kind == Kind::Image && e.size < 80u * 1024 * 1024 ? g.thumbs.get(e.path) : nullptr;
-    if (th) {
-        cairo_save(cr);
-        rrect(cr, x, y, size, size, radius);
-        cairo_clip(cr);
-        src(cr, color("surface_container_highest"));
-        cairo_paint(cr);
-        const double w = cairo_image_surface_get_width(th), h = cairo_image_surface_get_height(th), s = std::max(size / w, size / h);
-        cairo_translate(cr, x + size / 2, y + size / 2);
-        cairo_scale(cr, s, s);
-        cairo_set_source_surface(cr, th, -w / 2, -h / 2);
-        cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
-        cairo_paint(cr);
-        cairo_restore(cr);
-        return;
+    const bool isPicture = e.kind == Kind::Image && e.regular && e.size < 80u * 1024 * 1024;
+    cairo_surface_t* th = isPicture ? g.thumbs.get(e.path) : nullptr;
+    double alpha = 1;
+    if (th) {  // the picture is there: if the tile was drawn without it a moment ago, it fades in
+        auto fade = g.fadingThumbs.find(e.path);
+        if (fade == g.fadingThumbs.end() && g.waitingThumbs.erase(e.path)) fade = g.fadingThumbs.emplace(e.path, Clock::now()).first;
+        if (fade != g.fadingThumbs.end()) {
+            alpha = std::chrono::duration<double>(Clock::now() - fade->second).count() / 0.22;
+            if (alpha >= 1) { alpha = 1; g.fadingThumbs.erase(fade); }
+            else g.animating = true;
+        }
+    } else if (isPicture) {
+        if (g.waitingThumbs.size() > 2000) g.waitingThumbs.clear();
+        g.waitingThumbs.insert(e.path);
     }
-    src(cr, color(selectedNow && e.kind != Kind::Folder ? "surface_container_highest" : bgName));
+    // The tile of the kind: for a picture still being made it is a quiet neutral square (not the loud colour of the kinds), so the picture arriving is gentle.
+    if (!th || alpha < 1) {
+        src(cr, color(isPicture ? "surface_container_highest" : selectedNow && e.kind != Kind::Folder ? "surface_container_highest" : bgName));
+        rrect(cr, x, y, size, size, radius);
+        cairo_fill(cr);
+        const int is = static_cast<int>(size * 0.5);
+        icon(cr, iconFor(e.kind), x + (size - is) / 2.0, y + (size - is) / 2.0, is, color(isPicture ? "on_surface_variant" : fgName), isPicture ? 0.35 : 1.0);
+    }
+    if (!th) return;
+    cairo_save(cr);
     rrect(cr, x, y, size, size, radius);
-    cairo_fill(cr);
-    const int is = static_cast<int>(size * 0.5);
-    icon(cr, iconFor(e.kind), x + (size - is) / 2.0, y + (size - is) / 2.0, is, color(fgName));
+    cairo_clip(cr);
+    src(cr, color("surface_container_highest"));
+    cairo_paint_with_alpha(cr, alpha);
+    const double w = cairo_image_surface_get_width(th), h = cairo_image_surface_get_height(th), sc = std::max(size / w, size / h);
+    cairo_translate(cr, x + size / 2, y + size / 2);
+    cairo_scale(cr, sc, sc);
+    cairo_set_source_surface(cr, th, -w / 2, -h / 2);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+    cairo_paint_with_alpha(cr, alpha);
+    cairo_restore(cr);
+}
+
+// The pictures a little way above and below what is on screen are asked for first, so they are ready by the time the wheel brings them in
+// (the thumbnailer does the last asked first: the far ones go in before the near ones, and the ones on screen are asked for as they are drawn).
+void prefetchThumbs(double itemH, int perRow, double off, double viewH) {
+    const int total = static_cast<int>(g.view.size());
+    const int firstVisible = std::max(0, static_cast<int>(off / itemH)) * perRow, lastVisible = std::min(total, (static_cast<int>((off + viewH) / itemH) + 1) * perRow);
+    const int reach = std::max(1, static_cast<int>(viewH / itemH * 1.5)) * perRow;
+    auto ask = [&](int i) { const Entry& e = entryAt(i); if (e.kind == Kind::Image && e.regular && e.size < 80u * 1024 * 1024) g.thumbs.get(e.path); };
+    for (int d = reach; d > 0; d -= 1) {  // farthest first
+        if (lastVisible - 1 + d < total) ask(lastVisible - 1 + d);
+        if (firstVisible - d >= 0) ask(firstVisible - d);
+    }
 }
 
 void drawList(cairo_t* cr, const Rect& area) {
     constexpr double rowH = 48, gap = 2, headH = 34;
     const bool wide = area.w > 620;
-    const double sizeW = wide ? 90 : 0, dateW = wide ? 130 : 0, rightPad = 20 + (g.scrollMax > 0 ? 8 : 0);
+    const double sizeW = wide ? 90 : 0, dateW = wide ? 130 : 0, rightPad = 20 + (g.scrollMax > 0 ? kBarW : 0);
     // The header: click a column to sort by it.
     const double hy = area.y;
     const double sizeX = area.x + area.w - rightPad - dateW - sizeW, dateX = area.x + area.w - rightPad - dateW;
@@ -215,7 +287,8 @@ void drawList(cairo_t* cr, const Rect& area) {
     cairo_save(cr);
     cairo_rectangle(cr, rows.x, rows.y, rows.w, rows.h);
     cairo_clip(cr);
-    const double off = g.scroll + g.band.over, w = rows.w - (g.scrollMax > 0 ? 8 : 0);
+    const double off = g.scroll + g.band.over, w = rows.w - (g.scrollMax > 0 ? kBarW : 0);
+    prefetchThumbs(rowH + gap, 1, off, rows.h);
     const int firstRow = std::max(0, static_cast<int>(off / (rowH + gap)) - 1), lastRow = std::min(static_cast<int>(g.view.size()), static_cast<int>((off + rows.h) / (rowH + gap)) + 2);
     for (int i = firstRow; i < lastRow; i++) {
         const Entry& e = entryAt(i);
@@ -236,7 +309,7 @@ void drawList(cairo_t* cr, const Rect& area) {
 
 void drawGrid(cairo_t* cr, const Rect& area) {
     constexpr double tile = 96, cw = 128, ch = 148, gap = 6;
-    const double usable = area.w - (g.scrollMax > 0 ? 8 : 0);
+    const double usable = area.w - (g.scrollMax > 0 ? kBarW : 0);
     g.columns = std::max(1, static_cast<int>(usable / (cw + gap)));
     const double spread = usable / g.columns;  // the cells share the width, so the right edge is tidy
     g.cellW = spread;
@@ -246,6 +319,7 @@ void drawGrid(cairo_t* cr, const Rect& area) {
     g.scrollMax = std::max(0.0, content - area.h);
     g.scroll = std::clamp(g.scroll, 0.0, g.scrollMax);
     const double off = g.scroll + g.band.over;
+    prefetchThumbs(ch + gap, g.columns, off, area.h);
     cairo_save(cr);
     cairo_rectangle(cr, area.x, area.y, area.w, area.h);
     cairo_clip(cr);
@@ -345,11 +419,21 @@ void drawContent(cairo_t* cr, const Rect& card) {
         text(cr, msg, area.x + std::max(0.0, (area.w - tw) / 2), area.y + area.h / 2 - 10, 16, false, color("on_surface_variant"), 0.8, area.w, tw < area.w ? 0 : 1);
     } else if (g.grid) drawGrid(cr, area);
     else drawList(cr, area);
-    if (g.scrollMax > 0 && g.band.thumbAlpha() > 0) {  // the scroll mark: shown while the wheel moves, then it fades
+    g.scrollTrack = {};
+    if (g.scrollMax > 0) {  // the scroll bar: always there (it is also a handle: drag it, or click the track to jump)
         const double top = g.grid ? area.y : area.y + 34, h = area.h - (g.grid ? 0 : 34);
-        const double th = std::max(36.0, h * h / (h + g.scrollMax)), ty = top + (h - th) * (g.scroll / g.scrollMax);
-        src(cr, color("on_surface_variant"), 0.35 * g.band.thumbAlpha());
-        rrect(cr, area.x + area.w - 4, ty, 4, th, 2);
+        g.thumbH = std::max(40.0, h * h / (h + g.scrollMax));
+        g.thumbTop = top + (h - g.thumbH) * (g.scroll / g.scrollMax);
+        g.scrollTrack = {area.x + area.w - kBarW + 2, top, kBarW - 2, h};
+        hotIn(g.scrollTrack, g.scrollTrack, ScrollTrack);
+        const Rect thumbRect{g.scrollTrack.x, g.thumbTop, g.scrollTrack.w, g.thumbH};
+        const bool hov = hotIn(thumbRect, g.scrollTrack, ScrollThumb) || g.dragScroll;
+        const double bw = hov ? 8 : 5;
+        src(cr, color("on_surface_variant"), hov ? 0.22 : 0.10);  // the track, faint
+        rrect(cr, g.scrollTrack.x + (g.scrollTrack.w - 5) / 2, g.scrollTrack.y, 5, g.scrollTrack.h, 2.5);
+        cairo_fill(cr);
+        src(cr, color(g.dragScroll ? "primary" : "on_surface_variant"), g.dragScroll ? 0.9 : hov ? 0.75 : 0.5);
+        rrect(cr, g.scrollTrack.x + (g.scrollTrack.w - bw) / 2, g.thumbTop, bw, g.thumbH, bw / 2);
         cairo_fill(cr);
     }
     drawLasso(cr);
@@ -460,6 +544,7 @@ void drawToast(cairo_t* cr, int W, int H) {
 
 void drawWindow(cairo_t* cr, int W, int H) {
     g.hits.clear();
+    g.animating = false;
     cairo_rectangle(cr, 0, 0, W, H);  // (square: the compositor rounds the corners of its windows)
     src(cr, color("background"));
     cairo_fill(cr);

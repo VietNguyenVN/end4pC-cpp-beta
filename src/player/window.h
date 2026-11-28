@@ -88,12 +88,24 @@ void render() {
 }
 
 // ---- input ------------------------------------------------------------------------------------------------------------------------------
-void setHover() {
+// The pointer: an arrow by default, a hand over what can be clicked, a text cursor over the fields.
+void updateCursor() {
+    if (!g.cursorMgr || !g.pointer || !g.inside) return;
+    if (!g.cursorDev) g.cursorDev = wp_cursor_shape_manager_v1_get_pointer(g.cursorMgr, g.pointer);
+    int shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
+    if (g.hoverId == SearchField || g.hoverId == NameField) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT;
+    else if (g.hoverId != None) shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
+    if (shape == g.cursorShape) return;
+    g.cursorShape = shape;
+    wp_cursor_shape_device_v1_set_shape(g.cursorDev, g.enterSerial, shape);
+}
+void setHoverImpl() {
     int id = None, arg = 0;
     if (g.inside) for (auto it = g.hits.rbegin(); it != g.hits.rend(); ++it) if (it->r.contains(g.px, g.py)) { id = it->id; arg = it->arg; break; }
     if (id != g.hoverId || arg != g.hoverArg) { g.hoverId = id; g.hoverArg = arg; g.dirty = true; }
 }
 // The bar the pointer is on (the progress or the volume), as a position from 0 to 1.
+void setHover() { setHoverImpl(); updateCursor(); }
 double fractionOn(int id, double x) {
     for (const Hit& h : g.hits) if (h.id == id) return std::clamp((x - h.r.x) / std::max(1.0, h.r.w), 0.0, 1.0);
     return 0;
@@ -269,7 +281,7 @@ void onTopConfigure(void*, xdg_toplevel*, int32_t w, int32_t h, wl_array*) {
 void onTopClose(void*, xdg_toplevel*) { g.running = false; }
 const xdg_toplevel_listener kToplevelListener = {onTopConfigure, onTopClose, nullptr, nullptr};
 
-void onPEnter(void*, wl_pointer*, uint32_t, wl_surface*, wl_fixed_t x, wl_fixed_t y) { g.inside = true; g.px = wl_fixed_to_double(x); g.py = wl_fixed_to_double(y); setHover(); }
+void onPEnter(void*, wl_pointer*, uint32_t serial, wl_surface*, wl_fixed_t x, wl_fixed_t y) { g.enterSerial = serial; g.cursorShape = -1; g.inside = true; g.px = wl_fixed_to_double(x); g.py = wl_fixed_to_double(y); setHover(); }
 void onPLeave(void*, wl_pointer*, uint32_t, wl_surface*) { g.inside = false; setHover(); }
 void onPMotion(void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) { g.px = wl_fixed_to_double(x); g.py = wl_fixed_to_double(y); onMotion(); }
 void onPButton(void*, wl_pointer*, uint32_t, uint32_t, uint32_t button, uint32_t state) {
@@ -319,6 +331,7 @@ void onGlobal(void*, wl_registry* reg, uint32_t name, const char* iface, uint32_
     else if (!std::strcmp(iface, wp_viewporter_interface.name) && !hidpi::disabled()) g.viewporter = static_cast<wp_viewporter*>(wl_registry_bind(reg, name, &wp_viewporter_interface, 1));
     else if (!std::strcmp(iface, wp_fractional_scale_manager_v1_interface.name) && !hidpi::disabled())
         g.fscaleMgr = static_cast<wp_fractional_scale_manager_v1*>(wl_registry_bind(reg, name, &wp_fractional_scale_manager_v1_interface, 1));
+    else if (!std::strcmp(iface, wp_cursor_shape_manager_v1_interface.name)) g.cursorMgr = static_cast<wp_cursor_shape_manager_v1*>(wl_registry_bind(reg, name, &wp_cursor_shape_manager_v1_interface, 1));
     else if (!std::strcmp(iface, wl_seat_interface.name)) {
         g.seat = static_cast<wl_seat*>(wl_registry_bind(reg, name, &wl_seat_interface, std::min(version, 5u)));
         wl_seat_add_listener(g.seat, &kSeatListener, nullptr);
@@ -397,6 +410,7 @@ int pollTimeout() {
 }
 
 void teardown() {
+    if (g.cursorDev) wp_cursor_shape_device_v1_destroy(g.cursorDev);
     if (g.frameCallback) wl_callback_destroy(g.frameCallback);
     if (g.toplevel) xdg_toplevel_destroy(g.toplevel);
     if (g.xsurface) xdg_surface_destroy(g.xsurface);
