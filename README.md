@@ -56,6 +56,7 @@ It started as a C++ port of my Quickshell config and keeps its Material 3 look.
 | **Tools** | Translator, notes, a freeform board, image converter, video editor, unit and currency converter (about 160 currencies), timers, stopwatch and reminders that ring with the window closed, a key bind editor, an autostart manager (all the tabs can be hidden and reordered from the gear of the window; text fields work with Fcitx5 and other Wayland input methods), an Android phone page (adb and scrcpy), and Score: football matches with the chances of a statistical model, picks and a slip. Score is off until you turn it on in the gear of the Tools window, and it is for entertainment only. |
 | **Play3r** | The music player, a program of its own (`end4pC-play3r`, or `end4pC play3r [song or folder]`). ffmpeg decodes, PipeWire plays, TagLib reads the tags and the cover; no toolkit. A folder with thousands of songs is in the queue at once (the tags are read in the background, from the rows on screen onwards). Cover on a Material shape, a wavy progress bar, synced lyrics (the same sources as the player of the bar), search, saved playlists, the queue of the last time, and MPRIS, so the bar, the media keys and `playerctl` see and control it. |
 | **Fil3s** | The file manager, a program of its own (`end4pC-fil3s`, or `end4pC fil3s [folder]`), light on purpose: folders are read in a thread and thumbnails are decoded by workers, so a folder with thousands of files opens at once. Material 3 look, grid and list views, breadcrumbs, places you edit yourself (*Add to Places* in the menu of a folder to add, *Remove from Places* in the menu of a row, and a long press on a row to pick it up and move it), drives, instant search (just type), a Trash that follows the freedesktop spec, copy / cut / paste / rename, lasso, Shift and Ctrl selection, and the keys of any file manager. The right-click menu converts images (PNG, JPG, WebP, AVIF, GIF, BMP, TIFF, ICO, PDF), video (MP4, WebM, MKV, GIF, or just the audio) and audio (MP3, FLAC, Opus, OGG, M4A, WAV) with one click, and makes ZIP, 7z, TAR.GZ / XZ / ZST / BZ2 and RAR archives or extracts them; a bar shows the progress and the new file appears and is selected when it is done. |
+| **T3xt** | The text editor, a program of its own (`end4pC-t3xt`, or `end4pC t3xt [file]`): tabs, a sidebar with the open files and the folder (toggle with the button or Ctrl+B), line numbers, find and replace, undo and redo, auto-indent, comment toggle, and syntax highlighting for C, C++, Java, JavaScript, TypeScript, Go, Rust, C#, Kotlin, Swift, Dart, QML, PHP, GLSL, KDL, Python, shell, Lua, JSON, HTML / XML, CSS / SCSS, Markdown, YAML, INI / TOML / conf, SQL, Makefile, CMake, Dockerfile and diffs. The code is coloured with the palette of the shell: the primary colour is the keywords and the other kinds are the same colour turned round the hue circle, so it follows the wallpaper and the theme. No terminal, no plugins. |
 | **Task Manager** | Its own window (`SUPER + SHIFT + T`, `CTRL + SHIFT + Esc`, or the button in the resources popup). Processes: apps and processes with CPU, memory and disk, search, End task and Force kill with a confirmation. Performance: CPU (every core), memory, disks, network and GPU (Intel and AMD; NVIDIA is untested) with live charts. Battery and Devices tabs from `upower`. |
 | **Desktop widgets** | Clock (many faces), weather, to-do, calendar, player, resources, user card (with the uptime), image, text, audio visualizer. In edit mode they snap to their neighbours and to an optional grid, show the gap between them, can be tidied into a column and resized from the corners. |
 | **Accessibility** | Screen magnifier, bigger cursor, draggable on-screen keyboard that follows the focused monitor. |
@@ -84,6 +85,13 @@ It started as a C++ port of my Quickshell config and keeps its Material 3 look.
 - Safety: nothing runs through a shell with a file name in it; names that start with `-` are never options; ImageMagick gets the format fixed from the extension (SVG is not accepted) and limits; ffmpeg is limited to local files; moving never overwrites; a folder is only extracted into a new folder of its own or without replacing files; thumbnails are made only for plain files of the common formats with a bounded size. Opening a file hands it to `xdg-open`.
 - **Places:** they are yours: right-click a folder > *Add to Places* (or right-click an empty part of the folder you are in), right-click a place > *Remove from Places*, hold the left button on a place for half a second to pick it up and drag it to another position. The list is saved in `~/.local/share/end4pC/fil3s-places.txt` (one folder per line); *Reset Places* in the menu of the blank part of the sidebar brings the usual ones back.
 - Keys: type to search, arrows move, Shift extends, Ctrl toggles (Ctrl+Space, Ctrl+arrows), Ctrl+A all, Enter opens, Backspace or Alt+Up goes up, Alt+Left / Right back and forward, F2 renames, Delete trashes (Shift+Delete deletes for good), Ctrl+C / X / V, Ctrl+H hidden files, Ctrl+1 / 2 grid and list, Ctrl+Shift+N new folder, F5 refresh, Ctrl+Q closes.
+
+### T3xt: launching it
+
+- **Application menu / launcher:** look for **T3xt**; `end4pC update` and the installer add its entry (it needs no new libraries). From a terminal or a key bind: `end4pC t3xt`, `end4pC t3xt ~/notes.md`; in Tools > Keybinds it is a Shell action. To open text files with it by default: `xdg-mime default end4pC-t3xt.desktop text/plain` (optional).
+- **Keys:** Ctrl+S save (Ctrl+Shift+S save as), Ctrl+O open, Ctrl+N new, Ctrl+W close the tab, Ctrl+Tab next tab, Ctrl+B sidebar, Ctrl+F find (F3 / Shift+F3 next / previous), Ctrl+H replace, Ctrl+Z / Ctrl+Y undo / redo, Ctrl+/ comment, Ctrl+D duplicate the line, Alt+Up / Alt+Down move the line, Tab / Shift+Tab indent (a selection of lines too), Ctrl++ / Ctrl+- / Ctrl+0 and Ctrl+wheel for the size of the text, Shift+wheel sideways. Triple click selects a line, double click a word; click the numbers to select lines.
+- **Files:** UTF-8 only (a file that is not valid UTF-8 opens read-only, so saving can never damage it); the line endings (LF / CRLF) are kept; saving writes a copy beside the file and renames it, so a failure never leaves half a file. Open and Save As use `zenity`; copy and paste use `wl-clipboard` (`wl-copy`, `wl-paste`).
+- Accents and dead keys work (they go through the compose table of your locale). There is no input method support yet (Fcitx / IBus).
 
 ---
 
@@ -169,6 +177,7 @@ Binaries produced in `build/`:
 | `end4pC-tools` | The Tools window |
 | `end4pC-play3r` | The music player |
 | `end4pC-fil3s` | The file manager |
+| `end4pC-t3xt` | The text editor |
 | `end4pC-lock` | The lock screen |
 
 <details>
@@ -288,6 +297,7 @@ All take `toggle` (the default), `open` or `close` unless noted.
 | `tools` | Tools window |
 | `play3r [song or folder]` | The music player: opens it (closes it when open); with a path it plays it |
 | `fil3s [folder]` | The file manager: a new window, on that folder if given |
+| `t3xt [file]` | The text editor: a new window, with that file open if given |
 | `tasks` | Task Manager window |
 | `osd volume \| osd brightness` | Show the on-screen display |
 

@@ -486,6 +486,10 @@ void handleClient(App& app, int listenFd) {
         openFil3s(cmd.size() > 6 ? cmd.substr(6) : "");
         reply = "ok";
     }
+    else if (cmd == "t3xt" || cmd.rfind("t3xt ", 0) == 0) {
+        openT3xt(cmd.size() > 5 ? cmd.substr(5) : "");
+        reply = "ok";
+    }
     else if (cmd == "tools" || cmd.rfind("tools ", 0) == 0) {
         toggleTools();
         reply = "ok";

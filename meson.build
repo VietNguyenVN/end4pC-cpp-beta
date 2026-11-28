@@ -133,3 +133,9 @@ endif
 executable('end4pC-fil3s', 'src/files/fil3s.cpp', generated,
   dependencies: [wayland_client, pangocairo, pangoft2, fontconfig, gdkpixbuf, rsvg, xkb, threads],
   install: false)
+
+# T3xt: the text editor (src/editor/). Its own libraries are only the ones every window of the shell uses; the highlighter and the document are tested alone.
+executable('end4pC-t3xt', 'src/editor/editor.cpp', generated,
+  dependencies: [wayland_client, pangocairo, pangoft2, fontconfig, gdkpixbuf, rsvg, xkb, threads],
+  install: false)
+test('editor', executable('editor-test', 'tests/editor/test_editor.cpp', cpp_args: ['-O1'], install: false), timeout: 30)

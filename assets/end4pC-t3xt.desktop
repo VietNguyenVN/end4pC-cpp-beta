@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=T3xt
+GenericName=Text Editor
+Comment=A light text editor with syntax highlighting in the colours of the shell
+# @DIR@ is the folder of the shell (~/.config/end4pC); scripts/install-desktop-entries.sh writes the real file to ~/.local/share/applications
+Exec=@DIR@/build/end4pC-t3xt %F
+Icon=@DIR@/assets/t3xt.svg
+Terminal=false
+Categories=Utility;TextEditor;Development;
+MimeType=text/plain;text/markdown;text/x-c;text/x-c++;text/x-chdr;text/x-c++hdr;text/x-python;text/x-shellscript;text/x-lua;text/html;text/css;text/xml;application/json;application/x-yaml;application/toml;application/x-shellscript;application/xml;
+StartupWMClass=end4pC-t3xt
+Keywords=text;editor;code;notes;source;syntax;

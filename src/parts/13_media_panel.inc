@@ -1355,6 +1355,16 @@ void openFil3s(const std::string& argument) {
     else runDetached({path.c_str(), argument.c_str()});
 }
 
+// The text editor (end4pC-t3xt): every call opens a window (files given are opened in tabs).
+void openT3xt(const std::string& argument) {
+    char exe[4096];
+    const ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    std::string path = n > 0 ? std::string(exe, n) : "";
+    path = path.substr(0, path.rfind('/') + 1) + "end4pC-t3xt";
+    if (argument.empty()) runDetached({path.c_str()});
+    else runDetached({path.c_str(), argument.c_str()});
+}
+
 void startUpdatesCheck(const Config& cfg) {
     const std::string script = assetsDir() + "/../scripts/updates.sh";
     runDetached({script.c_str(), cfg.updatesAur ? "1" : "0", cfg.updatesFlatpak ? "1" : "0"});

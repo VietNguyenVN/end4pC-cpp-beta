@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#D3D1F7"/>
+      <stop offset="1" stop-color="#A29EE2"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- T3xt: a rounded square with a page of text (a heading line and three lines of code), centred on the square -->
+  <rect x="8" y="10" width="112" height="112" rx="32" fill="#1A1838" opacity="0.18"/>
+  <rect x="8" y="6" width="112" height="112" rx="32" fill="url(#bg)"/>
+  <rect x="8" y="6" width="112" height="112" rx="32" fill="url(#shine)"/>
+  <g fill="#23214A">
+    <rect x="32" y="32" width="40" height="9" rx="4.5"/>
+    <rect x="32" y="50" width="64" height="8" rx="4" opacity="0.7"/>
+    <rect x="32" y="66" width="52" height="8" rx="4" opacity="0.7"/>
+    <rect x="32" y="82" width="30" height="8" rx="4" opacity="0.7"/>
+    <rect x="66" y="82" width="22" height="8" rx="4" opacity="0.7"/>
+  </g>
+</svg>
