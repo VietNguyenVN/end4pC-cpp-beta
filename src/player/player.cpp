@@ -54,7 +54,8 @@ struct Field {
 };
 
 constexpr int kDefaultW = 1000, kDefaultH = 640, kMinW = 820, kMinH = 520;
-constexpr double kPad = 24, kRadius = 36, kLeftW = 400, kTop = 84;
+// kPad: the padding inside the cards. kEdge, kGap and kTop: the margin of the window, the space between the cards and where they start: the same as in Fil3s.
+constexpr double kPad = 24, kRadius = 36, kLeftW = 400, kEdge = 16, kGap = 12, kTop = 72;
 
 enum Id { None, BtnOpen, BtnClose, TabLyrics, TabQueue, TabPlaylists, BtnShuffle, BtnPrev, BtnPlay, BtnNext, BtnRepeat, Progress, VolumeBar, QueueRow, LyricRow, SearchField, SearchClear, NameField, SaveList, PlaylistRow, PlaylistDelete, UpNext };
 struct Hit { Rect r; int id, arg; };

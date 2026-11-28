@@ -470,14 +470,17 @@ void drawWindow(cairo_t* cr, int W, int H) {
     cairo_rectangle(cr, 0, 0, W, H);  // (square: the compositor rounds the corners of its windows, Hyprland does it with its own radius)
     src(cr, color("background"));
     cairo_fill(cr);
-    // The logo: a Material shape with a music icon, and the name.
-    shapePath(cr, "Cookie12Sided", kPad, 20, 48);
+    // The logo: a Material shape with a music icon, and the name. (The header is laid out like the one of Fil3s: buttons of 44 at 16 from the top and the
+    // right edge, 6 apart, so the two programs look like one family.)
+    constexpr double headY = 16, headBtn = 44, headMargin = 16, headGap = 6, logo = 48;
+    const double headMid = headY + headBtn / 2;
+    shapePath(cr, "Cookie12Sided", kEdge, headMid - logo / 2, logo);
     src(cr, color("primary_container"));
     cairo_fill(cr);
-    icon(cr, "music-notes", kPad + 12, 20 + 12, 24, color("on_primary_container"));
-    text(cr, "Play3r", kPad + 48 + 14, 28, 26, true, color("on_surface"));
+    icon(cr, "music-notes", kEdge + 12, headMid - 12, 24, color("on_primary_container"));
+    text(cr, "Play3r", kEdge + logo + 14, headMid - textHeight("Play3r", 26, true) / 2, 26, true, color("on_surface"));
     // The buttons of the corner.
-    const Rect close{W - kPad - 44, 22, 44, 44}, open{W - kPad - 44 - 8 - 44, 22, 44, 44};
+    const Rect close{W - headMargin - headBtn, headY, headBtn, headBtn}, open{close.x - headGap - headBtn, headY, headBtn, headBtn};
     for (auto [r, id, ic] : {std::tuple<Rect, int, const char*>{open, BtnOpen, "folder-open"}, {close, BtnClose, "close-circle"}}) {
         const bool hov = hot(r, id);
         src(cr, id == BtnClose && hov ? color("error_container") : hov ? color("surface_container_highest") : color("surface_container_high"));
@@ -485,7 +488,7 @@ void drawWindow(cairo_t* cr, int W, int H) {
         cairo_fill(cr);
         icon(cr, ic, r.x + 11, r.y + 11, 22, color(id == BtnClose && hov ? "on_error_container" : "on_surface"));
     }
-    const double bottom = H - kPad;
-    drawNowPlaying(cr, {kPad, kTop, kLeftW, bottom - kTop});
-    drawRight(cr, {kPad + kLeftW + 16, kTop, W - 2 * kPad - kLeftW - 16, bottom - kTop});
+    const double bottom = H - kEdge;
+    drawNowPlaying(cr, {kEdge, kTop, kLeftW, bottom - kTop});
+    drawRight(cr, {kEdge + kLeftW + kGap, kTop, W - 2 * kEdge - kLeftW - kGap, bottom - kTop});
 }

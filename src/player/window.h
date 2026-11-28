@@ -156,7 +156,7 @@ void onMotion() {
     setHover();
 }
 void onWheel(double v) {
-    const bool onList = g.px > kPad + kLeftW + 16 && g.py > kTop;
+    const bool onList = g.px > kEdge + kLeftW + kGap && g.py > kTop;
     if (onList && g.tab == 1) { elasticWheel(g.queueBand, g.queuePos, g.queueMax, v * 3); g.dirty = true; }
     else if (onList && g.tab == 2) { elasticWheel(g.plBand, g.plPos, g.plMax, v * 3); g.dirty = true; }
     else if (!onList && g.py > kTop) { applyVolume(std::clamp(g.engine->volume() - v * 0.0015, 0.0, 1.0)); saveSaved(g.saved); }
