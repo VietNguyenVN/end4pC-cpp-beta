@@ -424,6 +424,8 @@ std::vector<Page> makePages() {
         {Choice, "workspaceStyle", "Workspaces", "Icons, numbered squares, dots, a pill, ticks or numbered rings.", {{"icons", "Icons"}, {"default", "Squares"}, {"gnome", "Dots"}, {"pill", "Pill"}, {"bar", "Bars"}, {"ring", "Rings"}, {"m3", "M3"}}},
         {Choice, "workspaceStyle", "Workspaces", "Dots or M3: the group styles use these two.", {{"gnome", "Dots"}, {"m3", "M3"}}},
         {Choice, "workspaceNumbers", "Numbers style", "How the workspaces are numbered: 1 2 3, Roman numerals (I II III) or Chinese characters (一 二 三). Only the looks that show numbers.", {{"normal", "Normal"}, {"roman", "Roman"}, {"han", "Han chars"}}},
+        {Choice, "specialWorkspaceIndicator", "Special workspace indicators", "Overlay the focused monitor’s special workspace. Badges count open special workspaces and hidden ones that contain windows.", {{"focus", "Follow focus"}, {"compact", "Compact only"}, {"off", "Off"}}},
+        {Choice, "specialWorkspacePlacement", "Compact badge placement", "Before is left or above. After is right or below.", {{"before", "Before"}, {"after", "After"}}},
         {Toggle, "workspaceApps", "Show apps in workspaces", "Shows the icon of the biggest window of each workspace instead of its number or icon. Not for the dots and bar styles.", {}},
         {Slider, "workspaces", "Workspace count", "How many workspaces the bar shows.", {}, 1, 10, 1, ""},
         {Toggle, "batteryPercent", "Show the percentage", "The battery level next to the battery icon in the bar.", {}},
@@ -896,6 +898,8 @@ void loadConfig() {
     g.val.insert({"groupColor", "surface_container_high"});
     g.val.insert({"dividerSpacing", "0"});
     g.val.insert({"workspaceNumbers", "normal"});
+    g.val.insert({"specialWorkspaceIndicator", "focus"});
+    g.val.insert({"specialWorkspacePlacement", "after"});
     g.val.insert({"sideBarSpacing", "4"});
     g.val.insert({"animEnabled", "1"});
     g.val.insert({"animStyle", "boing"});
@@ -959,6 +963,10 @@ void loadConfig() {
             std::string v;
             if (jsonValue(t, r.key, v)) g.val[r.key] = v;
         }
+    auto& specialIndicator = g.val["specialWorkspaceIndicator"];
+    if (specialIndicator != "compact" && specialIndicator != "off") specialIndicator = "focus";
+    auto& specialPlacement = g.val["specialWorkspacePlacement"];
+    if (specialPlacement != "before") specialPlacement = "after";
     if (g.val["mediaPopupPosition"] == "island") g.val["mediaPopupPosition"] = "center";
     g.val["collageTree"] = jsonString(t, "collageTree", kCollageDefaultTree);
     {
@@ -2856,6 +2864,9 @@ bool rowAvailable(const Row& r) {
     }
     if (r.key == "workspaceNumbers") return moduleUsed("workspaces") && (g.val["workspaceStyle"] == "default" || g.val["workspaceStyle"] == "pill" || g.val["workspaceStyle"] == "ring" || g.val["workspaceStyle"] == "m3");
     if (r.key == "batteryPercent") return moduleUsed("battery");
+    if (r.key == "specialWorkspaceIndicator" || r.key == "specialWorkspacePlacement")
+        return compositorName() == "Hyprland" && moduleUsed("workspaces") &&
+               (r.key != "specialWorkspacePlacement" || g.val["specialWorkspaceIndicator"] != "off");
     if (r.key == "workspaceApps") return moduleUsed("workspaces") && g.val["workspaceStyle"] != "gnome" && g.val["workspaceStyle"] != "bar";
     if (r.key == "trayPinDefault" || r.key == "trayTint") return moduleUsed("systray");
     if (r.key == "mediaAlways" || r.key == "mediaHorizontalStyle" || r.key == "mediaClickPopupPosition") return moduleUsed("media");

@@ -68,9 +68,58 @@ static void parsing() {
     CHECK(activeWorkspaces(std::string(100000, '[')).empty());                              // hostile input: no crash
 }
 
+static void specialWorkspaces() {
+    const auto opened = monitorWorkspaces(R"([
+        {"specialWorkspace":{"name":"special:Spotify","id":-98},"name":"HDMI-A-1","activeWorkspace":{"id":6}},
+        {"name":"DP-2","activeWorkspace":{"id":1},"focused":true,"specialWorkspace":{"name":"special:special"}},
+        {"activeWorkspace":{"id":11},"name":"DP-3","specialWorkspace":{"name":"special:Notes, work","address":"0x123"}},
+        {"name":"DP-4","activeWorkspace":{"id":16},"specialWorkspace":{"name":"","id":0}}
+    ])");
+    CHECK(opened.active.size() == 4 && opened.active.at("HDMI-A-1") == 6);
+    CHECK(opened.special.size() == 3 && opened.special.at("HDMI-A-1") == "Spotify");
+    CHECK(opened.special.at("DP-2") == "special" && opened.special.at("DP-3") == "Notes, work");
+    const auto* local = opened.focusedSpecial("DP-2");
+    CHECK(local && *local == "special");
+    CHECK(opened.focusedSpecial("HDMI-A-1") == nullptr);
+    auto switched = opened;
+    switched.focusedConnector = "HDMI-A-1";
+    CHECK(switched != opened && switched.special == opened.special);
+    const auto* remote = switched.focusedSpecial("HDMI-A-1");
+    CHECK(remote && *remote == "Spotify" && switched.focusedSpecial("DP-2") == nullptr);
+    switched.focusedConnector = "DP-4";
+    CHECK(switched.focusedSpecial("DP-4") == nullptr && switched.special.size() == 3);
+    CHECK(!opened.special.count("DP-4"));
+    CHECK(monitorWorkspaces(R"([{"name":"DP-2","specialWorkspace":{"name":"special"}}])").special.at("DP-2") == "special");
+    const auto closed = monitorWorkspaces(R"([{"name":"HDMI-A-1","activeWorkspace":{"id":6},"specialWorkspace":null}])");
+    CHECK(closed.active.size() == 1 && closed.special.empty());
+    CHECK(monitorWorkspaces(R"([{"name":"B","activeWorkspace":{"name":"special:False","id":2}}])").special.empty());
+}
+
+static void occupiedSpecialWorkspaces() {
+    const auto occupied = occupiedWorkspaces(R"([
+        {"id":1,"name":"1","windows":3},
+        {"id":-98,"name":"special:special","windows":1},
+        {"id":-99,"name":"special","windows":4},
+        {"id":-100,"name":"special:Discord","windows":2},
+        {"id":-101,"name":"special:Empty","windows":0},
+        {"id":-102,"name":"named","windows":7}
+    ])");
+    CHECK(occupied.ids == (std::set<int>{1, -98, -99, -100, -102}));
+    CHECK(occupied.special == (std::set<std::string>{"special:special", "special", "special:Discord"}));
+    const auto both = monitorWorkspaces(R"([
+        {"name":"DP-2","specialWorkspace":{"name":"special:special"}},
+        {"name":"HDMI-A-1","specialWorkspace":{"name":"special:Discord"}}
+    ])");
+    CHECK(closedSpecialCount(both, occupied.special) == 1);
+    CHECK(closedSpecialCount({}, occupied.special) == 3);
+    CHECK(closedSpecialCount(both, {}) == 0);
+}
+
 int main() {
     groups();
     parsing();
+    specialWorkspaces();
+    occupiedSpecialWorkspaces();
     std::printf("%d checks, %d failed\n", g_run, g_fail);
     return g_fail ? 1 : 0;
 }

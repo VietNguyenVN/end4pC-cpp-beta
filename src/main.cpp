@@ -448,6 +448,7 @@ int main(int argc, char** argv) {
     std::string musicPending;
     refreshActiveWorkspace(app);
     refreshOccupied(app);
+    refreshMonitorWorkspaces(app);
     refreshWsApps(app);
     timersLoad();
     timeZoneSync(app);  // (the zone it starts with is the one to compare with)
