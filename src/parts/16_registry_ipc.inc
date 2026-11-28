@@ -482,6 +482,10 @@ void handleClient(App& app, int listenFd) {
         togglePlay3r(cmd.size() > 7 ? cmd.substr(7) : "");
         reply = "ok";
     }
+    else if (cmd == "fil3s" || cmd.rfind("fil3s ", 0) == 0) {
+        openFil3s(cmd.size() > 6 ? cmd.substr(6) : "");
+        reply = "ok";
+    }
     else if (cmd == "tools" || cmd.rfind("tools ", 0) == 0) {
         toggleTools();
         reply = "ok";

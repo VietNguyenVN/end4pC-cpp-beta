@@ -93,11 +93,12 @@ glib2
 dconf
 gsettings-desktop-schemas
 
-# --- archives: Ark adds Extract / Compress to the menu of Dolphin; the others are what it calls to open each format
+# --- archives (Fil3s uses zip, 7z, tar, bsdtar and unrar for its Compress and Extract entries); Ark adds Extract / Compress to the menu of Dolphin; the others are what it calls to open each format
 ark
 zip
 unzip
 7zip
+libarchive
 unrar
 
 # --- fonts

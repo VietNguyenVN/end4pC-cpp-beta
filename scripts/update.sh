@@ -109,7 +109,7 @@ fi
 say "${G}updated to $(version)${N}"
 # Play3r, the music player, if the build made it: its entry in the application menu (the shell also does this by itself at its next start)
 if [ -x "$BUILD/end4pC-play3r" ]; then
-    "$PROJECT/scripts/install-play3r.sh" >/dev/null 2>&1 && echo "Play3r (the music player) is in your application menu: look for it in the launcher, or run  end4pC play3r" || true
+    "$PROJECT/scripts/install-desktop-entries.sh" >/dev/null 2>&1 && echo "Play3r (the music player) is in your application menu: look for it in the launcher, or run  end4pC play3r" || true
 else
     echo "Play3r (the music player) was not built: it needs ffmpeg, taglib and the PipeWire headers (Arch: pacman -S ffmpeg taglib pipewire), then  end4pC update  or  ninja -C $BUILD"
 fi

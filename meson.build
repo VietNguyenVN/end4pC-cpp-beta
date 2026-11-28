@@ -128,3 +128,8 @@ if pipewire.found() and avformat.found() and avcodec.found() and avutil.found() 
 else
   message('Play3r (the music player) is not built: it needs libpipewire, ffmpeg (libavformat, libavcodec, libswresample) and taglib')
 endif
+
+# Fil3s: the file manager (src/files/). Light on purpose: no libraries beyond the ones every window of the shell already uses.
+executable('end4pC-fil3s', 'src/files/fil3s.cpp', generated,
+  dependencies: [wayland_client, pangocairo, pangoft2, fontconfig, gdkpixbuf, rsvg, xkb, threads],
+  install: false)

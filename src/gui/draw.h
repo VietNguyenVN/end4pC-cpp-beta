@@ -1,5 +1,5 @@
-// The small drawing helpers of Play3r (the same look and the same files as the other windows of the shell: colors.json, the shell font,
-// the Solar or Material icons, the shapes of assets/shapes.txt). Included once by player.cpp, inside its anonymous namespace.
+// The small drawing helpers of the separate windows (Play3r, Fil3s) (the same look and the same files as the other windows of the shell: colors.json, the shell font,
+// the Solar or Material icons, the shapes of assets/shapes.txt). Included once by a program, inside its anonymous namespace.
 #pragma once
 
 struct Color { double r = 0, g = 0, b = 0; };
@@ -120,13 +120,15 @@ double textHeight(const std::string& s, double px, bool bold, double wrap = 0) {
     return h;
 }
 // Text at (x, y) (its top left). `width` > 0 cuts it with an ellipsis (or wraps it when wrap is true); align 0 left, 1 centre, 2 right inside `width`.
-double text(cairo_t* cr, const std::string& s, double x, double y, double px, bool bold, const Color& c, double alpha = 1, double width = 0, int align = 0, bool wrap = false) {
+double text(cairo_t* cr, const std::string& s, double x, double y, double px, bool bold, const Color& c, double alpha = 1, double width = 0, int align = 0, bool wrap = false, int maxLines = 0) {
     PangoLayout* l = pango_cairo_create_layout(cr);
     setFont(l, px, bold);
     if (width > 0) {
         pango_layout_set_width(l, static_cast<int>(width * PANGO_SCALE));
-        if (wrap) pango_layout_set_wrap(l, PANGO_WRAP_WORD_CHAR);
-        else {
+        if (wrap) {
+            pango_layout_set_wrap(l, PANGO_WRAP_WORD_CHAR);
+            if (maxLines > 0) { pango_layout_set_ellipsize(l, PANGO_ELLIPSIZE_END); pango_layout_set_height(l, -maxLines); }  // at most that many lines, the last one cut with an ellipsis
+        } else {
             pango_layout_set_ellipsize(l, PANGO_ELLIPSIZE_END);
             pango_layout_set_single_paragraph_mode(l, TRUE);
         }

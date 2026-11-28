@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Fil3s
+GenericName=File Manager
+Comment=A light file manager with one-click conversions and archives
+# @DIR@ is the folder of the shell (~/.config/end4pC); scripts/install-desktop-entries.sh writes the real file to ~/.local/share/applications
+Exec=@DIR@/build/end4pC-fil3s %F
+Icon=@DIR@/assets/fil3s.svg
+Terminal=false
+Categories=System;FileTools;FileManager;Utility;
+MimeType=inode/directory;
+StartupWMClass=end4pC-fil3s
+Keywords=files;folder;manager;explorer;archive;zip;convert;

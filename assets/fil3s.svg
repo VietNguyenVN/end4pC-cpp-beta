@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#CDE8B4"/>
+      <stop offset="1" stop-color="#8DBE7A"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Fil3s: a rounded square with an open folder, centred (the folder is 68 by 54 and sits on the centre of the square) -->
+  <rect x="8" y="10" width="112" height="112" rx="32" fill="#13260F" opacity="0.18"/>
+  <rect x="8" y="6" width="112" height="112" rx="32" fill="url(#bg)"/>
+  <rect x="8" y="6" width="112" height="112" rx="32" fill="url(#shine)"/>
+  <g fill="#1B3417">
+    <path d="M30 40 a7 7 0 0 1 7 -7 h15 a7 7 0 0 1 5.4 2.6 l3.6 4.4 h29 a7 7 0 0 1 7 7 v3 h-67 z" opacity="0.55"/>
+    <path d="M26 53 a7 7 0 0 1 7 -7 h62 a7 7 0 0 1 7 7 v28 a9 9 0 0 1 -9 9 h-58 a9 9 0 0 1 -9 -9 z"/>
+  </g>
+</svg>

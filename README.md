@@ -55,6 +55,7 @@ It started as a C++ port of my Quickshell config and keeps its Material 3 look.
 | **Capture** | Screenshot and screen recording with annotations, audio and fps options. OCR of an area (`tesseract`), Google Lens search, QR reading and QR generation. |
 | **Tools** | Translator, notes, a freeform board, image converter, video editor, unit and currency converter (about 160 currencies), timers, stopwatch and reminders that ring with the window closed, a key bind editor, an autostart manager (all the tabs can be hidden and reordered from the gear of the window; text fields work with Fcitx5 and other Wayland input methods), an Android phone page (adb and scrcpy), and Score: football matches with the chances of a statistical model, picks and a slip. Score is off until you turn it on in the gear of the Tools window, and it is for entertainment only. |
 | **Play3r** | The music player, a program of its own (`end4pC-play3r`, or `end4pC play3r [song or folder]`). ffmpeg decodes, PipeWire plays, TagLib reads the tags and the cover; no toolkit. A folder with thousands of songs is in the queue at once (the tags are read in the background, from the rows on screen onwards). Cover on a Material shape, a wavy progress bar, synced lyrics (the same sources as the player of the bar), search, saved playlists, the queue of the last time, and MPRIS, so the bar, the media keys and `playerctl` see and control it. |
+| **Fil3s** | The file manager, a program of its own (`end4pC-fil3s`, or `end4pC fil3s [folder]`), light on purpose: folders are read in a thread and thumbnails are decoded by workers, so a folder with thousands of files opens at once. Material 3 look, grid and list views, breadcrumbs, places and drives, instant search (just type), a Trash that follows the freedesktop spec, copy / cut / paste / rename, lasso, Shift and Ctrl selection, and the keys of any file manager. The right-click menu converts images (PNG, JPG, WebP, AVIF, GIF, BMP, TIFF, ICO, PDF), video (MP4, WebM, MKV, GIF, or just the audio) and audio (MP3, FLAC, Opus, OGG, M4A, WAV) with one click, and makes ZIP, 7z, TAR.GZ / XZ / ZST / BZ2 and RAR archives or extracts them; a bar shows the progress and the new file appears and is selected when it is done. |
 | **Task Manager** | Its own window (`SUPER + SHIFT + T`, `CTRL + SHIFT + Esc`, or the button in the resources popup). Processes: apps and processes with CPU, memory and disk, search, End task and Force kill with a confirmation. Performance: CPU (every core), memory, disks, network and GPU (Intel and AMD; NVIDIA is untested) with live charts. Battery and Devices tabs from `upower`. |
 | **Desktop widgets** | Clock (many faces), weather, to-do, calendar, player, resources, user card (with the uptime), image, text, audio visualizer. In edit mode they snap to their neighbours and to an optional grid, show the gap between them, can be tidied into a column and resized from the corners. |
 | **Accessibility** | Screen magnifier, bigger cursor, draggable on-screen keyboard that follows the focused monitor. |
@@ -69,10 +70,19 @@ It started as a C++ port of my Quickshell config and keeps its Material 3 look.
 
 - **Application menu / launcher:** look for **Play3r**. A fresh install, and `end4pC update`, add its entry (`~/.local/share/applications/end4pC-play3r.desktop`) by themselves when the player was built.
 - **Terminal or key bind:** `end4pC play3r` (toggle), `end4pC play3r ~/Music/album` (play a song or folder).
-- **Already had the dots before Play3r?** Install the three libraries once (`sudo pacman -S ffmpeg taglib pipewire`), then `end4pC update`. To only add the menu entry, or if you build by hand: `ninja -C build && scripts/install-play3r.sh`.
+- **Already had the dots before Play3r?** Install the three libraries once (`sudo pacman -S ffmpeg taglib pipewire`), then `end4pC update`. To only add the menu entry, or if you build by hand: `ninja -C build && scripts/install-desktop-entries.sh`.
 - Play3r opens as a normal window (tiled, or floating if you float it); it has no window rule of its own.
 - The bar shows the song and controls it through MPRIS; if the bar is set to follow another player (the `preferredPlayer` setting), change it to `play3r` to see Play3r there.
 - Keys: type to search the queue, Up/Down/Enter to pick, Esc to clear the search, Ctrl+Q or Ctrl+W to close.
+
+### Fil3s: launching it
+
+- **Application menu / launcher:** look for **Fil3s**; `end4pC update` and the installer add its entry (`scripts/install-desktop-entries.sh` does the same by hand, for Play3r too). It needs no new libraries: it is built with the ones the rest of the shell already uses.
+- **Terminal or key bind:** `end4pC fil3s` (your home folder), `end4pC fil3s ~/Pictures`. Bind it in `hyprland/local.lua` or the key bind editor of Tools.
+- **Make it your default file manager (optional, nothing changes unless you run it):** `xdg-mime default end4pC-fil3s.desktop inode/directory`.
+- **Right-click conversions and archives** use programs you may already have: `magick` (ImageMagick) for images, `ffmpeg` and `ffprobe` for video and audio, `zip`, `7z` (7zip), `tar` with `xz` / `zstd` / `bzip2`, `bsdtar` (libarchive) to extract; RAR can only be *made* with the non-free `rar` program (its entry shows when it is installed) but is extracted with `bsdtar` or `unrar`. An entry whose program is missing is not shown, or says which program is missing.
+- Safety: nothing runs through a shell with a file name in it; names that start with `-` are never options; ImageMagick gets the format fixed from the extension (SVG is not accepted) and limits; ffmpeg is limited to local files; moving never overwrites; a folder is only extracted into a new folder of its own or without replacing files; thumbnails are made only for plain files of the common formats with a bounded size. Opening a file hands it to `xdg-open`.
+- Keys: type to search, arrows move, Shift extends, Ctrl toggles (Ctrl+Space, Ctrl+arrows), Ctrl+A all, Enter opens, Backspace or Alt+Up goes up, Alt+Left / Right back and forward, F2 renames, Delete trashes (Shift+Delete deletes for good), Ctrl+C / X / V, Ctrl+H hidden files, Ctrl+1 / 2 grid and list, Ctrl+Shift+N new folder, F5 refresh, Ctrl+Q closes.
 
 ---
 
@@ -106,6 +116,7 @@ The build looks for the protocol XML files in `/usr/share/wayland-protocols` and
 | Screenshots, recording | `grim`, `slurp`, `wf-recorder`, `wl-clipboard`, `swappy` (optional editor), `jq` |
 | OCR, QR | `tesseract`, `zxing-cpp` or `zbar` (reading QR codes) |
 | Audio, microphone | `wireplumber` (`wpctl`), `pipewire-pulse` (`pactl`) |
+| Fil3s conversions and archives | `imagemagick`, `ffmpeg`, `zip`, `7zip`, `libarchive` (bsdtar), optionally `rar` |
 | Media player, Play3r | `playerctl`, `cava` (optional visualizer); Play3r also uses `zenity` (folder chooser) and `python` (lyrics) |
 | Wi-Fi, Bluetooth, battery | `networkmanager`, `bluez-utils`, `upower` |
 | Power profile | `power-profiles-daemon` |
@@ -156,6 +167,7 @@ Binaries produced in `build/`:
 | `end4pC-settings` | The Settings window |
 | `end4pC-tools` | The Tools window |
 | `end4pC-play3r` | The music player |
+| `end4pC-fil3s` | The file manager |
 | `end4pC-lock` | The lock screen |
 
 <details>
@@ -274,6 +286,7 @@ All take `toggle` (the default), `open` or `close` unless noted.
 | `settings` | Settings window |
 | `tools` | Tools window |
 | `play3r [song or folder]` | The music player: opens it (closes it when open); with a path it plays it |
+| `fil3s [folder]` | The file manager: a new window, on that folder if given |
 | `tasks` | Task Manager window |
 | `osd volume \| osd brightness` | Show the on-screen display |
 
