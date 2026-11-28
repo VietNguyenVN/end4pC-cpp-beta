@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#F6C9B4"/>
+      <stop offset="1" stop-color="#DD9B84"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Play3r: a rounded square with the notes of a song, centred (the notes are 60 by 63 and sit on the centre of the square) -->
+  <rect x="8" y="10" width="112" height="112" rx="32" fill="#2B1710" opacity="0.18"/>
+  <rect x="8" y="6" width="112" height="112" rx="32" fill="url(#bg)"/>
+  <rect x="8" y="6" width="112" height="112" rx="32" fill="url(#shine)"/>
+  <g fill="#3A2118" transform="translate(-2.7 2.25)">
+    <ellipse cx="48" cy="84" rx="12" ry="9" transform="rotate(-22 48 84)"/>
+    <ellipse cx="82" cy="76" rx="12" ry="9" transform="rotate(-22 82 76)"/>
+    <rect x="56" y="40" width="7" height="44" rx="3.5"/>
+    <rect x="90" y="32" width="7" height="44" rx="3.5"/>
+    <path d="M56 40 L97 30 L97 46 L56 56 Z"/>
+  </g>
+</svg>

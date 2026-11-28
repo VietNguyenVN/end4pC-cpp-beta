@@ -17,6 +17,10 @@ libxkbcommon
 pam
 systemd-libs
 fontconfig
+# Play3r (the music player): ffmpeg decodes, TagLib reads the tags, PipeWire plays (and has the headers)
+ffmpeg
+taglib
+pipewire
 
 # --- the session (the compositors themselves are in packages/compositors/: you pick them in the installer)
 hyprpicker

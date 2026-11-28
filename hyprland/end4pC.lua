@@ -115,6 +115,17 @@ hl.window_rule({
     decorate    = false,
 })
 
+-- Play3r (end4pC-play3r), the music player: a floating window in the middle. The compositor rounds its corners.
+hl.window_rule({
+    name  = "end4pC-play3r",
+    match = { class = "^end4pC-play3r$" },
+
+    float  = true,
+    center = true,
+    size   = "1000 640",
+    no_dim = true,
+})
+
 -- Task Manager (end4pC-tools tasks): the same kind of window as Tools, with a name of its own.
 hl.window_rule({
     name  = "end4pC-tasks",

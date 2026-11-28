@@ -12,7 +12,7 @@ set -euo pipefail
 PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="$PROJECT/build"
 ROLLBACK="$BUILD/.rollback"
-BINS=(end4pC end4pC-settings end4pC-tools end4pC-lock)
+BINS=(end4pC end4pC-settings end4pC-tools end4pC-lock end4pC-play3r)
 
 if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; R=$'\e[31m'; N=$'\e[0m'; else B= G= R= N=; fi
 die() { echo "${R}error:${N} $*" >&2; exit 1; }
@@ -107,6 +107,12 @@ if ! { [ -d "$BUILD" ] || meson setup "$BUILD"; } || ! ninja -C "$BUILD"; then
     exit 1
 fi
 say "${G}updated to $(version)${N}"
+# Play3r, the music player, if the build made it: its entry in the application menu (the shell also does this by itself at its next start)
+if [ -x "$BUILD/end4pC-play3r" ]; then
+    "$PROJECT/scripts/install-play3r.sh" >/dev/null 2>&1 && echo "Play3r (the music player) is in your application menu: look for it in the launcher, or run  end4pC play3r" || true
+else
+    echo "Play3r (the music player) was not built: it needs ffmpeg, taglib and the PipeWire headers (Arch: pacman -S ffmpeg taglib pipewire), then  end4pC update  or  ninja -C $BUILD"
+fi
 if [ "$STASHED" = 1 ]; then
     echo "Your changes to the shell's files were set aside, not lost. To see them:  git -C \"$PROJECT\" stash show -p"
     echo "To bring them back (it may need a hand where the same lines changed):  git -C \"$PROJECT\" stash pop"

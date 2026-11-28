@@ -227,6 +227,7 @@ void printUsage() {
         "  audiomenu [open|close|tab output|input|apps]                the volume popup\n"
         "  desktopmenu [open [x y]|close]   the desktop's right-click menu\n"
         "  settings                         the Settings window        tools                  the Tools window\n"
+        "  play3r [song or folder]          the music player (opens it, or closes it; with a path it plays it)\n"
         "  osd volume | osd brightness      show the on-screen display\n"
         "\n"
         "Desktop widgets:\n"

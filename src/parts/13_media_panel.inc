@@ -1326,6 +1326,25 @@ void toggleTasks() {
     runDetached({path.c_str(), "tasks"});
 }
 
+// The music player (end4pC-play3r) is a program of its own. No path: it opens, or closes when it is open. With a path (a song or a folder): it plays
+// it, in the open window or in a new one.
+void togglePlay3r(const std::string& argument) {
+    const int lock = open((runtimeDir() + "/end4pC-play3r.lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    const bool running = lock >= 0 && flock(lock, LOCK_EX | LOCK_NB) != 0;
+    if (lock >= 0) close(lock);
+    if (running) {
+        if (argument.empty()) runDetached({"pkill", "-x", "end4pC-play3r"});
+        else runDetached({"playerctl", "-p", "play3r", "open", ("file://" + argument).c_str()});
+        return;
+    }
+    char exe[4096];
+    const ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    std::string path = n > 0 ? std::string(exe, n) : "";
+    path = path.substr(0, path.rfind('/') + 1) + "end4pC-play3r";
+    if (argument.empty()) runDetached({path.c_str()});
+    else runDetached({path.c_str(), argument.c_str()});
+}
+
 void startUpdatesCheck(const Config& cfg) {
     const std::string script = assetsDir() + "/../scripts/updates.sh";
     runDetached({script.c_str(), cfg.updatesAur ? "1" : "0", cfg.updatesFlatpak ? "1" : "0"});

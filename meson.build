@@ -107,3 +107,24 @@ test('media', executable('media-test', 'tests/media/test_media.cpp',
   cpp_args: ['-O0', '-g0'],
   dependencies: [wayland_client, pangocairo, pangoft2, fontconfig, gdkpixbuf, rsvg, xkb, sdbus, threads],
   install: false))
+
+# Play3r: the music player. ffmpeg decodes, PipeWire plays, TagLib reads the tags (src/player/). It is built only when the three libraries are there:
+# a machine without them gets the rest of the shell (and no Play3r) instead of a failed build.
+pipewire = dependency('libpipewire-0.3', required: false)
+avformat = dependency('libavformat', required: false)
+avcodec = dependency('libavcodec', required: false)
+avutil = dependency('libavutil', required: false)
+swresample = dependency('libswresample', required: false)
+taglib = dependency('taglib', required: false)
+if pipewire.found() and avformat.found() and avcodec.found() and avutil.found() and swresample.found() and taglib.found()
+  player_audio = [pipewire, avformat, avcodec, avutil, swresample, taglib, threads]
+
+  executable('end4pC-play3r', 'src/player/player.cpp', 'src/player/engine.cpp', 'src/player/mpris.cpp', generated,
+    dependencies: [wayland_client, pangocairo, pangoft2, fontconfig, gdkpixbuf, rsvg, xkb, sdbus, player_audio],
+    install: false)
+
+  # The audio engine of Play3r without a sound card: `meson test -C build` (it plays a file of ~/Music through a fake output and skips without one)
+  test('player_engine', executable('player-engine-test', 'tests/player/test_engine.cpp', 'src/player/engine.cpp', dependencies: player_audio, install: false), timeout: 60)
+else
+  message('Play3r (the music player) is not built: it needs libpipewire, ffmpeg (libavformat, libavcodec, libswresample) and taglib')
+endif

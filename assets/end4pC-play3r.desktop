@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Play3r
+GenericName=Music Player
+Comment=A light music player with synced lyrics
+# @DIR@ is the folder of the shell (~/.config/end4pC); scripts/install-play3r.sh writes the real file to ~/.local/share/applications
+Exec=@DIR@/build/end4pC-play3r %F
+Icon=@DIR@/assets/play3r.svg
+Terminal=false
+Categories=AudioVideo;Audio;Player;Music;
+MimeType=audio/mpeg;audio/flac;audio/ogg;audio/x-wav;audio/mp4;audio/opus;audio/x-vorbis+ogg;audio/aac;
+StartupWMClass=end4pC-play3r
+Keywords=music;player;lyrics;audio;mp3;flac;

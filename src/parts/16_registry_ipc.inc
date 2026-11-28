@@ -478,6 +478,10 @@ void handleClient(App& app, int listenFd) {
         toggleSettings();
         reply = "ok";
     }
+    else if (cmd == "play3r" || cmd.rfind("play3r ", 0) == 0) {
+        togglePlay3r(cmd.size() > 7 ? cmd.substr(7) : "");
+        reply = "ok";
+    }
     else if (cmd == "tools" || cmd.rfind("tools ", 0) == 0) {
         toggleTools();
         reply = "ok";

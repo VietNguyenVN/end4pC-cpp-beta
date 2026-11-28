@@ -54,6 +54,7 @@ It started as a C++ port of my Quickshell config and keeps its Material 3 look.
 | **Wallpaper** | Selector with local folders, favourites, Wallhaven / Unsplash / Pexels (a wallpaper you already downloaded is reused, not downloaded again); transitions; light/dark and generated palettes (matugen) plus ready-made themes. The right-click menu of the desktop has a carousel of wallpapers (its last item opens the selector), wallpaper options, and the switches of the widgets. |
 | **Capture** | Screenshot and screen recording with annotations, audio and fps options. OCR of an area (`tesseract`), Google Lens search, QR reading and QR generation. |
 | **Tools** | Translator, notes, a freeform board, image converter, video editor, unit and currency converter (about 160 currencies), timers, stopwatch and reminders that ring with the window closed, a key bind editor, an autostart manager (all the tabs can be hidden and reordered from the gear of the window; text fields work with Fcitx5 and other Wayland input methods), an Android phone page (adb and scrcpy), and Score: football matches with the chances of a statistical model, picks and a slip. Score is off until you turn it on in the gear of the Tools window, and it is for entertainment only. |
+| **Play3r** | The music player, a program of its own (`end4pC-play3r`, or `end4pC play3r [song or folder]`). ffmpeg decodes, PipeWire plays, TagLib reads the tags and the cover; no toolkit. A folder with thousands of songs is in the queue at once (the tags are read in the background, from the rows on screen onwards). Cover on a Material shape, a wavy progress bar, synced lyrics (the same sources as the player of the bar), search, saved playlists, the queue of the last time, and MPRIS, so the bar, the media keys and `playerctl` see and control it. |
 | **Task Manager** | Its own window (`SUPER + SHIFT + T`, `CTRL + SHIFT + Esc`, or the button in the resources popup). Processes: apps and processes with CPU, memory and disk, search, End task and Force kill with a confirmation. Performance: CPU (every core), memory, disks, network and GPU (Intel and AMD; NVIDIA is untested) with live charts. Battery and Devices tabs from `upower`. |
 | **Desktop widgets** | Clock (many faces), weather, to-do, calendar, player, resources, user card (with the uptime), image, text, audio visualizer. In edit mode they snap to their neighbours and to an optional grid, show the gap between them, can be tidied into a column and resized from the corners. |
 | **Accessibility** | Screen magnifier, bigger cursor, draggable on-screen keyboard that follows the focused monitor. |
@@ -62,6 +63,16 @@ It started as a C++ port of my Quickshell config and keeps its Material 3 look.
 
 > [!NOTE]
 > The shell is also its own command line: every panel, widget and setting can be driven from a terminal or a key bind. See the [command line reference](#command-line-reference).
+
+
+### Play3r: launching it (and for users who already have the dots)
+
+- **Application menu / launcher:** look for **Play3r**. A fresh install, and `end4pC update`, add its entry (`~/.local/share/applications/end4pC-play3r.desktop`) by themselves when the player was built.
+- **Terminal or key bind:** `end4pC play3r` (toggle), `end4pC play3r ~/Music/album` (play a song or folder).
+- **Already had the dots before Play3r?** Install the three libraries once (`sudo pacman -S ffmpeg taglib pipewire`), then `end4pC update`. To only add the menu entry, or if you build by hand: `ninja -C build && scripts/install-play3r.sh`.
+- Hyprland: run `hyprctl reload` (or log in again) once so the new window rule for Play3r (floating, centred, 1000x640) applies.
+- The bar shows the song and controls it through MPRIS; if the bar is set to follow another player (the `preferredPlayer` setting), change it to `play3r` to see Play3r there.
+- Keys: type to search the queue, Up/Down/Enter to pick, Esc to clear the search, Ctrl+Q or Ctrl+W to close.
 
 ---
 
@@ -76,7 +87,10 @@ meson ninja gcc pkgconf
 wayland wayland-protocols wlr-protocols
 cairo pango gdk-pixbuf2 librsvg
 libxkbcommon pam systemd-libs
+ffmpeg taglib pipewire        # Play3r only
 ```
+
+`ffmpeg`, `taglib` and `pipewire` are only for Play3r: without them everything else builds and Play3r is skipped (the build says so).
 
 The build looks for the protocol XML files in `/usr/share/wayland-protocols` and `/usr/share/wlr-protocols`. It needs `wayland-protocols` 1.37 or newer: the overview and the window switcher use `ext-image-copy-capture`.
 
@@ -92,7 +106,7 @@ The build looks for the protocol XML files in `/usr/share/wayland-protocols` and
 | Screenshots, recording | `grim`, `slurp`, `wf-recorder`, `wl-clipboard`, `swappy` (optional editor), `jq` |
 | OCR, QR | `tesseract`, `zxing-cpp` or `zbar` (reading QR codes) |
 | Audio, microphone | `wireplumber` (`wpctl`), `pipewire-pulse` (`pactl`) |
-| Media player | `playerctl`, `cava` (optional visualizer) |
+| Media player, Play3r | `playerctl`, `cava` (optional visualizer); Play3r also uses `zenity` (folder chooser) and `python` (lyrics) |
 | Wi-Fi, Bluetooth, battery | `networkmanager`, `bluez-utils`, `upower` |
 | Power profile | `power-profiles-daemon` |
 | Brightness | `ddcutil` (external monitors) or `brightnessctl` |
@@ -141,6 +155,7 @@ Binaries produced in `build/`:
 | `end4pC` | The shell (bar, popups, wallpaper, widgets) **and** its own command line |
 | `end4pC-settings` | The Settings window |
 | `end4pC-tools` | The Tools window |
+| `end4pC-play3r` | The music player |
 | `end4pC-lock` | The lock screen |
 
 <details>
@@ -258,6 +273,7 @@ All take `toggle` (the default), `open` or `close` unless noted.
 | `game [open\|close]` | Game overlay |
 | `settings` | Settings window |
 | `tools` | Tools window |
+| `play3r [song or folder]` | The music player: opens it (closes it when open); with a path it plays it |
 | `tasks` | Task Manager window |
 | `osd volume \| osd brightness` | Show the on-screen display |
 

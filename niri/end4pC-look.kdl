@@ -19,6 +19,14 @@ window-rule {
     shadow { off; }
 }
 window-rule {
+    match app-id=r#"^end4pC-play3r$"#
+    open-floating true
+    default-column-width { fixed 1000; }
+    default-window-height { fixed 640; }
+    geometry-corner-radius 24
+    clip-to-geometry true
+}
+window-rule {
     match app-id=r#"^end4pC-tasks$"#
     open-floating true
     default-column-width { fixed 1240; }

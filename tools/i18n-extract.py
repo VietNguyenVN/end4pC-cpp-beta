@@ -20,7 +20,7 @@ LANGS = ["ar", "be", "ca", "cs", "de", "es", "fr", "gl-ES", "he", "hu", "it", "j
 
 # language names are shown in their own language, never translated
 NATIVE = {"English", "English (UK)", "Deutsch", "Español", "Français", "Italiano", "Magyar", "Polski", "Română", "Català", "Čeština", "Galego",
-          "Nederlands", "Norsk nynorsk", "Português (Brasil)", "Svenska", "Türkçe", "Kurdî", "Biełaruskaja", "Русский", "Spanish", "Japanese", "Tiếng Việt", "Google Sans Flex", "0123456789abcdefABCDEF", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.:+", "0123456789abcdef", "End4pC Material Symbols", "End4pC Material Symbols Fill"}
+          "Nederlands", "Norsk nynorsk", "Português (Brasil)", "Svenska", "Türkçe", "Kurdî", "Biełaruskaja", "Русский", "Spanish", "Japanese", "Tiếng Việt", "Google Sans Flex", "0123456789abcdefABCDEF", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.:+", "0123456789abcdef", "End4pC Material Symbols", "End4pC Material Symbols Fill", "Play3r"}
 
 LIT = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 COMMENT = re.compile(r'//.*$')
@@ -39,6 +39,7 @@ def collect() -> list[str]:
     found: dict[str, None] = {}
     for f in sorted(SRC.glob("**/*")):
         if f.suffix not in (".cpp", ".inc", ".h"): continue
+        if f.name in ("mpris.cpp", "engine.cpp"): continue  # D-Bus and PipeWire names, no texts for the user
         for line in f.read_text(errors="ignore").splitlines():
             code = COMMENT.sub("", line) if '"//' not in line and '://' not in line else line
             for m in LIT.finditer(code):
