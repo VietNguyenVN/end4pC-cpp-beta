@@ -261,7 +261,7 @@ std::vector<std::string> centerModules(const App& app) {
 }
 double moduleWidth(const App& app, const Bar& bar, const std::string& m) {
     if (m == "island") return islandActive(app) ? islandW(app) : 0;
-    if (m == "workspaces") return wsTotalW(app, bar);
+    if (m == "workspaces") return wsPlacement(bar, wsTotalW(app, bar), false).total;
     if (m == "media") return !mediaBarVisible(app) ? 0 : mediaHorizontalCompact(app) ? kMediaCompactWidth : musicW(app);
     if (m == "quickactions") return quickW(app);
     if (m == "network") return netVisible(app) ? netExtent(app, false) : 0;

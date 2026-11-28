@@ -391,6 +391,74 @@ double sideWsTotal(const Bar& bar) {
     for (int i = 1; i <= n; i++) t += sideWsShape(bar, i).h + (i > 1 ? sideWsShape(bar, i).gap : 0);
     return t + (pillStyle(*bar.app) ? 2 * kPillPad : 0);
 }
+void blurSpecialWorkspaceUnderlay(cairo_t* cr) {
+    // A separable binomial kernel samples adjacent logical pixels, so the
+    // softened icons stay continuous even on short strokes and thin dots.
+    constexpr double weights[] = {1, 8, 28, 56, 70, 56, 28, 8, 1};
+    cairo_pattern_t* source = cairo_pop_group(cr);
+    for (bool vertical : {false, true}) {
+        cairo_push_group(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_ADD);
+        cairo_pattern_set_filter(source, CAIRO_FILTER_BILINEAR);
+        cairo_matrix_t base;
+        cairo_pattern_get_matrix(source, &base);
+        for (int tap = 0; tap < 9; ++tap) {
+            const double shift = tap - 4;
+            cairo_matrix_t offset = base;
+            cairo_matrix_translate(&offset, vertical ? 0 : shift, vertical ? shift : 0);
+            cairo_pattern_set_matrix(source, &offset);
+            cairo_set_source(cr, source);
+            cairo_paint_with_alpha(cr, weights[tap] / 256);
+        }
+        cairo_pattern_destroy(source);
+        source = cairo_pop_group(cr);
+    }
+    cairo_set_source(cr, source);
+    cairo_paint_with_alpha(cr, 0.45);
+    cairo_pattern_destroy(source);
+}
+
+void drawSpecialWorkspace(cairo_t* cr, PangoContext* context, const Bar& bar, const Rect& r, bool vertical, bool compact) {
+    const App& app = *bar.app;
+    const auto* name = compact ? nullptr : wsSpecialName(bar);
+    const auto& monitors = app.monitorWorkspaces;
+    const bool localUnfocused = compact && bar.connector != monitors.focusedConnector && monitors.special.contains(bar.connector);
+    const Color fg = app.color(name ? "on_primary_container" : localUnfocused ? "on_secondary_container" : "on_surface_variant");
+    roundedRect(cr, r.x, r.y, r.w, r.h, r.h / 2);
+    setSource(cr, app.color(name ? "primary_container" : localUnfocused ? "secondary_container" : "surface_container_high"));
+    cairo_fill(cr);
+    PangoLayout* layout = wsSpecialLayout(context);
+    double left = r.x;
+    if (!name) {
+        const std::string count = std::to_string(app.monitorWorkspaces.special.size());
+        pango_layout_set_text(layout, count.c_str(), -1);
+        int textWidth = 0;
+        pango_layout_get_pixel_size(layout, &textWidth, nullptr);
+        const int icon = 13, gap = 3;
+        const double iconX = r.x + (r.w - icon - gap - textWidth) / 2;
+        drawIcon(cr, "layers", iconX, r.y + (r.h - icon) / 2, icon, fg);
+        left = iconX + icon + gap;
+    } else {
+        const int padding = vertical ? 1 : kSpecialWsPadding;
+        left += padding;
+        pango_layout_set_width(layout, static_cast<int>((r.w - 2 * padding) * PANGO_SCALE));
+        pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
+        if (vertical) {
+            const gunichar first = g_utf8_get_char_validated(name->c_str(), -1);
+            char initial[6];
+            const int bytes = (first == 0 || first == static_cast<gunichar>(-1) || first == static_cast<gunichar>(-2))
+                ? 0 : g_unichar_to_utf8(g_unichar_toupper(first), initial);
+            pango_layout_set_text(layout, bytes > 0 ? initial : "?", bytes > 0 ? bytes : 1);
+        } else pango_layout_set_text(layout, name->c_str(), -1);
+    }
+    int height = 0;
+    pango_layout_get_pixel_size(layout, nullptr, &height);
+    setSource(cr, fg);
+    cairo_move_to(cr, left, r.y + (r.h - height) / 2);
+    pango_cairo_show_layout(cr, layout);
+    g_object_unref(layout);
+}
+
 constexpr double kSideClockM3H = 78;
 double sideBatteryH(const App& app) { return app.cfg.batteryPercent ? 58 : 40; }
 double dtpSideHeight(const App& app);  // (14s_dock_panel.inc)
@@ -400,7 +468,7 @@ void dtpBarPaint(cairo_t* cr, App& app, const Bar& bar, Hit hot);
 std::vector<DockItem>& dtpItems(const App& app);
 double sideModuleH(const Bar& bar, const std::string& m) {
     const App& app = *bar.app;
-    if (m == "workspaces") return sideWsTotal(bar);
+    if (m == "workspaces") return wsPlacement(bar, sideWsTotal(bar), true).total;
     if (m == "media") return mediaBarVisible(app) ? 40 : 0;
     if (m == "docktopanel") return dtpSideHeight(app);
     if (m == "quickactions") { const size_t n = quickShown(app).size(); return n ? n * 44 - 4.0 : 0; }
@@ -480,12 +548,19 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
         for (size_t i = 0; i < mods.size(); i++) {
             const std::string& m = mods[i];
             if (m == "workspaces") {
-                double wy = y + (pillStyle(app) ? kPillPad : 0);
+                const WsPlacement placement = wsPlacement(bar, sideWsTotal(bar), true);
+                double wy = y + placement.regular + (pillStyle(app) ? kPillPad : 0);
                 const double pad = sideWsPad(bar);
                 for (int id = 1; id <= wsShown(app); id++) {
                     const SideWsShape sh = sideWsShape(bar, id);
                     v.push_back({kHitWs + id, {x, wy - pad, 40, sh.h + 2 * pad}});
                     wy += sh.h + sh.gap;
+                }
+                if (placement.showOverlay)
+                    v.push_back({HitSpecialWs, {x + (40 - kSpecialWsInitialWidth) / 2, y + placement.overlay, kSpecialWsInitialWidth, kSpecialWsInitialHeight}});
+                if (placement.showCompact) {
+                    const double width = wsSpecialCompactWidth(bar);
+                    v.push_back({HitSpecialWsCompact, {x + (40 - width) / 2, y + placement.compact, width, kSpecialWsInitialHeight}});
                 }
             }
             else if (m == "media") v.push_back({HitMedia, {x, y, 40, 40}});
@@ -1859,9 +1934,28 @@ void drawSide(Bar& bar) {
             if (aiFirst < 0) { aiFirst = s.id; aiBox = s.r; }
             else aiBox.h = s.r.y + s.r.h - aiBox.y;
         }
+    const bool overlay = wsSpecialName(bar) != nullptr;
+    bool underlay = false;
+    auto finishUnderlay = [&] {
+        blurSpecialWorkspaceUnderlay(cr);
+        cairo_restore(cr);
+    };
     for (const auto& it : items) {
+        const bool regular = overlay && it.id > kHitWs && it.id < kHitQuick;
+        if (regular && !underlay) {
+            const double top = it.r.y + sideWsPad(bar) - (pillStyle(app) ? kPillPad : 0);
+            cairo_save(cr);
+            cairo_rectangle(cr, it.r.x - 2, top - 3, it.r.w + 4, sideWsTotal(bar) + 6);
+            cairo_clip(cr);
+            cairo_push_group(cr);
+        } else if (!regular && underlay) finishUnderlay();
+        underlay = regular;
         const Rect& r = it.r;
         const bool hot = hit == it.id;
+        if (it.id == HitSpecialWs || it.id == HitSpecialWsCompact) {
+            drawSpecialWorkspace(cr, pango_layout_get_context(layout), bar, r, true, it.id == HitSpecialWsCompact);
+            continue;
+        }
         if (it.id == HitWeather) { weatherSidePaint(cr, app, layout, r, hot); continue; }
         if (it.id == HitUpdates) { updatesSidePaint(cr, app, layout, r, hot); continue; }
         if (it.id == HitBluetooth) { btSidePaint(cr, app, r, hot); continue; }
@@ -2235,6 +2329,7 @@ void drawSide(Bar& bar) {
             if (!app.avatar) drawIcon(cr, "user-circle", px + (side - 26) / 2.0, py + (side - 26) / 2.0, 26, app.color("on_primary_container"));
         }
     }
+    if (underlay) finishUnderlay();
     g_object_unref(layout);
     popWithShadow(cr, app);
     cairo_destroy(cr);
@@ -2672,7 +2767,7 @@ Color quickM3Frame(cairo_t* cr, const App& app, const std::string& style, double
 
 void m3WsPaint(cairo_t* cr, const App& app, const Bar& bar, PangoLayout* layout, Hit hit, const PangoFontDescription* font) {
     const int n = wsShown(app);
-    const double x0 = slotX(bar, "workspaces"), cy = bar.height / 2.0, W = kM3Cell;
+    const double x0 = slotX(bar, "workspaces") + wsPlacement(bar, wsTotalW(app, bar), false).regular, cy = bar.height / 2.0, W = kM3Cell;
     auto cellX = [&](int slot) { return x0 + (slot - 1) * W; };
     auto occupied = [&](int slot) { return slot >= 1 && slot <= n && app.occupied.count(wsIdOf(bar, slot)) > 0; };
     const int activeSlot = wsSlotOf(bar, wsActiveId(bar));
@@ -2763,8 +2858,17 @@ void draw(Bar& bar) {
         const Hit hit = hov ? hitTest(bar, app.pointerX, app.pointerY) : HitNone;
         PangoFontDescription* numFont = pango_font_description_from_string("Sans Bold 11");
         const int wsCount = wsShown(app);
+        const double regularWidth = wsTotalW(app, bar);
+        const WsPlacement placement = wsPlacement(bar, regularWidth, false);
+        const double base = slotX(bar, "workspaces");
+        if (placement.showOverlay) {
+            cairo_save(cr);
+            cairo_rectangle(cr, base + placement.regular - 3, 0, regularWidth + 6, bar.height);
+            cairo_clip(cr);
+            cairo_push_group(cr);
+        }
         if (pillStyle(app)) {
-            const double bx = slotX(bar, "workspaces"), by = (bar.height - kPillH) / 2.0;
+            const double bx = base + placement.regular, by = (bar.height - kPillH) / 2.0;
             roundedRect(cr, bx, by, wsTotalW(app, bar), kPillH, kPillH / 2);
             setSource(cr, app.color("surface_container_high"));
             cairo_fill(cr);
@@ -2867,6 +2971,17 @@ void draw(Bar& bar) {
             }
         }
         pango_font_description_free(numFont);
+        if (placement.showOverlay) {
+            blurSpecialWorkspaceUnderlay(cr);
+            cairo_restore(cr);
+        }
+        const double y = (bar.height - kSpecialWsHeight) / 2;
+        if (const auto* name = wsSpecialName(bar))
+            drawSpecialWorkspace(cr, pango_layout_get_context(layout), bar,
+                {base + placement.overlay, y, wsSpecialLength(app, *name), kSpecialWsHeight}, false, false);
+        if (placement.showCompact)
+            drawSpecialWorkspace(cr, pango_layout_get_context(layout), bar,
+                {base + placement.compact, y, wsSpecialCompactWidth(bar), kSpecialWsHeight}, false, true);
     }
 
     if (hasSlot(bar, "media") && mediaHorizontalCompact(app)) {

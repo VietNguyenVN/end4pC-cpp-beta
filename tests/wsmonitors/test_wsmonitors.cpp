@@ -68,9 +68,37 @@ static void parsing() {
     CHECK(activeWorkspaces(std::string(100000, '[')).empty());                              // hostile input: no crash
 }
 
+static void specialWorkspaces() {
+    const auto opened = monitorWorkspaces(R"([
+        {"specialWorkspace":{"name":"special:Spotify","id":-98},"name":"HDMI-A-1","activeWorkspace":{"id":6}},
+        {"name":"DP-2","activeWorkspace":{"id":1},"focused":true,"specialWorkspace":{"name":"special:special"}},
+        {"activeWorkspace":{"id":11},"name":"DP-3","specialWorkspace":{"name":"special:Notes, work","address":"0x123"}},
+        {"name":"DP-4","activeWorkspace":{"id":16},"specialWorkspace":{"name":"","id":0}}
+    ])");
+    CHECK(opened.active.size() == 4 && opened.active.at("HDMI-A-1") == 6);
+    CHECK(opened.special.size() == 3 && opened.special.at("HDMI-A-1") == "Spotify");
+    CHECK(opened.special.at("DP-2") == "special" && opened.special.at("DP-3") == "Notes, work");
+    const auto* local = opened.focusedSpecial("DP-2");
+    CHECK(local && *local == "special");
+    CHECK(opened.focusedSpecial("HDMI-A-1") == nullptr);
+    auto switched = opened;
+    switched.focusedConnector = "HDMI-A-1";
+    CHECK(switched != opened && switched.special == opened.special);
+    const auto* remote = switched.focusedSpecial("HDMI-A-1");
+    CHECK(remote && *remote == "Spotify" && switched.focusedSpecial("DP-2") == nullptr);
+    switched.focusedConnector = "DP-4";
+    CHECK(switched.focusedSpecial("DP-4") == nullptr && switched.special.size() == 3);
+    CHECK(!opened.special.count("DP-4"));
+    CHECK(monitorWorkspaces(R"([{"name":"DP-2","specialWorkspace":{"name":"special"}}])").special.at("DP-2") == "special");
+    const auto closed = monitorWorkspaces(R"([{"name":"HDMI-A-1","activeWorkspace":{"id":6},"specialWorkspace":null}])");
+    CHECK(closed.active.size() == 1 && closed.special.empty());
+    CHECK(monitorWorkspaces(R"([{"name":"B","activeWorkspace":{"name":"special:False","id":2}}])").special.empty());
+}
+
 int main() {
     groups();
     parsing();
+    specialWorkspaces();
     std::printf("%d checks, %d failed\n", g_run, g_fail);
     return g_fail ? 1 : 0;
 }

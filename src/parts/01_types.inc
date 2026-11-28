@@ -390,6 +390,8 @@ struct Config {
     std::vector<std::string> sideRight = {"systray", "battery", "notifications", "settings", "clock"};
     std::string workspaceNumbers = "normal";
     std::string workspaceStyle = "icons";
+    std::string specialWorkspaceIndicator = "focus";
+    std::string specialWorkspacePlacement = "after";
     std::string colorScheme = "scheme-neutral";
     std::string colorMode = "dark";
     std::string wallpaperDir = "~/Pictures/Wallpapers";
@@ -1814,7 +1816,7 @@ struct App {
     int wsCount = 0;
     // The workspace each screen (connector) has in use. The focused one is in `workspace`; this keeps the others right when the
     // bar of a screen that is not in focus draws its workspaces.
-    std::map<std::string, int> monActive;
+    wsmon::MonitorWorkspaces monitorWorkspaces;
     std::map<int, std::string> wsMainClass;
     std::map<std::string, cairo_surface_t*> wsIcons;
     std::string musicPlayer;  // exact MPRIS instance reported by the metadata watcher
@@ -2192,7 +2194,7 @@ inline std::string dividerLooksWith(const std::string& looks, int n, const Divid
     return out;
 }
 
-constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitDrives = 26, HitPrivacy = 27, HitIsland = 25, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600, kHitDtp = 800, kHitDiv = 1200;
+constexpr Hit HitNone = 0, HitClock = 1, HitVolume = 2, HitPrev = 3, HitPlay = 4, HitNext = 5, HitNetwork = 6, HitNotif = 7, HitMedia = 8, HitSettings = 9, HitAvatar = 10, HitTray = 11, HitLauncher = 12, HitPower = 13, HitWeather = 14, HitDivider = 16, HitKeyboard = 17, HitActiveWindow = 18, HitTools = 15, HitUpdates = 19, HitBluetooth = 24, HitDrives = 26, HitPrivacy = 27, HitIsland = 25, HitSpecialWs = 28, HitSpecialWsCompact = 29, kHitAi = 50, kHitViz = 60, kHitStatus = 20, kHitRes = 40, kHitWs = 100, kHitQuick = 300, kHitTray = 600, kHitDtp = 800, kHitDiv = 1200;
 
 std::string widgetStyle(const App& app, const std::string& mod);
 double roundBtnW(const App& app, const char* mod) { return kQuickBox + (!sideBar(app) && widgetStyle(app, mod) == "m3" ? kM3Box - kQuickBox : 0); }
@@ -2419,8 +2421,8 @@ int wsShown(const App& app) { return app.wsCount > 0 ? std::clamp(app.wsCount, 1
 // that workspace is inside the first group, the bar is what it always was.
 int wsActiveId(const Bar& bar) {
     const App& app = *bar.app;
-    const auto it = app.monActive.find(bar.connector);
-    return it != app.monActive.end() && it->second > 0 ? it->second : app.workspace;
+    const auto it = app.monitorWorkspaces.active.find(bar.connector);
+    return it != app.monitorWorkspaces.active.end() && it->second > 0 ? it->second : app.workspace;
 }
 int wsBaseOf(const Bar& bar) { return wsmon::groupBase(wsActiveId(bar), wsShown(*bar.app)); }
 int wsIdOf(const Bar& bar, int slot) { return wsBaseOf(bar) + slot - 1; }
@@ -2450,10 +2452,81 @@ double wsTotalW(const App& app, const Bar& bar) {
     for (int i = 1; i <= wsShown(app); i++) w += wsWidth(app, i, wsIsActive(bar, i)) + (i > 1 ? wsGap(app) : 0);
     return w + 2 * wsInset(app);
 }
+constexpr double kSpecialWsGap = 5, kSpecialWsHeight = 26, kSpecialWsPadding = 8, kSpecialWsMaxLabel = 102;
+constexpr double kSpecialWsInitialWidth = 20, kSpecialWsInitialHeight = 20;
+const std::string* wsSpecialName(const Bar& bar) {
+    if (bar.app->cfg.specialWorkspaceIndicator != "focus") return nullptr;
+    return bar.app->monitorWorkspaces.focusedSpecial(bar.connector);
+}
+bool wsSpecialShown(const Bar& bar) {
+    return bar.app->cfg.specialWorkspaceIndicator != "off" && !bar.app->monitorWorkspaces.special.empty();
+}
+PangoLayout* wsSpecialLayout(PangoContext* context) {
+    PangoLayout* layout = pango_layout_new(context);
+    PangoFontDescription* font = pango_font_description_from_string("Sans Bold 9");
+    pango_layout_set_font_description(layout, font);
+    pango_font_description_free(font);
+    pango_layout_set_single_paragraph_mode(layout, true);
+    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+    return layout;
+}
+double wsSpecialLength(const App& app, const std::string& name) {
+    static std::map<std::string, double> lengths;
+    static std::string family;
+    static int weight = 0;
+    if (family != app.cfg.fontFamily || weight != app.cfg.fontWeightTitle || lengths.size() >= 128) {
+        lengths.clear();
+        family = app.cfg.fontFamily;
+        weight = app.cfg.fontWeightTitle;
+    }
+    if (const auto it = lengths.find(name); it != lengths.end()) return it->second;
+    PangoContext* context = pango_font_map_create_context(pango_cairo_font_map_get_default());
+    PangoLayout* layout = wsSpecialLayout(context);
+    pango_layout_set_text(layout, name.c_str(), -1);
+    int width = 0;
+    pango_layout_get_pixel_size(layout, &width, nullptr);
+    g_object_unref(layout);
+    g_object_unref(context);
+    const double length = std::max(kSpecialWsHeight, std::min<double>(width, kSpecialWsMaxLabel) + 2 * kSpecialWsPadding);
+    return lengths.emplace(name, length).first->second;
+}
+double wsSpecialCompactWidth(const Bar& bar) {
+    const double width = wsSpecialLength(*bar.app, std::to_string(bar.app->monitorWorkspaces.special.size())) + 12;
+    return sideBar(*bar.app) ? std::min(40.0, width) : width;
+}
+struct WsPlacement {
+    double regular = 0, overlay = 0, compact = 0, total = 0;
+    bool showOverlay = false, showCompact = false;
+};
+WsPlacement wsPlacement(const Bar& bar, double regular, bool vertical) {
+    WsPlacement placement;
+    placement.total = regular;
+    if (!wsSpecialShown(bar)) return placement;
+
+    const auto* name = wsSpecialName(bar);
+    const double full = name ? (vertical ? kSpecialWsInitialHeight : wsSpecialLength(*bar.app, *name)) : 0;
+    const double main = std::max(regular, full);
+    placement.regular = (main - regular) / 2;
+    placement.overlay = (main - full) / 2;
+    placement.total = main;
+    placement.showOverlay = name != nullptr;
+    placement.showCompact = !name || bar.app->monitorWorkspaces.special.size() > 1;
+    if (placement.showCompact) {
+        const double extra = kSpecialWsGap + (vertical ? kSpecialWsInitialHeight : wsSpecialCompactWidth(bar));
+        if (bar.app->cfg.specialWorkspacePlacement == "before") {
+            placement.regular += extra;
+            placement.overlay += extra;
+        } else placement.compact = main + kSpecialWsGap;
+        placement.total += extra;
+    }
+    return placement;
+}
 double wsXOf(const Bar& bar, int id) {
     const App& app = *bar.app;
     auto it = bar.slot.find("workspaces");
     double x = (it == bar.slot.end() ? 0 : it->second) + wsInset(app);
+    if (app.cfg.specialWorkspacePlacement != "after" || wsSpecialName(bar))
+        x += wsPlacement(bar, wsTotalW(app, bar), false).regular;
     for (int i = 1; i < id; i++) x += wsWidth(app, i, wsIsActive(bar, i)) + wsGap(app);
     return x;
 }

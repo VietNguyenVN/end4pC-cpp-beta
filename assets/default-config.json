@@ -45,6 +45,8 @@
   "widgetScreen": "",
   "barStyle": "hug",
   "workspaceStyle": "bar",
+  "specialWorkspaceIndicator": "focus",
+  "specialWorkspacePlacement": "after",
   "colorScheme": "scheme-neutral",
   "colorMode": "dark",
   "wallpaperDir": "~/Pictures/Wallpapers",

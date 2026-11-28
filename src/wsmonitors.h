@@ -6,9 +6,10 @@
 #pragma once
 
 #include <algorithm>
-#include <cstdlib>
+#include <charconv>
 #include <map>
 #include <string>
+#include <string_view>
 
 namespace wsmon {
 
@@ -20,14 +21,14 @@ inline int groupBase(int active, int shown) {
 
 namespace detail {
 // The end of the string that starts at s[i] == '"' (the index of its closing quote), or npos.
-inline size_t stringEnd(const std::string& s, size_t i) {
+inline size_t stringEnd(std::string_view s, size_t i) {
     for (size_t k = i + 1; k < s.size(); k++) {
         if (s[k] == '\\') k++;
         else if (s[k] == '"') return k;
     }
     return std::string::npos;
 }
-inline std::string unescape(const std::string& s) {
+inline std::string unescape(std::string_view s) {
     std::string out;
     for (size_t i = 0; i < s.size(); i++) {
         if (s[i] == '\\' && i + 1 < s.size()) { i++; out += s[i]; }
@@ -35,39 +36,95 @@ inline std::string unescape(const std::string& s) {
     }
     return out;
 }
+// Read direct fields only, so a nested workspace name cannot be mistaken for the connector.
+inline std::string_view field(std::string_view obj, std::string_view key) {
+    int depth = 0;
+    for (size_t i = 0; i < obj.size(); ++i) {
+        if (obj[i] == '{' || obj[i] == '[') { ++depth; continue; }
+        if (obj[i] == '}' || obj[i] == ']') { --depth; continue; }
+        if (obj[i] != '"') continue;
+        const size_t end = stringEnd(obj, i);
+        if (end == obj.npos) break;
+        if (depth == 1 && obj.substr(i + 1, end - i - 1) == key) {
+            const size_t colon = obj.find_first_not_of(" \t\r\n", end + 1);
+            if (colon != obj.npos && obj[colon] == ':') {
+                const size_t value = obj.find_first_not_of(" \t\r\n", colon + 1);
+                if (value != obj.npos) return obj.substr(value);
+            }
+        }
+        i = end;
+    }
+    return {};
+}
+
+inline std::string stringField(std::string_view obj, std::string_view key) {
+    const auto value = field(obj, key);
+    if (value.empty() || value.front() != '"') return {};
+    const size_t end = stringEnd(value, 0);
+    return end == value.npos ? std::string{} : unescape(value.substr(1, end - 1));
+}
+
+inline std::string_view objectField(std::string_view obj, std::string_view key) {
+    const auto value = field(obj, key);
+    if (value.empty() || value.front() != '{') return {};
+    int depth = 0;
+    for (size_t i = 0; i < value.size(); ++i) {
+        if (value[i] == '"') {
+            i = stringEnd(value, i);
+            if (i == value.npos) break;
+        } else if (value[i] == '{') ++depth;
+        else if (value[i] == '}' && --depth == 0) return value.substr(0, i + 1);
+    }
+    return {};
+}
 }  // namespace detail
 
-// From the output of `hyprctl monitors -j` (or the socket request j/monitors): the workspace in use on each monitor, by name. A monitor that
-// does not say its name or its workspace is left out, and so is a workspace id that is not a number above 0.
-inline std::map<std::string, int> activeWorkspaces(const std::string& json) {
-    std::map<std::string, int> out;
+struct MonitorWorkspaces {
+    std::map<std::string, int> active;
+    std::map<std::string, std::string> special;
+    std::string focusedConnector;
+    const std::string* focusedSpecial(std::string_view connector) const {
+        if (focusedConnector.empty() || connector != focusedConnector) return nullptr;
+        const auto it = special.find(focusedConnector);
+        return it == special.end() ? nullptr : &it->second;
+    }
+    bool operator==(const MonitorWorkspaces&) const = default;
+};
+
+// Read both workspace kinds from the same Hyprland monitor snapshot.
+inline MonitorWorkspaces monitorWorkspaces(std::string_view json) {
+    MonitorWorkspaces out;
     int depth = 0;
-    size_t start = std::string::npos;
-    for (size_t i = 0; i < json.size(); i++) {
+    size_t start = 0;
+    for (size_t i = 0; i < json.size(); ++i) {
         const char c = json[i];
         if (c == '"') {
-            const size_t end = detail::stringEnd(json, i);
-            if (end == std::string::npos) break;
-            i = end;
+            i = detail::stringEnd(json, i);
+            if (i == json.npos) break;
         } else if (c == '{') {
-            if (depth == 0) start = i;
-            depth++;
-        } else if (c == '}') {
-            if (depth > 0) depth--;
-            if (depth == 0 && start != std::string::npos) {
-                const std::string obj = json.substr(start, i - start + 1);
-                start = std::string::npos;
-                const size_t n = obj.find("\"name\": \"");
-                const size_t a = obj.find("\"activeWorkspace\": {");
-                if (n == std::string::npos || a == std::string::npos) continue;
-                const size_t nameFrom = n + 9, nameEnd = detail::stringEnd(obj, nameFrom - 1);
-                const size_t idAt = obj.find("\"id\": ", a);
-                if (nameEnd == std::string::npos || idAt == std::string::npos || n > a) continue;  // (the name of the monitor comes before its workspace)
-                const int id = std::atoi(obj.c_str() + idAt + 6);
-                if (id > 0) out[detail::unescape(obj.substr(nameFrom, nameEnd - nameFrom))] = id;
+            if (depth++ == 0) start = i;
+        } else if (c == '}' && depth > 0 && --depth == 0) {
+            const auto obj = json.substr(start, i - start + 1);
+            const std::string connector = detail::stringField(obj, "name");
+            if (connector.empty()) continue;
+            if (detail::field(obj, "focused").starts_with("true")) out.focusedConnector = connector;
+            const auto active = detail::objectField(obj, "activeWorkspace");
+            const auto idText = detail::field(active, "id");
+            int id = 0;
+            if (!idText.empty() && std::from_chars(idText.data(), idText.data() + idText.size(), id).ec == std::errc{} && id > 0)
+                out.active.emplace(connector, id);
+            const auto special = detail::objectField(obj, "specialWorkspace");
+            std::string name = detail::stringField(special, "name");
+            if (!name.empty()) {
+                if (name.starts_with("special:")) name.erase(0, 8);
+                out.special.emplace(connector, name.empty() ? "special" : std::move(name));
             }
         }
     }
     return out;
+}
+
+inline std::map<std::string, int> activeWorkspaces(const std::string& json) {
+    return monitorWorkspaces(json).active;
 }
 }  // namespace wsmon
