@@ -1284,7 +1284,7 @@ void tick() {
     g.lastTick = now;
 }
 
-int pollTimeout() {
+int pollTimeoutBase() {
     if (pane().band.busy() || (g.split && g.panes[1 - g.activePane].band.busy()) ||
         pane().lasso || g.animating || g.placeDrag) return 16;
     for (const Pane& p : g.panes) if (p.reloadAt != Clock::time_point{}) return 33;
@@ -1293,6 +1293,16 @@ int pollTimeout() {
     if (g.worker.busy || !g.toast.empty()) return 33;
     if (g.focus != 0) return 120;
     return 500;
+}
+
+// A key held down repeats from the loop, so the loop must wake when the next repeat is due (otherwise the repeat only runs when something else wakes it).
+int pollTimeout() {
+    int t = pollTimeoutBase();
+    if (g.repeatKey) {
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(g.repeatAt - Clock::now()).count();
+        t = std::min<int>(t, static_cast<int>(std::max<long long>(1, left)));
+    }
+    return t;
 }
 
 void teardown() {

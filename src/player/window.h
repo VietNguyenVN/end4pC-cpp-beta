@@ -402,10 +402,20 @@ void tick() {
     g.lastTick = now;
 }
 
-int pollTimeout() {
+int pollTimeoutBase() {
     int t = g.engine && g.engine->state() == player::State::Playing ? 33 : 250;
     if (g.queueBand.busy() || g.plBand.busy() || g.lyBusy) t = 16;
     else if (g.focus != 0) t = std::min(t, 120);
+    return t;
+}
+
+// A key held down repeats from the loop, so the loop must wake when the next repeat is due (otherwise the repeat only runs when something else wakes it).
+int pollTimeout() {
+    int t = pollTimeoutBase();
+    if (g.repeatKey) {
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(g.repeatAt - Clock::now()).count();
+        t = std::min<int>(t, static_cast<int>(std::max<long long>(1, left)));
+    }
     return t;
 }
 

@@ -818,10 +818,20 @@ void tick() {
     }
 }
 
-int pollTimeout() {
+int pollTimeoutBase() {
     if (g.band.busy() || g.sideBand.busy() || g.selecting) return 16;
     if (!g.toast.empty()) return 100;
     return 140;
+}
+
+// A key held down repeats from the loop, so the loop must wake when the next repeat is due (otherwise the repeat only runs when something else wakes it).
+int pollTimeout() {
+    int t = pollTimeoutBase();
+    if (g.repeatKey) {
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(g.repeatAt - Clock::now()).count();
+        t = std::min<int>(t, static_cast<int>(std::max<long long>(1, left)));
+    }
+    return t;
 }
 
 void teardown() {
