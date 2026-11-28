@@ -1,0 +1,20 @@
+[← end4pC docs](README.md)
+
+# Features
+
+| | |
+|---|---|
+| **Bar** | Top, bottom, left or right. Styles: Panel, Float, Island, Hug, Notch, Split hug. Workspaces, media, clock (8 looks), system resources, quick actions, tray, network, volume, battery, Bluetooth, keyboard layout, updates, notifications, launcher, power, weather, removable drives, AI usage (Claude Code and Codex, read from the files they leave on your machine), dividers. Every widget has Plain, Framed and M3 looks. The Dock can live inside the bar ("Dock to panel": click to launch or cycle windows, middle click for a new window, right click to pin, drag to reorder). |
+| **Panels** | Launcher (apps, files with `fd`, clipboard, emoji, calculator, QR; in the clipboard, Space previews an entry, text with scroll or a picture, without closing the launcher, with Back and Copy buttons), power menu, control center, notification popups and panel, media card with lyrics, Alt+Tab switcher with live previews. |
+| **Wallpaper** | Selector with local folders, favourites, Wallhaven / Unsplash / Pexels (a wallpaper you already downloaded is reused, not downloaded again); transitions; light/dark and generated palettes (matugen) plus ready-made themes. The right-click menu of the desktop has a carousel of wallpapers (its last item opens the selector), wallpaper options, and the switches of the widgets. |
+| **Capture** | Screenshot and screen recording with annotations, audio and fps options. OCR of an area (`tesseract`), Google Lens search, QR reading and QR generation. |
+| **Tools** | Translator, notes, a freeform board, image converter, video editor, unit and currency converter (about 160 currencies), timers, stopwatch and reminders that ring with the window closed, a key bind editor, an autostart manager (all the tabs can be hidden and reordered from the gear of the window; text fields work with Fcitx5 and other Wayland input methods), an Android phone page (adb and scrcpy), and Score: football matches with the chances of a statistical model, picks and a slip. Score is off until you turn it on in the gear of the Tools window, and it is for entertainment only. |
+| **Play3r, Fil3s, T3xt** | Three small programs of their own, in the same Material look: a [music player](play3r.md) with synced lyrics and MPRIS, a [file manager](fil3s.md) with one-click conversions and archives, and a [text editor](t3xt.md) with syntax highlighting in the colours of the shell. |
+| **Task Manager** | Its own window (`SUPER + SHIFT + T`, `CTRL + SHIFT + Esc`, or the button in the resources popup). Processes: apps and processes with CPU, memory and disk, search, End task and Force kill with a confirmation. Performance: CPU (every core), memory, disks, network and GPU (Intel and AMD; NVIDIA is untested) with live charts. Battery and Devices tabs from `upower`. |
+| **Desktop widgets** | Clock (many faces), weather, to-do, calendar, player, resources, user card (with the uptime), image, text, audio visualizer. In edit mode they snap to their neighbours and to an optional grid, show the gap between them, can be tidied into a column and resized from the corners. |
+| **Accessibility** | Screen magnifier, bigger cursor, draggable on-screen keyboard that follows the focused monitor. |
+| **System** | Lock screen (`ext-session-lock` + PAM; you choose which monitors show the full lock screen), polkit authentication agent, removable drives popup (`udisks2`), game overlay (with a volume mixer and a GPU row), per-monitor hot corners, volume limit and step (above 100% when you allow it), do-not-disturb. |
+| **Settings app** | Almost everything is configurable from the GUI (also your display name and the hostname, the placement of the player and notification popups, and the odds provider of Score); it saves to `~/.local/share/end4pC/config.json`. |
+
+> [!NOTE]
+> The shell is also its own command line: every panel, widget and setting can be driven from a terminal or a key bind. See the [command line reference](commands.md).
