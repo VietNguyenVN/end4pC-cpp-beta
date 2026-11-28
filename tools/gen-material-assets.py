@@ -85,7 +85,7 @@ MAP = {
     "bell-off": "notifications_off", "bomb-minimalistic": "dangerous", "calculator-minimalistic": "calculate", "card": "credit_card",
     "cat": "pets", "cup": "coffee", "display": "desktop_windows", "dollar-minimalistic": "attach_money", "emoji": "emoji_emotions",
     "eraser-square": "ink_eraser", "eye-scan": "document_scanner", "flash-drive": "usb", "full-screen": "fullscreen",
-    "gamepad-minimalistic": "sports_esports", "list-check": "checklist", "magnifer-zoom-in": "zoom_in", "maximize-square-2": "open_in_full",
+    "gamepad-minimalistic": "sports_esports", "list-check": "checklist", "checklist-minimalistic": "checklist", "playlist": "queue_music", "repeat-one": "repeat_one", "repeat": "repeat", "magnifer-zoom-in": "zoom_in", "maximize-square-2": "open_in_full",
     "mouse_down": "mouse", "mouse_up": "mouse", "notebook-minimalistic": "book", "page_down": "keyboard_double_arrow_down",
     "page_up": "keyboard_double_arrow_up", "pen-2": "edit", "pen-new-round": "edit_square", "pills": "medication",
     "playback-speed": "speed", "qr-code": "qr_code_2", "rocket-2": "rocket_launch", "ruler": "straighten", "running": "directions_run",

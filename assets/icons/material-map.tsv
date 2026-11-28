@@ -49,6 +49,7 @@ chat-round-dots	sms	e0d8
 check-circle	check_circle	e86c
 check-read	done_all	e877
 checklist	checklist	e6b1
+checklist-minimalistic	checklist	e6b1
 city	location_city	e7f1
 claude	auto_awesome	e65f
 clipboard	content_paste	e14f
@@ -89,6 +90,7 @@ dollar-minimalistic	attach_money	e227
 download	download	e171
 download-minimalistic	download	e171
 download-square	download	e171
+draw	draw	e746
 earth	public	e80b
 edit	edit	e150
 emoji	emoji_emotions	e24e
@@ -205,9 +207,11 @@ plain-3	flight	e539
 play	play_arrow	e037
 play_arrow	play_arrow	e037
 playback-speed	speed	e9e4
+playlist	queue_music	e03d
 power	power_settings_new	e8ac
 preview	preview	f1c5
 print	print	e555
+priority_high	priority_high	e645
 pulse	monitor_heart	eaa2
 push_pin	push_pin	f10d
 qr-code	qr_code_2	e00a
@@ -218,6 +222,8 @@ record-circle	radio_button_checked	e837
 refresh	refresh	e5d5
 refresh-circle	refresh	e5d5
 remove	remove	e15b
+repeat	repeat	e040
+repeat-one	repeat_one	e041
 reply	reply	e15e
 restart	restart_alt	f053
 rocket	rocket	eba5

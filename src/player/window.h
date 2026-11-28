@@ -418,7 +418,10 @@ int run(int argc, char** argv) {
     const std::string cfg = readFile(configPath());
     jsonValue(cfg, "language", lang);
     std::string mat, style;
+    matsym::assetsDir() = assetsDir();
     matsym::enabled() = jsonValue(cfg, "materialIcons", mat) && mat == "1";
+    std::string scale;
+    if (jsonValue(cfg, "iconScale", scale) && !scale.empty()) g_iconScale = std::clamp(std::atoi(scale.c_str()), 60, 150);
     if (jsonValue(cfg, "iconStyle", style) && !style.empty()) g_iconStyle = style;
     i18n::load(lang, assetsDir(), dataDir() + "/i18n");
     applyShellFont(fontFamilyFromConfig(dataDir() + "/config.json"), fontWeightFromConfig(dataDir() + "/config.json", "fontWeightText", 450), fontWeightFromConfig(dataDir() + "/config.json", "fontWeightTitle", 550));

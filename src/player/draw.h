@@ -61,6 +61,7 @@ bool jsonValue(const std::string& text, const std::string& key, std::string& out
 
 std::map<std::string, Color> g_colors;
 std::string g_iconStyle = "outline";
+int g_iconScale = 100;  // % of the size every icon is drawn at (Settings > Appearance > Font & Icons of the shell)
 time_t g_colorsStamp = 0;
 Color color(const char* n) {
     auto it = g_colors.find(n);
@@ -178,6 +179,12 @@ cairo_surface_t* iconMask(const std::string& name, int size) {
 }
 double g_scale = 1;  // the scale of the window being drawn (the icons are cached at real pixels)
 void icon(cairo_t* cr, const std::string& name, double x, double y, int size, const Color& c, double alpha = 1) {
+    if (g_iconScale != 100) {  // the icon keeps its centre
+        const int scaled = std::max(8, static_cast<int>(std::lround(size * g_iconScale / 100.0)));
+        x += (size - scaled) / 2.0;
+        y += (size - scaled) / 2.0;
+        size = scaled;
+    }
     const int px = hidpi::bufferExtent(size, g_scale);
     cairo_surface_t* m = iconMask(name, px);
     if (!m) return;
