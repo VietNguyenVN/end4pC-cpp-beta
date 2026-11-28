@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <charconv>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -77,11 +78,40 @@ inline std::string_view objectField(std::string_view obj, std::string_view key) 
     }
     return {};
 }
+template<class Visitor>
+void forObjects(std::string_view json, Visitor visit) {
+    int depth = 0;
+    size_t start = 0;
+    for (size_t i = 0; i < json.size(); ++i) {
+        const char c = json[i];
+        if (c == '"') {
+            i = detail::stringEnd(json, i);
+            if (i == json.npos) break;
+        } else if (c == '{') {
+            if (depth++ == 0) start = i;
+        } else if (c == '}' && depth > 0 && --depth == 0) {
+            visit(json.substr(start, i - start + 1));
+        }
+    }
+}
+
+inline int intField(std::string_view obj, std::string_view key) {
+    const auto value = field(obj, key);
+    int n = 0;
+    if (value.empty() || std::from_chars(value.data(), value.data() + value.size(), n).ec != std::errc{}) return 0;
+    return n;
+}
+inline bool isSpecial(std::string_view name) { return name == "special" || name.starts_with("special:"); }
+inline std::string specialLabel(std::string name) {
+    if (name.starts_with("special:")) name.erase(0, 8);
+    return name.empty() ? "special" : name;
+}
 }  // namespace detail
 
 struct MonitorWorkspaces {
     std::map<std::string, int> active;
     std::map<std::string, std::string> special;
+    std::set<std::string> openSpecialKeys;
     std::string focusedConnector;
     const std::string* focusedSpecial(std::string_view connector) const {
         if (focusedConnector.empty() || connector != focusedConnector) return nullptr;
@@ -94,34 +124,42 @@ struct MonitorWorkspaces {
 // Read both workspace kinds from the same Hyprland monitor snapshot.
 inline MonitorWorkspaces monitorWorkspaces(std::string_view json) {
     MonitorWorkspaces out;
-    int depth = 0;
-    size_t start = 0;
-    for (size_t i = 0; i < json.size(); ++i) {
-        const char c = json[i];
-        if (c == '"') {
-            i = detail::stringEnd(json, i);
-            if (i == json.npos) break;
-        } else if (c == '{') {
-            if (depth++ == 0) start = i;
-        } else if (c == '}' && depth > 0 && --depth == 0) {
-            const auto obj = json.substr(start, i - start + 1);
-            const std::string connector = detail::stringField(obj, "name");
-            if (connector.empty()) continue;
-            if (detail::field(obj, "focused").starts_with("true")) out.focusedConnector = connector;
-            const auto active = detail::objectField(obj, "activeWorkspace");
-            const auto idText = detail::field(active, "id");
-            int id = 0;
-            if (!idText.empty() && std::from_chars(idText.data(), idText.data() + idText.size(), id).ec == std::errc{} && id > 0)
-                out.active.emplace(connector, id);
-            const auto special = detail::objectField(obj, "specialWorkspace");
-            std::string name = detail::stringField(special, "name");
-            if (!name.empty()) {
-                if (name.starts_with("special:")) name.erase(0, 8);
-                out.special.emplace(connector, name.empty() ? "special" : std::move(name));
-            }
+    detail::forObjects(json, [&](std::string_view obj) {
+        const std::string connector = detail::stringField(obj, "name");
+        if (connector.empty()) return;
+        if (detail::field(obj, "focused").starts_with("true")) out.focusedConnector = connector;
+        const int id = detail::intField(detail::objectField(obj, "activeWorkspace"), "id");
+        if (id > 0) out.active.emplace(connector, id);
+        auto name = detail::stringField(detail::objectField(obj, "specialWorkspace"), "name");
+        if (!name.empty()) {
+            out.openSpecialKeys.insert(detail::isSpecial(name) ? name : "special:" + name);
+            out.special.emplace(connector, detail::specialLabel(std::move(name)));
         }
-    }
+    });
     return out;
+}
+
+struct OccupiedWorkspaces {
+    std::set<int> ids;
+    std::set<std::string> special;
+};
+
+inline OccupiedWorkspaces occupiedWorkspaces(std::string_view json) {
+    OccupiedWorkspaces out;
+    detail::forObjects(json, [&](std::string_view obj) {
+        if (detail::intField(obj, "windows") <= 0) return;
+        const int id = detail::intField(obj, "id");
+        if (id != 0) out.ids.insert(id);
+        auto name = detail::stringField(obj, "name");
+        if (detail::isSpecial(name)) out.special.insert(std::move(name));
+    });
+    return out;
+}
+
+inline size_t closedSpecialCount(const MonitorWorkspaces& monitors, const std::set<std::string>& occupied) {
+    return std::count_if(occupied.begin(), occupied.end(), [&](const auto& name) {
+        return !monitors.openSpecialKeys.contains(name);
+    });
 }
 
 inline std::map<std::string, int> activeWorkspaces(const std::string& json) {

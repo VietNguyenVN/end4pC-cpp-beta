@@ -418,11 +418,12 @@ void blurSpecialWorkspaceUnderlay(cairo_t* cr) {
     cairo_pattern_destroy(source);
 }
 
-void drawSpecialWorkspace(cairo_t* cr, PangoContext* context, const Bar& bar, const Rect& r, bool vertical, bool compact) {
+void drawSpecialWorkspace(cairo_t* cr, PangoContext* context, const Bar& bar, const Rect& r, bool vertical, Hit badge) {
     const App& app = *bar.app;
-    const auto* name = compact ? nullptr : wsSpecialName(bar);
+    const auto* name = badge == HitSpecialWs ? wsSpecialName(bar) : nullptr;
     const auto& monitors = app.monitorWorkspaces;
-    const bool localUnfocused = compact && bar.connector != monitors.focusedConnector && monitors.special.contains(bar.connector);
+    const bool closed = badge == HitSpecialWsClosed;
+    const bool localUnfocused = badge == HitSpecialWsCompact && bar.connector != monitors.focusedConnector && monitors.special.contains(bar.connector);
     const Color fg = app.color(name ? "on_primary_container" : localUnfocused ? "on_secondary_container" : "on_surface_variant");
     roundedRect(cr, r.x, r.y, r.w, r.h, r.h / 2);
     setSource(cr, app.color(name ? "primary_container" : localUnfocused ? "secondary_container" : "surface_container_high"));
@@ -430,13 +431,13 @@ void drawSpecialWorkspace(cairo_t* cr, PangoContext* context, const Bar& bar, co
     PangoLayout* layout = wsSpecialLayout(context);
     double left = r.x;
     if (!name) {
-        const std::string count = std::to_string(app.monitorWorkspaces.special.size());
+        const std::string count = std::to_string(closed ? app.closedSpecial : monitors.special.size());
         pango_layout_set_text(layout, count.c_str(), -1);
         int textWidth = 0;
         pango_layout_get_pixel_size(layout, &textWidth, nullptr);
         const int icon = 13, gap = 3;
         const double iconX = r.x + (r.w - icon - gap - textWidth) / 2;
-        drawIcon(cr, "layers", iconX, r.y + (r.h - icon) / 2, icon, fg);
+        drawIcon(cr, closed ? "eye-closed" : "layers", iconX, r.y + (r.h - icon) / 2, icon, fg);
         left = iconX + icon + gap;
     } else {
         const int padding = vertical ? 1 : kSpecialWsPadding;
@@ -559,8 +560,12 @@ std::vector<SideItem> sideLayout(const Bar& bar, std::vector<std::pair<double, d
                 if (placement.showOverlay)
                     v.push_back({HitSpecialWs, {x + (40 - kSpecialWsInitialWidth) / 2, y + placement.overlay, kSpecialWsInitialWidth, kSpecialWsInitialHeight}});
                 if (placement.showCompact) {
-                    const double width = wsSpecialCompactWidth(bar);
+                    const double width = wsSpecialCompactWidth(bar, app.monitorWorkspaces.special.size());
                     v.push_back({HitSpecialWsCompact, {x + (40 - width) / 2, y + placement.compact, width, kSpecialWsInitialHeight}});
+                }
+                if (placement.showClosed) {
+                    const double width = wsSpecialCompactWidth(bar, app.closedSpecial);
+                    v.push_back({HitSpecialWsClosed, {x + (40 - width) / 2, y + placement.closed, width, kSpecialWsInitialHeight}});
                 }
             }
             else if (m == "media") v.push_back({HitMedia, {x, y, 40, 40}});
@@ -1952,8 +1957,8 @@ void drawSide(Bar& bar) {
         underlay = regular;
         const Rect& r = it.r;
         const bool hot = hit == it.id;
-        if (it.id == HitSpecialWs || it.id == HitSpecialWsCompact) {
-            drawSpecialWorkspace(cr, pango_layout_get_context(layout), bar, r, true, it.id == HitSpecialWsCompact);
+        if (it.id == HitSpecialWs || it.id == HitSpecialWsCompact || it.id == HitSpecialWsClosed) {
+            drawSpecialWorkspace(cr, pango_layout_get_context(layout), bar, r, true, it.id);
             continue;
         }
         if (it.id == HitWeather) { weatherSidePaint(cr, app, layout, r, hot); continue; }
@@ -2978,10 +2983,13 @@ void draw(Bar& bar) {
         const double y = (bar.height - kSpecialWsHeight) / 2;
         if (const auto* name = wsSpecialName(bar))
             drawSpecialWorkspace(cr, pango_layout_get_context(layout), bar,
-                {base + placement.overlay, y, wsSpecialLength(app, *name), kSpecialWsHeight}, false, false);
+                {base + placement.overlay, y, wsSpecialLength(app, *name), kSpecialWsHeight}, false, HitSpecialWs);
         if (placement.showCompact)
             drawSpecialWorkspace(cr, pango_layout_get_context(layout), bar,
-                {base + placement.compact, y, wsSpecialCompactWidth(bar), kSpecialWsHeight}, false, true);
+                {base + placement.compact, y, wsSpecialCompactWidth(bar, app.monitorWorkspaces.special.size()), kSpecialWsHeight}, false, HitSpecialWsCompact);
+        if (placement.showClosed)
+            drawSpecialWorkspace(cr, pango_layout_get_context(layout), bar,
+                {base + placement.closed, y, wsSpecialCompactWidth(bar, app.closedSpecial), kSpecialWsHeight}, false, HitSpecialWsClosed);
     }
 
     if (hasSlot(bar, "media") && mediaHorizontalCompact(app)) {

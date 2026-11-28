@@ -134,16 +134,6 @@ std::set<int> wmOccupiedWorkspaces() {
         for (int id; in >> id;) occ.insert(id);
         return occ;
     }
-    const std::string j = hyprRequest("j/workspaces");
-    size_t pos = 0;
-    while ((pos = j.find("\"id\":", pos)) != std::string::npos) {
-        const int id = std::atoi(j.c_str() + pos + 5);
-        size_t w = j.find("\"windows\":", pos);
-        size_t nextId = j.find("\"id\":", pos + 5);
-        if (w != std::string::npos && (nextId == std::string::npos || w < nextId) && std::atoi(j.c_str() + w + 10) > 0)
-            occ.insert(id);
-        pos += 5;
-    }
     return occ;
 }
 
@@ -218,11 +208,21 @@ bool refreshMonitorWorkspaces(App& app) {
     auto next = wsmon::monitorWorkspaces(json);
     if (next == app.monitorWorkspaces) return false;
     app.monitorWorkspaces = std::move(next);
+    app.closedSpecial = wsmon::closedSpecialCount(app.monitorWorkspaces, app.occupiedSpecial);
     return true;
 }
 
 void refreshOccupied(App& app) {
-    app.occupied = wmOccupiedWorkspaces();
+    if (wmKind() == Wm::Hyprland) {
+        const std::string json = hyprRequest("j/workspaces");
+        const size_t first = json.find_first_not_of(" \t\r\n");
+        const size_t last = json.find_last_not_of(" \t\r\n");
+        if (first == std::string::npos || json[first] != '[' || json[last] != ']') return;
+        auto occupied = wsmon::occupiedWorkspaces(json);
+        app.occupied = std::move(occupied.ids);
+        app.occupiedSpecial = std::move(occupied.special);
+        app.closedSpecial = wsmon::closedSpecialCount(app.monitorWorkspaces, app.occupiedSpecial);
+    } else app.occupied = wmOccupiedWorkspaces();
     app.wsCount = wmWorkspaceCount();
 }
 
@@ -334,6 +334,7 @@ void wmClassifyEvent(const std::string& line, WmEvents& e) {
         if (id > 0) e.workspace = id;
     }
     if (starts("monitoradded>>") || starts("monitorremoved>>") || starts("moveworkspace>>") || starts("monitoraddedv2>>") || starts("monitorremovedv2>>")) e.monitors = true;
+    if (starts("renameworkspace>>")) e.occupied = true;
     if (starts("activespecial>>") || starts("activespecialv2>>") || starts("renameworkspace>>"))
         e.monitors = true;
     // Focusing a workspace already shown on another monitor only moves the focus there: "focusedmon>>MONITOR,WORKSPACE" with no "workspace>>".

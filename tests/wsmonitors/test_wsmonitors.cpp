@@ -95,10 +95,31 @@ static void specialWorkspaces() {
     CHECK(monitorWorkspaces(R"([{"name":"B","activeWorkspace":{"name":"special:False","id":2}}])").special.empty());
 }
 
+static void occupiedSpecialWorkspaces() {
+    const auto occupied = occupiedWorkspaces(R"([
+        {"id":1,"name":"1","windows":3},
+        {"id":-98,"name":"special:special","windows":1},
+        {"id":-99,"name":"special","windows":4},
+        {"id":-100,"name":"special:Discord","windows":2},
+        {"id":-101,"name":"special:Empty","windows":0},
+        {"id":-102,"name":"named","windows":7}
+    ])");
+    CHECK(occupied.ids == (std::set<int>{1, -98, -99, -100, -102}));
+    CHECK(occupied.special == (std::set<std::string>{"special:special", "special", "special:Discord"}));
+    const auto both = monitorWorkspaces(R"([
+        {"name":"DP-2","specialWorkspace":{"name":"special:special"}},
+        {"name":"HDMI-A-1","specialWorkspace":{"name":"special:Discord"}}
+    ])");
+    CHECK(closedSpecialCount(both, occupied.special) == 1);
+    CHECK(closedSpecialCount({}, occupied.special) == 3);
+    CHECK(closedSpecialCount(both, {}) == 0);
+}
+
 int main() {
     groups();
     parsing();
     specialWorkspaces();
+    occupiedSpecialWorkspaces();
     std::printf("%d checks, %d failed\n", g_run, g_fail);
     return g_fail ? 1 : 0;
 }

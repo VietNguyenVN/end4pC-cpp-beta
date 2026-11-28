@@ -737,8 +737,9 @@ bool readWmEvents(App& app, int fd, std::string& pending) {
     if (ev.occupied) {
         const std::set<int> before = app.occupied;
         const int countBefore = app.wsCount;
+        const size_t closedBefore = app.closedSpecial;
         refreshOccupied(app);
-        changed = changed || before != app.occupied || countBefore != app.wsCount;
+        changed = changed || before != app.occupied || countBefore != app.wsCount || closedBefore != app.closedSpecial;
         if (refreshWsApps(app)) changed = true;
         dockOnWindowsChanged(app);
     }
